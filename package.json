@@ -1,6 +1,6 @@
 {
   "name": "@patchgames/engine",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Sandboxed multiplayer game runtime, authoring helpers and browser presentation for PatchGames.",
@@ -13,13 +13,18 @@
     "./host/*": "./src/sandbox/host/*.ts",
     "./shared/*": "./src/shared/*.ts",
     "./client/*": "./src/client/game/*.ts",
-    "./ui": "./src/client/ui/gameUi.ts"
+    "./ui": "./src/client/ui/gameUi.ts",
+    "./install": {
+      "types": "./tools/generated/materialize-engine.d.mts",
+      "default": "./tools/generated/materialize-engine.mjs"
+    }
   },
   "files": [
     "src",
     "docs",
     "examples",
     "third-party",
+    "tools",
     "LICENSE",
     "NOTICE",
     "THIRD_PARTY_NOTICES.md"
