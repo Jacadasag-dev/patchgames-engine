@@ -1,0 +1,1541 @@
+{
+  "version": 1,
+  "sourceCommit": "fdcdc36cecfa4c3f2ebe16573cfbfa98f701f5c0",
+  "scope": "Runtime, helpers, compiler, browser prediction/rendering and game UI; platform services remain separate.",
+  "excludedAssets": [
+    "src/sandbox/ueLocomotionData.ts"
+  ],
+  "files": [
+    {
+      "path": "examples/game/logic.ts",
+      "sha256": "694c3b96f56d273691d201893e670baf9f68f23f33f50fa16ee2d717fc2b1b17",
+      "origin": "standalone engine addition"
+    },
+    {
+      "path": "examples/headless.ts",
+      "sha256": "7e5beea1b771fc7fb6b846a55bf32981124aad30958409c85b38b40954abd18f",
+      "origin": "standalone engine addition"
+    },
+    {
+      "path": "src/client/game/audio.ts",
+      "sha256": "4a04783ad12bc2b47b51173138abb5084223a4a206980d40efe8afc438f5320a",
+      "originalSha256": "4a04783ad12bc2b47b51173138abb5084223a4a206980d40efe8afc438f5320a"
+    },
+    {
+      "path": "src/client/game/diagnostics.ts",
+      "sha256": "692521ecc71a22dad91b91108379228ff2c0f6634443aafeaeddf0bb88d47be0",
+      "originalSha256": "692521ecc71a22dad91b91108379228ff2c0f6634443aafeaeddf0bb88d47be0"
+    },
+    {
+      "path": "src/client/game/fastLane.ts",
+      "sha256": "389d5da29f3329b7165dfca9f28a1121498f510e74ceeb79463ce987db889d78",
+      "originalSha256": "389d5da29f3329b7165dfca9f28a1121498f510e74ceeb79463ce987db889d78"
+    },
+    {
+      "path": "src/client/game/featurePrediction.ts",
+      "sha256": "49fd2bd5927afb388282bed6e9c490623e74ced76bc9900de9a00902ac5e2ccd",
+      "originalSha256": "49fd2bd5927afb388282bed6e9c490623e74ced76bc9900de9a00902ac5e2ccd"
+    },
+    {
+      "path": "src/client/game/frameProfile.ts",
+      "sha256": "29223a79f36e439bb0b180214163dbe3366a269086876715cf6a2fbedd430839",
+      "originalSha256": "29223a79f36e439bb0b180214163dbe3366a269086876715cf6a2fbedd430839"
+    },
+    {
+      "path": "src/client/game/interpolationDelay.ts",
+      "sha256": "aec52fe84d2d9c2d669dd29b65b101edfd6710482072bb95d15cb14c9f30c058",
+      "originalSha256": "aec52fe84d2d9c2d669dd29b65b101edfd6710482072bb95d15cb14c9f30c058"
+    },
+    {
+      "path": "src/client/game/logic.ts",
+      "sha256": "f40faf54cffdd48d5f8137e15d3d9d2f722212c6ccb6995110137e0d21065fda",
+      "originalSha256": "4fefe839834a00c57d93caaf18de964777de0dc427360ff2ec1233676618fb9b"
+    },
+    {
+      "path": "src/client/game/mediaAssets.ts",
+      "sha256": "e7d36e091b06c11ef88a14329c89c2285a104a9eafe77cc2d5d535f3428e482d",
+      "originalSha256": "e7d36e091b06c11ef88a14329c89c2285a104a9eafe77cc2d5d535f3428e482d"
+    },
+    {
+      "path": "src/client/game/previewSimulation.ts",
+      "sha256": "4859c1d0e8713b33735d672f47bb87f653a5abf8916f846f6410461d1d534f59",
+      "originalSha256": "4859c1d0e8713b33735d672f47bb87f653a5abf8916f846f6410461d1d534f59"
+    },
+    {
+      "path": "src/client/game/previewSimulationRuntime.ts",
+      "sha256": "837aedfe35505418674b16525763d2b856fbddf79d07bab990281baeafeaf510",
+      "originalSha256": "837aedfe35505418674b16525763d2b856fbddf79d07bab990281baeafeaf510"
+    },
+    {
+      "path": "src/client/game/previewSimulationWorker.ts",
+      "sha256": "b64ea0816598e844c5508c3d6c5d09b2d4a69e3e0695f8839347db6e5b2bd670",
+      "originalSha256": "b64ea0816598e844c5508c3d6c5d09b2d4a69e3e0695f8839347db6e5b2bd670"
+    },
+    {
+      "path": "src/client/game/rendererCalibration.ts",
+      "sha256": "d133a0e53519eb935f17e5daacf02199506714ee7bf3d1dc55c9a8f887b4baf1",
+      "originalSha256": "d133a0e53519eb935f17e5daacf02199506714ee7bf3d1dc55c9a8f887b4baf1"
+    },
+    {
+      "path": "src/client/game/rendererDriver.ts",
+      "sha256": "89fda38534088125045d5eff4af7450f4350a4a261dc41f5929d05338d59f7e0",
+      "originalSha256": "89fda38534088125045d5eff4af7450f4350a4a261dc41f5929d05338d59f7e0"
+    },
+    {
+      "path": "src/client/game/rendererLoading.ts",
+      "sha256": "10b8d09a626ab6a6460019f71e450c58945166dd027a4d801f91e12b493f5a19",
+      "originalSha256": "10b8d09a626ab6a6460019f71e450c58945166dd027a4d801f91e12b493f5a19"
+    },
+    {
+      "path": "src/client/game/rendererLoadingBoundary.ts",
+      "sha256": "02381beca7ba8df7a07df63ca84e6e4cee2834a9dbbd3b91e0e6da15eb7daba2",
+      "originalSha256": "02381beca7ba8df7a07df63ca84e6e4cee2834a9dbbd3b91e0e6da15eb7daba2"
+    },
+    {
+      "path": "src/client/game/rendererReplay.ts",
+      "sha256": "15ec6d0e377cd51426a01978089c8d0d8f24b04b5a0c41917d8bfe5d362aab27",
+      "originalSha256": "15ec6d0e377cd51426a01978089c8d0d8f24b04b5a0c41917d8bfe5d362aab27"
+    },
+    {
+      "path": "src/client/game/rendererSelection.ts",
+      "sha256": "a62f9a8f5a8bd3f0d8eb775d3a28f6b34dc48215ccf887a7f3c35331836dd857",
+      "originalSha256": "a62f9a8f5a8bd3f0d8eb775d3a28f6b34dc48215ccf887a7f3c35331836dd857"
+    },
+    {
+      "path": "src/client/game/rendererVisualParity.ts",
+      "sha256": "3435053ed164dc7089ec7064338d6d9704ccf63fe67f531cccf442d1541ca340",
+      "originalSha256": "3435053ed164dc7089ec7064338d6d9704ccf63fe67f531cccf442d1541ca340"
+    },
+    {
+      "path": "src/client/game/scenePresentation.ts",
+      "sha256": "5936a64a724f8b4b693a08ba3e8b478dbd535cd118b23e2494373b9e6a887a8f",
+      "originalSha256": "5936a64a724f8b4b693a08ba3e8b478dbd535cd118b23e2494373b9e6a887a8f"
+    },
+    {
+      "path": "src/client/game/soundRecipeRendering.ts",
+      "sha256": "7128d831eea2d192b71e224b06903a0dc2315e881ee120dc018fb5477745c26f",
+      "originalSha256": "7128d831eea2d192b71e224b06903a0dc2315e881ee120dc018fb5477745c26f"
+    },
+    {
+      "path": "src/client/game/soundRecipeWorker.ts",
+      "sha256": "d381fc0ec1b736c9376509c34a0b97abf7b7d850769fc4c6f88da8574606d613",
+      "originalSha256": "d381fc0ec1b736c9376509c34a0b97abf7b7d850769fc4c6f88da8574606d613"
+    },
+    {
+      "path": "src/client/game/terrainPreparation.ts",
+      "sha256": "1bc8812e22b0c7acd612e3767e5263551284cbf94efb3357b8c86b5393eed726",
+      "originalSha256": "1bc8812e22b0c7acd612e3767e5263551284cbf94efb3357b8c86b5393eed726"
+    },
+    {
+      "path": "src/client/game/terrainPreparationRuntime.ts",
+      "sha256": "55284ec8bb1df443201114966af65fb8d303f0c82fee2f618d31ba62a54b8a29",
+      "originalSha256": "55284ec8bb1df443201114966af65fb8d303f0c82fee2f618d31ba62a54b8a29"
+    },
+    {
+      "path": "src/client/game/terrainPreparationWorker.ts",
+      "sha256": "21961b94abea6e8f3c07da3a5b7cf4cffd6617ad6999079e428c23d44a5106e7",
+      "originalSha256": "21961b94abea6e8f3c07da3a5b7cf4cffd6617ad6999079e428c23d44a5106e7"
+    },
+    {
+      "path": "src/client/game/view.ts",
+      "sha256": "ffa6ce2939aa64aba85a9591c210b07c4fc84668d53aeec8f1f8d255def3d76a",
+      "originalSha256": "2313028627581f7b14cd7b3a014f42dc5f836f894b32b11a0e46bbaa56376a07"
+    },
+    {
+      "path": "src/client/game/viewDeadline.ts",
+      "sha256": "27da383e90e3cd83e2c24002054847c74dcf7f1a61685fa8c9e300418a584606",
+      "originalSha256": "27da383e90e3cd83e2c24002054847c74dcf7f1a61685fa8c9e300418a584606"
+    },
+    {
+      "path": "src/client/game/viewFrame.js",
+      "sha256": "4ed08071d69f44cbedfea43c2d8dac510c2c93317f0c2aba4365bc4a517cda61",
+      "originalSha256": "4ed08071d69f44cbedfea43c2d8dac510c2c93317f0c2aba4365bc4a517cda61"
+    },
+    {
+      "path": "src/client/ui/gameUi.ts",
+      "sha256": "e3f4446b36d0b565db94494589e4ebff8dd244304ac33f9e814e60662379a43a",
+      "originalSha256": "e3f4446b36d0b565db94494589e4ebff8dd244304ac33f9e814e60662379a43a"
+    },
+    {
+      "path": "src/client/ui/gameUiStyle.ts",
+      "sha256": "9a9aaa8a390a6e3196c5c2d9abb642d43ca52adbbd6ede7cd75fb1595a6c40a4",
+      "originalSha256": "9a9aaa8a390a6e3196c5c2d9abb642d43ca52adbbd6ede7cd75fb1595a6c40a4"
+    },
+    {
+      "path": "src/sandbox/actorAnimation.ts",
+      "sha256": "c780790eb9a1ba43d859f7e4259a9a235e5c7021794b568e6ec0cfc98cf63f5f",
+      "originalSha256": "c780790eb9a1ba43d859f7e4259a9a235e5c7021794b568e6ec0cfc98cf63f5f"
+    },
+    {
+      "path": "src/sandbox/actorLocomotion.ts",
+      "sha256": "1328458604b1fdd9a4be8fd28cd0ac29f12730de81efc254e27fecd42565aacd",
+      "originalSha256": "1328458604b1fdd9a4be8fd28cd0ac29f12730de81efc254e27fecd42565aacd"
+    },
+    {
+      "path": "src/sandbox/animation.ts",
+      "sha256": "b889fecdccdc6d0f33cb1188b02c4bc6e2983306c06259982250a6a5ac1786b8",
+      "originalSha256": "b889fecdccdc6d0f33cb1188b02c4bc6e2983306c06259982250a6a5ac1786b8"
+    },
+    {
+      "path": "src/sandbox/animationImport.ts",
+      "sha256": "5f518ef420bc517dc377e73741a6e62f18b7bc0e090e5b9e9cd3fa19d917ed18",
+      "originalSha256": "5f518ef420bc517dc377e73741a6e62f18b7bc0e090e5b9e9cd3fa19d917ed18"
+    },
+    {
+      "path": "src/sandbox/animationLibrary.ts",
+      "sha256": "f6b0ba07b3d63977dd8fe13e377a53238dbaecd29d7428a72a51e2a2713fe8a3",
+      "originalSha256": "4b57633f91e2aff07e698e34e5f9323f484134b89895523ca4288c5fae341b2d"
+    },
+    {
+      "path": "src/sandbox/animationView.ts",
+      "sha256": "90eacd83a3f406e2a39276c94c1a2c0d5c6d9d6b6fdb4bcb0b6098fdf4f91ccd",
+      "originalSha256": "90eacd83a3f406e2a39276c94c1a2c0d5c6d9d6b6fdb4bcb0b6098fdf4f91ccd"
+    },
+    {
+      "path": "src/sandbox/assetDressing.ts",
+      "sha256": "82fa1784849e22d55613557c09406c5bce7c21137a8f86d988f3a1697fecf961",
+      "originalSha256": "82fa1784849e22d55613557c09406c5bce7c21137a8f86d988f3a1697fecf961"
+    },
+    {
+      "path": "src/sandbox/assetFamilies.ts",
+      "sha256": "98fd6e2d010e124eac08d37f559dd6aaf97b0165a1df5a4ee29a645b75162731",
+      "originalSha256": "98fd6e2d010e124eac08d37f559dd6aaf97b0165a1df5a4ee29a645b75162731"
+    },
+    {
+      "path": "src/sandbox/assetFamilyPresets.ts",
+      "sha256": "9c063e4393093c5313397010290a789a83ea36099eb196c7fd3ce683b4a1f19c",
+      "originalSha256": "9c063e4393093c5313397010290a789a83ea36099eb196c7fd3ce683b4a1f19c"
+    },
+    {
+      "path": "src/sandbox/assetFamilyView.ts",
+      "sha256": "056a631083175ec0a0ae9cd4675501f31b51e274e2d842f642b4ac3f936ca0b1",
+      "originalSha256": "056a631083175ec0a0ae9cd4675501f31b51e274e2d842f642b4ac3f936ca0b1"
+    },
+    {
+      "path": "src/sandbox/assetGroups.ts",
+      "sha256": "9d4341da6c0ab11b565c7043342a687671b51301951f8ef1bff8d6e30de8dcb0",
+      "originalSha256": "9d4341da6c0ab11b565c7043342a687671b51301951f8ef1bff8d6e30de8dcb0"
+    },
+    {
+      "path": "src/sandbox/audio.ts",
+      "sha256": "8479e16c7e2a62d2ced94e3efcff996f67c5e9177f5d31da110f82375a6dedf4",
+      "originalSha256": "8479e16c7e2a62d2ced94e3efcff996f67c5e9177f5d31da110f82375a6dedf4"
+    },
+    {
+      "path": "src/sandbox/audioListener.ts",
+      "sha256": "b5499a71cd1e5f1a696fca1f416ace2ab4c7f64387e93022f499c8531eeff576",
+      "originalSha256": "b5499a71cd1e5f1a696fca1f416ace2ab4c7f64387e93022f499c8531eeff576"
+    },
+    {
+      "path": "src/sandbox/battleRoyale.ts",
+      "sha256": "d7494678dd18845738384ec73de32faa3436cc5bf8ce5411bba258234d099104",
+      "originalSha256": "d7494678dd18845738384ec73de32faa3436cc5bf8ce5411bba258234d099104"
+    },
+    {
+      "path": "src/sandbox/building.ts",
+      "sha256": "efc8b96595ad74a3ab721fcd9b5cf848b0f4cbfc34b89e3ccdcc73c5e46086f3",
+      "originalSha256": "efc8b96595ad74a3ab721fcd9b5cf848b0f4cbfc34b89e3ccdcc73c5e46086f3"
+    },
+    {
+      "path": "src/sandbox/buildingAttachments.ts",
+      "sha256": "e5b03be38132bd520d7e5ab4c185fd1545c8844ff6b5cdcde89218756b79c480",
+      "originalSha256": "e5b03be38132bd520d7e5ab4c185fd1545c8844ff6b5cdcde89218756b79c480"
+    },
+    {
+      "path": "src/sandbox/buildingDestruction.ts",
+      "sha256": "98c6eae104e889b2f078ac7b4702862bd5093ab6263be768eb5cc3b4d61455aa",
+      "originalSha256": "98c6eae104e889b2f078ac7b4702862bd5093ab6263be768eb5cc3b4d61455aa"
+    },
+    {
+      "path": "src/sandbox/buildingDoors.ts",
+      "sha256": "1142baf65c0c344114f2b228eebe0131c3dc29f56579002f97541d58756d2811",
+      "originalSha256": "1142baf65c0c344114f2b228eebe0131c3dc29f56579002f97541d58756d2811"
+    },
+    {
+      "path": "src/sandbox/buildingFixtures.ts",
+      "sha256": "48eb2a5298228cb858b4e8571853f0c4fc8a439035fb74e5b9a7cc265bb9147f",
+      "originalSha256": "48eb2a5298228cb858b4e8571853f0c4fc8a439035fb74e5b9a7cc265bb9147f"
+    },
+    {
+      "path": "src/sandbox/buildingFootprints.ts",
+      "sha256": "2b1475e8ed9a0c7f97e7496c949483ff50ca9456c7c38adac8691962494a6070",
+      "originalSha256": "2b1475e8ed9a0c7f97e7496c949483ff50ca9456c7c38adac8691962494a6070"
+    },
+    {
+      "path": "src/sandbox/buildingLayout.ts",
+      "sha256": "206aab8e5374f79083aeacf45ffec64d5296dd5ee6c8344b2dcd9bb411d3a78b",
+      "originalSha256": "206aab8e5374f79083aeacf45ffec64d5296dd5ee6c8344b2dcd9bb411d3a78b"
+    },
+    {
+      "path": "src/sandbox/buildingSlabs.ts",
+      "sha256": "ae7f579bbbeb0ba35733d76a9c550aee925c57f45a56a3b45c675b2ab359e621",
+      "originalSha256": "ae7f579bbbeb0ba35733d76a9c550aee925c57f45a56a3b45c675b2ab359e621"
+    },
+    {
+      "path": "src/sandbox/buildingView.ts",
+      "sha256": "6229eeb5efc0103a2e6db010b81e67ea86d8128136362309ebd4c3802f9b52df",
+      "originalSha256": "6229eeb5efc0103a2e6db010b81e67ea86d8128136362309ebd4c3802f9b52df"
+    },
+    {
+      "path": "src/sandbox/buildingWaterGeometry.ts",
+      "sha256": "9b639383cbb4ff95b28bc9b99b828c9d299be465b5c9ec06d2c28c60a271f60b",
+      "originalSha256": "9b639383cbb4ff95b28bc9b99b828c9d299be465b5c9ec06d2c28c60a271f60b"
+    },
+    {
+      "path": "src/sandbox/characters.ts",
+      "sha256": "ed9881f6ac834f13faee5b99416687ed59f68c4b831f5db81055ff852df3f25e",
+      "originalSha256": "ed9881f6ac834f13faee5b99416687ed59f68c4b831f5db81055ff852df3f25e"
+    },
+    {
+      "path": "src/sandbox/city.ts",
+      "sha256": "405988d92e669d063def33829bc231c31bb863dd872014724ad961d316fd3cd8",
+      "originalSha256": "405988d92e669d063def33829bc231c31bb863dd872014724ad961d316fd3cd8"
+    },
+    {
+      "path": "src/sandbox/creatureAnimationData.ts",
+      "sha256": "2f21f03a08dd4040a6cac909b2d8674559fe36fad9564668d2d23eb5aaafe949",
+      "originalSha256": "2f21f03a08dd4040a6cac909b2d8674559fe36fad9564668d2d23eb5aaafe949"
+    },
+    {
+      "path": "src/sandbox/creatureAnimationLibrary.ts",
+      "sha256": "4c4a95ce2d305f7c419704383eb0f9337c9462e502c4b20dc9cabfe1fb807821",
+      "originalSha256": "4c4a95ce2d305f7c419704383eb0f9337c9462e502c4b20dc9cabfe1fb807821"
+    },
+    {
+      "path": "src/sandbox/creatureAnimationView.ts",
+      "sha256": "03b7f7283972f18085ffe6fc1ecde8e6ba6fd01c0874c3a11320e1c9c15efde0",
+      "originalSha256": "03b7f7283972f18085ffe6fc1ecde8e6ba6fd01c0874c3a11320e1c9c15efde0"
+    },
+    {
+      "path": "src/sandbox/creatureFootPlacement.ts",
+      "sha256": "fb46662163ed818a5825dd8775519ce1ed23e9da39caaf5007bdcab7595551f2",
+      "originalSha256": "fb46662163ed818a5825dd8775519ce1ed23e9da39caaf5007bdcab7595551f2"
+    },
+    {
+      "path": "src/sandbox/creatureModelData.ts",
+      "sha256": "f6e5d4e56f4425aff78dccc2ece4755aa8f4fea62d1db668696868f9e5513ab3",
+      "originalSha256": "f6e5d4e56f4425aff78dccc2ece4755aa8f4fea62d1db668696868f9e5513ab3"
+    },
+    {
+      "path": "src/sandbox/creatureModelView.ts",
+      "sha256": "a78b1a5501c139174b57a87fb8bd5277db4594affee1fcb2724ccdaa8fa6d333",
+      "originalSha256": "a78b1a5501c139174b57a87fb8bd5277db4594affee1fcb2724ccdaa8fa6d333"
+    },
+    {
+      "path": "src/sandbox/creatureMotion.ts",
+      "sha256": "b27351e54194789677a9f5a7f8edd3ffc66fc3a19b28fb12cbae25191f548b2a",
+      "originalSha256": "b27351e54194789677a9f5a7f8edd3ffc66fc3a19b28fb12cbae25191f548b2a"
+    },
+    {
+      "path": "src/sandbox/creatureRigs.ts",
+      "sha256": "707670f38d3c38fb1e8177b12371099fe7b635aeb9db428229bcf6befce95919",
+      "originalSha256": "707670f38d3c38fb1e8177b12371099fe7b635aeb9db428229bcf6befce95919"
+    },
+    {
+      "path": "src/sandbox/damage.ts",
+      "sha256": "5af49620b4d019ebda5428edba6bc91c2c7a8a723d8fdc6924b18d42a076b30a",
+      "originalSha256": "14e61244b0ff9e0f2da70c65ff23e6abd339be165ee9f3820dd9ded62a7170ea"
+    },
+    {
+      "path": "src/sandbox/defaultLocomotionData.ts",
+      "sha256": "2e195d1008ee8bf135455289010c7f721b5f99bd6ce4851081ebdc9e98312995",
+      "origin": "standalone engine addition"
+    },
+    {
+      "path": "src/sandbox/deformation.ts",
+      "sha256": "ef25cefb64c86c0183ba6ef6d34cd6f44201e9df4c480d35877044921e01b20a",
+      "originalSha256": "ef25cefb64c86c0183ba6ef6d34cd6f44201e9df4c480d35877044921e01b20a"
+    },
+    {
+      "path": "src/sandbox/deformationView.ts",
+      "sha256": "449b1ee59fce6e2586077969eb75238e8f47bc8273888ac6c2435cfeb3619cf0",
+      "originalSha256": "449b1ee59fce6e2586077969eb75238e8f47bc8273888ac6c2435cfeb3619cf0"
+    },
+    {
+      "path": "src/sandbox/destruction.ts",
+      "sha256": "2c97be493241bb0ce4d3c19da8b766a5dbd609453960ddfc899b29dc19796ddb",
+      "originalSha256": "2c97be493241bb0ce4d3c19da8b766a5dbd609453960ddfc899b29dc19796ddb"
+    },
+    {
+      "path": "src/sandbox/destructionView.ts",
+      "sha256": "42569644853294f98a45e368923a92c8ea3e31bff9e2c3df846ed63a85908956",
+      "originalSha256": "42569644853294f98a45e368923a92c8ea3e31bff9e2c3df846ed63a85908956"
+    },
+    {
+      "path": "src/sandbox/environmentRuntime.ts",
+      "sha256": "ee7065fa58f061568883befbf2dbcbfaae9bfca79047e708e3ae6a03a88c5367",
+      "originalSha256": "ee7065fa58f061568883befbf2dbcbfaae9bfca79047e708e3ae6a03a88c5367"
+    },
+    {
+      "path": "src/sandbox/equipmentMotion.ts",
+      "sha256": "e3ba448ebcb13cee9de67c0b920549d635aeaf9eb3fdb5ddc34703a3d1c5534e",
+      "originalSha256": "e3ba448ebcb13cee9de67c0b920549d635aeaf9eb3fdb5ddc34703a3d1c5534e"
+    },
+    {
+      "path": "src/sandbox/equipmentOrientation.ts",
+      "sha256": "e8e031b2a1910b243b1b92b0a14b3657180f4b74723c027b98e88daed08557ea",
+      "originalSha256": "e8e031b2a1910b243b1b92b0a14b3657180f4b74723c027b98e88daed08557ea"
+    },
+    {
+      "path": "src/sandbox/equipmentView.ts",
+      "sha256": "e83fcab3cc3fd988f3d672f926bd87dd95d4d4a6098adfeb57660074f2fc7c7a",
+      "originalSha256": "e83fcab3cc3fd988f3d672f926bd87dd95d4d4a6098adfeb57660074f2fc7c7a"
+    },
+    {
+      "path": "src/sandbox/featureViewHost.ts",
+      "sha256": "cddd2a451ce643021c9277913badbd0953163964a63769e6f9360b379644e9bc",
+      "originalSha256": "cddd2a451ce643021c9277913badbd0953163964a63769e6f9360b379644e9bc"
+    },
+    {
+      "path": "src/sandbox/features.ts",
+      "sha256": "f96095a3ac40dac44a8e0842238b1b7fd77c9688d0f5beb37853b733e320b9ac",
+      "originalSha256": "f96095a3ac40dac44a8e0842238b1b7fd77c9688d0f5beb37853b733e320b9ac"
+    },
+    {
+      "path": "src/sandbox/firearmModels.ts",
+      "sha256": "c03789486e903d5f4f71c2bbaa86356b0a327dfbb371a238877f2a196febed30",
+      "originalSha256": "c03789486e903d5f4f71c2bbaa86356b0a327dfbb371a238877f2a196febed30"
+    },
+    {
+      "path": "src/sandbox/firearmPose.ts",
+      "sha256": "63ce30fc6f7787b9a94e4e8095a4c7e3f233e545b58f428497f064b4577430a2",
+      "originalSha256": "63ce30fc6f7787b9a94e4e8095a4c7e3f233e545b58f428497f064b4577430a2"
+    },
+    {
+      "path": "src/sandbox/firearmView.ts",
+      "sha256": "772dba755c6a6f452014105b0e7d0a91c0cbc2417b5e819ba987e610b9211ed1",
+      "originalSha256": "772dba755c6a6f452014105b0e7d0a91c0cbc2417b5e819ba987e610b9211ed1"
+    },
+    {
+      "path": "src/sandbox/firearms.ts",
+      "sha256": "f9bbc7fd1d1f376555e81d234a360510feb18e3db890dd60ada64bd6f7edecf1",
+      "originalSha256": "f9bbc7fd1d1f376555e81d234a360510feb18e3db890dd60ada64bd6f7edecf1"
+    },
+    {
+      "path": "src/sandbox/flight.ts",
+      "sha256": "8dd4214ccd021b572bfcf67f0e453640d57c51c8ea2ec1e03500915cca09bca0",
+      "originalSha256": "8dd4214ccd021b572bfcf67f0e453640d57c51c8ea2ec1e03500915cca09bca0"
+    },
+    {
+      "path": "src/sandbox/fracture.ts",
+      "sha256": "a30c34a80472fc0e5183d3d08873ecaeea395c6ec79b5a4b8523e53558971a70",
+      "originalSha256": "a30c34a80472fc0e5183d3d08873ecaeea395c6ec79b5a4b8523e53558971a70"
+    },
+    {
+      "path": "src/sandbox/fractureView.ts",
+      "sha256": "513c2612587b7c6ba94d2254b86ac01fceb49e65172cfb7b238b26c78d722b25",
+      "originalSha256": "513c2612587b7c6ba94d2254b86ac01fceb49e65172cfb7b238b26c78d722b25"
+    },
+    {
+      "path": "src/sandbox/furnishing.ts",
+      "sha256": "d72a250afdad14fc1b3a1c7bf22970da8bb2710d7c6ab5d69be43ea3a3618ec7",
+      "originalSha256": "d72a250afdad14fc1b3a1c7bf22970da8bb2710d7c6ab5d69be43ea3a3618ec7"
+    },
+    {
+      "path": "src/sandbox/gameScenes.ts",
+      "sha256": "78c12e1ff7000eec046fd11738228b365bc2efbdea2366f4bd9e600d80692b14",
+      "originalSha256": "78c12e1ff7000eec046fd11738228b365bc2efbdea2366f4bd9e600d80692b14"
+    },
+    {
+      "path": "src/sandbox/gameUi.ts",
+      "sha256": "61108a14c74c2afeca46e3bae382eeef2d6f285921fe9129fa6d66eec5f01624",
+      "originalSha256": "61108a14c74c2afeca46e3bae382eeef2d6f285921fe9129fa6d66eec5f01624"
+    },
+    {
+      "path": "src/sandbox/health.ts",
+      "sha256": "3cc4d8d6c207a4e9c3fcfb9145873c750989a6adedf8c1b555adc364661caf6d",
+      "originalSha256": "3cc4d8d6c207a4e9c3fcfb9145873c750989a6adedf8c1b555adc364661caf6d"
+    },
+    {
+      "path": "src/sandbox/host/build.ts",
+      "sha256": "cdb5ae2395932ad0cfcb7bdb8a1295214c6929934d89df19c226f02a818f3772",
+      "originalSha256": "9f6a9580d04b2170fbbc4cc8ca44fb6bccaa662d070b1adbe6bb5faddc779122"
+    },
+    {
+      "path": "src/sandbox/host/compatibilityProbe.ts",
+      "sha256": "02c56c0d0904d084bc81fbb2d3c51899df941da6e9e2499eb2eec1be6f079d1c",
+      "originalSha256": "02c56c0d0904d084bc81fbb2d3c51899df941da6e9e2499eb2eec1be6f079d1c"
+    },
+    {
+      "path": "src/sandbox/host/customGameTests.ts",
+      "sha256": "a5fc163e0f381f21a0e70bd23a670cb405848ec539bba8fad7bc0f038e1b27cb",
+      "originalSha256": "a5fc163e0f381f21a0e70bd23a670cb405848ec539bba8fad7bc0f038e1b27cb"
+    },
+    {
+      "path": "src/sandbox/host/damageBudget.ts",
+      "sha256": "3f812dec4ae20350f4a0128e05d62636f3b66b43f02acc1a0414f89a15d6bfb3",
+      "originalSha256": "3f812dec4ae20350f4a0128e05d62636f3b66b43f02acc1a0414f89a15d6bfb3"
+    },
+    {
+      "path": "src/sandbox/host/executionBudget.ts",
+      "sha256": "a61eaab9d3f59548aba3d6c1265f2aa41d3b182d2f1dfe5c84493fe25ceae10f",
+      "originalSha256": "a61eaab9d3f59548aba3d6c1265f2aa41d3b182d2f1dfe5c84493fe25ceae10f"
+    },
+    {
+      "path": "src/sandbox/host/executionClock.ts",
+      "sha256": "5e9bf76792600b0ea98fa789697c224fe6b5f5f6501ff5755a70b300293bd8af",
+      "originalSha256": "5e9bf76792600b0ea98fa789697c224fe6b5f5f6501ff5755a70b300293bd8af"
+    },
+    {
+      "path": "src/sandbox/host/featureImports.ts",
+      "sha256": "0788ec83c5ccf7dcfd6b005c9c1f94c596c033a30927f2cb130a967fded740fd",
+      "originalSha256": "0788ec83c5ccf7dcfd6b005c9c1f94c596c033a30927f2cb130a967fded740fd"
+    },
+    {
+      "path": "src/sandbox/host/game.ts",
+      "sha256": "cb7a89cbd5429c4923328f4c9318aa4b0123b66d029ba11cd2ac85606c3aa310",
+      "originalSha256": "3201eb460d7c9c64d1ddfe0eb1b6bee95cfd54957d0d34dc6ed499ef9f437581"
+    },
+    {
+      "path": "src/sandbox/host/gameInfo.ts",
+      "sha256": "7ee5626d797335c215e0c0c2ef06000fccaaccb1a846e3eacefd23dd26d7708e",
+      "originalSha256": "7ee5626d797335c215e0c0c2ef06000fccaaccb1a846e3eacefd23dd26d7708e"
+    },
+    {
+      "path": "src/sandbox/host/gameTests.ts",
+      "sha256": "24540c4a5130ae38b34f312cf5caecc3cb7990dbc7f31c76bf5a3ee1bde203ba",
+      "originalSha256": "24540c4a5130ae38b34f312cf5caecc3cb7990dbc7f31c76bf5a3ee1bde203ba"
+    },
+    {
+      "path": "src/sandbox/host/match.ts",
+      "sha256": "cf585ffb788451b7af4c68cf0c0d25a65988a017f328260e8a9c552c03f54b19",
+      "originalSha256": "cf585ffb788451b7af4c68cf0c0d25a65988a017f328260e8a9c552c03f54b19"
+    },
+    {
+      "path": "src/sandbox/host/modelReports.ts",
+      "sha256": "a0b743f27946a0eef54dd59e1b63f15366a08ecb70eb350e0b7b32c07be7fa82",
+      "originalSha256": "a0b743f27946a0eef54dd59e1b63f15366a08ecb70eb350e0b7b32c07be7fa82"
+    },
+    {
+      "path": "src/sandbox/host/nodeStartup.ts",
+      "sha256": "e92f72dee6aecc287ac0ef74f876bde4572c9e74cc446692484c83fe277a578c",
+      "originalSha256": "e92f72dee6aecc287ac0ef74f876bde4572c9e74cc446692484c83fe277a578c"
+    },
+    {
+      "path": "src/sandbox/host/physics.ts",
+      "sha256": "e5c5816c7f06098e887aee550710761e7951f29d16460d607498c613fde5aa9e",
+      "originalSha256": "e5c5816c7f06098e887aee550710761e7951f29d16460d607498c613fde5aa9e"
+    },
+    {
+      "path": "src/sandbox/host/quickjs.ts",
+      "sha256": "d940b80d790eea4c7da8267359615c40fb4e0de806032d085c00e3a26f683060",
+      "originalSha256": "d940b80d790eea4c7da8267359615c40fb4e0de806032d085c00e3a26f683060"
+    },
+    {
+      "path": "src/sandbox/host/vitePlugin.ts",
+      "sha256": "018ea58e36581ed1ba21abd647ee9234f53009047e4ec8307a16928d008c7849",
+      "originalSha256": "018ea58e36581ed1ba21abd647ee9234f53009047e4ec8307a16928d008c7849"
+    },
+    {
+      "path": "src/sandbox/host/water.ts",
+      "sha256": "b2a8b42a3893b5364951e013f77cb72c5d77e79fa44b0720afb3e21eeff746d1",
+      "originalSha256": "b2a8b42a3893b5364951e013f77cb72c5d77e79fa44b0720afb3e21eeff746d1"
+    },
+    {
+      "path": "src/sandbox/humanoidRig.ts",
+      "sha256": "24583d575287be4acbdd64942bf48b53f62ceeff754431ad21a6fe7ad80df220",
+      "originalSha256": "24583d575287be4acbdd64942bf48b53f62ceeff754431ad21a6fe7ad80df220"
+    },
+    {
+      "path": "src/sandbox/inspectionCamera.ts",
+      "sha256": "71d71a6ec34f51a87e760a710a12b8b6f0ae8ee2127731f7e0c32caf15bd4b30",
+      "originalSha256": "71d71a6ec34f51a87e760a710a12b8b6f0ae8ee2127731f7e0c32caf15bd4b30"
+    },
+    {
+      "path": "src/sandbox/inspectionFocus.ts",
+      "sha256": "67464132232d05a411aa0659778d800a8766c1fde4d0f62be789f9a2a44f23f3",
+      "originalSha256": "67464132232d05a411aa0659778d800a8766c1fde4d0f62be789f9a2a44f23f3"
+    },
+    {
+      "path": "src/sandbox/inspectionGeometry.ts",
+      "sha256": "f7f5b8a12eef5ce8e215e19d285d84c11861ac58e0e3ed6901c84db031442481",
+      "originalSha256": "f7f5b8a12eef5ce8e215e19d285d84c11861ac58e0e3ed6901c84db031442481"
+    },
+    {
+      "path": "src/sandbox/inspectionTelemetry.ts",
+      "sha256": "f5337cbb70f6340f2601176c7017734ce1a61d76f287eb85febdb2733eedf9ec",
+      "originalSha256": "f5337cbb70f6340f2601176c7017734ce1a61d76f287eb85febdb2733eedf9ec"
+    },
+    {
+      "path": "src/sandbox/libraries.ts",
+      "sha256": "d8f68d542bbefab5ae0be6b5f7208c75eabbe1ecc48bfa3eb093c0a1c0eeb8e2",
+      "originalSha256": "d8f68d542bbefab5ae0be6b5f7208c75eabbe1ecc48bfa3eb093c0a1c0eeb8e2"
+    },
+    {
+      "path": "src/sandbox/lighting.ts",
+      "sha256": "5a6da3fb974ad24cf67fe87f4a22ac097ce9848f4a995499c1664a7ff3cfc6b0",
+      "originalSha256": "5a6da3fb974ad24cf67fe87f4a22ac097ce9848f4a995499c1664a7ff3cfc6b0"
+    },
+    {
+      "path": "src/sandbox/liquidCollision.ts",
+      "sha256": "24187d79f6b14deb8ee334f9b75b70d64ab1e1a6b5d178ffb9e2d6565b9a25a1",
+      "originalSha256": "24187d79f6b14deb8ee334f9b75b70d64ab1e1a6b5d178ffb9e2d6565b9a25a1"
+    },
+    {
+      "path": "src/sandbox/liquidCoupling.ts",
+      "sha256": "afb42c736fce5104540f74b1a0baa40a9e12aaee3be6558552473827db3788c4",
+      "originalSha256": "afb42c736fce5104540f74b1a0baa40a9e12aaee3be6558552473827db3788c4"
+    },
+    {
+      "path": "src/sandbox/liquidFlowShading.ts",
+      "sha256": "22c1bb566dfdc9b11a07da6b3b02eb814e6a21dac2926e8d2e500d45f2a9fb87",
+      "originalSha256": "22c1bb566dfdc9b11a07da6b3b02eb814e6a21dac2926e8d2e500d45f2a9fb87"
+    },
+    {
+      "path": "src/sandbox/lockdown.ts",
+      "sha256": "380bfd06f1efede7549e54714d046e767449772f4c2746da6bc8c7591f6f0683",
+      "originalSha256": "380bfd06f1efede7549e54714d046e767449772f4c2746da6bc8c7591f6f0683"
+    },
+    {
+      "path": "src/sandbox/locomotion.ts",
+      "sha256": "cdd0104675e7ac8ca3d5da704a92d3e0999d971b3b1a0278abc069bd43c27ab0",
+      "originalSha256": "cdd0104675e7ac8ca3d5da704a92d3e0999d971b3b1a0278abc069bd43c27ab0"
+    },
+    {
+      "path": "src/sandbox/mapAssembly.ts",
+      "sha256": "fe42d57785d482e1cc23e6b973c5667d7fc6c16d3a4a8a9b18880a407884249e",
+      "originalSha256": "fe42d57785d482e1cc23e6b973c5667d7fc6c16d3a4a8a9b18880a407884249e"
+    },
+    {
+      "path": "src/sandbox/mapAssemblyView.ts",
+      "sha256": "31820e718e0e21628334486abae4ef5960ecb30b4cc8055abb85ae10777405fc",
+      "originalSha256": "31820e718e0e21628334486abae4ef5960ecb30b4cc8055abb85ae10777405fc"
+    },
+    {
+      "path": "src/sandbox/match.ts",
+      "sha256": "d333fbe1bc4fc25fd713813c3ab0854658bca657a2d2a607d08b5db77f15c364",
+      "originalSha256": "d333fbe1bc4fc25fd713813c3ab0854658bca657a2d2a607d08b5db77f15c364"
+    },
+    {
+      "path": "src/sandbox/materialRecipes.ts",
+      "sha256": "a44b7d24f2752c990a11ac8ab46a4beab11d84bd915e08a5190e331633c961ae",
+      "originalSha256": "a44b7d24f2752c990a11ac8ab46a4beab11d84bd915e08a5190e331633c961ae"
+    },
+    {
+      "path": "src/sandbox/media.ts",
+      "sha256": "d5af85b021d5cab9894160f6fce00e0d0a4ea42024b6dfc889c0ca00f15118f6",
+      "originalSha256": "d5af85b021d5cab9894160f6fce00e0d0a4ea42024b6dfc889c0ca00f15118f6"
+    },
+    {
+      "path": "src/sandbox/modActorSources.ts",
+      "sha256": "196859e76709a50136ca8016e31fde26686656209c547cf6262135dbaabe9309",
+      "originalSha256": "196859e76709a50136ca8016e31fde26686656209c547cf6262135dbaabe9309"
+    },
+    {
+      "path": "src/sandbox/modStarters.ts",
+      "sha256": "9855159f86c40a6aa0cc36ced7709df11fd928adbe1f96bcd37a488c3b07b90a",
+      "originalSha256": "9855159f86c40a6aa0cc36ced7709df11fd928adbe1f96bcd37a488c3b07b90a"
+    },
+    {
+      "path": "src/sandbox/model.ts",
+      "sha256": "470ce6266557baabdebb0ace2edeeabbec7b4d805eadc357a509bb8bff728aa8",
+      "originalSha256": "470ce6266557baabdebb0ace2edeeabbec7b4d805eadc357a509bb8bff728aa8"
+    },
+    {
+      "path": "src/sandbox/modelRuntime.ts",
+      "sha256": "f97f84966ff8a1df913bc140269d7b352720e91d4087f4c5b1a8833c2520df7d",
+      "originalSha256": "f97f84966ff8a1df913bc140269d7b352720e91d4087f4c5b1a8833c2520df7d"
+    },
+    {
+      "path": "src/sandbox/modelStarters.ts",
+      "sha256": "09dbac01e38dd94f54ea18a024519d3a539a7ba63b8d0f2291966ea9cd4e4e6a",
+      "originalSha256": "09dbac01e38dd94f54ea18a024519d3a539a7ba63b8d0f2291966ea9cd4e4e6a"
+    },
+    {
+      "path": "src/sandbox/modelView.ts",
+      "sha256": "d403714d4ec3dd3517301311e772b2b3af8cb23ba190e4cf6445351143dcffbb",
+      "originalSha256": "d403714d4ec3dd3517301311e772b2b3af8cb23ba190e4cf6445351143dcffbb"
+    },
+    {
+      "path": "src/sandbox/motionMatching.ts",
+      "sha256": "cdcaec20c62f2e8112a1d76d09d515c24cfe8329c14a1798e1aa6b025c5a4135",
+      "originalSha256": "cdcaec20c62f2e8112a1d76d09d515c24cfe8329c14a1798e1aa6b025c5a4135"
+    },
+    {
+      "path": "src/sandbox/objectPool.ts",
+      "sha256": "c461c04befc1b53621ad2e4f6862d696b27ffc6d2f163c6e193300c1c4756b33",
+      "originalSha256": "c461c04befc1b53621ad2e4f6862d696b27ffc6d2f163c6e193300c1c4756b33"
+    },
+    {
+      "path": "src/sandbox/physics.ts",
+      "sha256": "e299c52ed18fc60fea2c20fef1a9b4d5853973f1916417e8cb8f115c4bfd9802",
+      "originalSha256": "e299c52ed18fc60fea2c20fef1a9b4d5853973f1916417e8cb8f115c4bfd9802"
+    },
+    {
+      "path": "src/sandbox/physicsGeometry.ts",
+      "sha256": "6df30f528e0ab5fdab0f5ec45379fbe1923e58bc0c8c88df6aeae7c0959c54f0",
+      "originalSha256": "6df30f528e0ab5fdab0f5ec45379fbe1923e58bc0c8c88df6aeae7c0959c54f0"
+    },
+    {
+      "path": "src/sandbox/physicsMassProperties.ts",
+      "sha256": "7565611e30a29d876deba64dcb63399cbd74f8aa89c775450ed1dbd675841f11",
+      "originalSha256": "7565611e30a29d876deba64dcb63399cbd74f8aa89c775450ed1dbd675841f11"
+    },
+    {
+      "path": "src/sandbox/playerAppearance.ts",
+      "sha256": "055a52b7dbcedcda8f9dfd4fb578ecafa8054d9a1d0132834ace089f89ac1c00",
+      "originalSha256": "055a52b7dbcedcda8f9dfd4fb578ecafa8054d9a1d0132834ace089f89ac1c00"
+    },
+    {
+      "path": "src/sandbox/preparationTransfer.ts",
+      "sha256": "d41d5d191b258ac6652008ee79873d7bd0cecc3e142e6879669d1dbce850e0ad",
+      "originalSha256": "d41d5d191b258ac6652008ee79873d7bd0cecc3e142e6879669d1dbce850e0ad"
+    },
+    {
+      "path": "src/sandbox/proceduralDestruction.ts",
+      "sha256": "92d3c8538244fa4fa0503870c0cde6b0fc60664fa698951cb8116a50b2432099",
+      "originalSha256": "92d3c8538244fa4fa0503870c0cde6b0fc60664fa698951cb8116a50b2432099"
+    },
+    {
+      "path": "src/sandbox/proceduralDestructionView.ts",
+      "sha256": "92ada741493f136472f8e24bbd4979989a864e039ecdf1d474ab8fccfd237135",
+      "originalSha256": "92ada741493f136472f8e24bbd4979989a864e039ecdf1d474ab8fccfd237135"
+    },
+    {
+      "path": "src/sandbox/proceduralWater.ts",
+      "sha256": "7350c5c025f5378988f9061752d2e61a51545f264de98887577aeebf0ff94154",
+      "originalSha256": "7350c5c025f5378988f9061752d2e61a51545f264de98887577aeebf0ff94154"
+    },
+    {
+      "path": "src/sandbox/renderBatching.ts",
+      "sha256": "e88aa35c05a767ca038bcff5d41ff5b341b9840487ec9f452838900859ac84fd",
+      "originalSha256": "e88aa35c05a767ca038bcff5d41ff5b341b9840487ec9f452838900859ac84fd"
+    },
+    {
+      "path": "src/sandbox/renderCompletion.ts",
+      "sha256": "2d1e9a16a284dec358ba14475141b67f719a3012e3fda510e269333f86ff320f",
+      "originalSha256": "2d1e9a16a284dec358ba14475141b67f719a3012e3fda510e269333f86ff320f"
+    },
+    {
+      "path": "src/sandbox/renderGeometryIdentity.ts",
+      "sha256": "cc81b054e96a74fc425a481f4766a63bd16e5cc240dcdc27fd6007fa5b4702d0",
+      "originalSha256": "cc81b054e96a74fc425a481f4766a63bd16e5cc240dcdc27fd6007fa5b4702d0"
+    },
+    {
+      "path": "src/sandbox/renderMaterialIdentity.ts",
+      "sha256": "17e15e9b1eacb854e8b912c2698ee312a9502f72933a620f20758cdb8404eb2e",
+      "originalSha256": "17e15e9b1eacb854e8b912c2698ee312a9502f72933a620f20758cdb8404eb2e"
+    },
+    {
+      "path": "src/sandbox/renderPerformance.ts",
+      "sha256": "a9e0932473c8de358e464d8a5775b941c936aafdac5964ad5a5a105830c605db",
+      "originalSha256": "a9e0932473c8de358e464d8a5775b941c936aafdac5964ad5a5a105830c605db"
+    },
+    {
+      "path": "src/sandbox/renderPerformanceRuntime.ts",
+      "sha256": "a11dabb5e99578dbce1876fd38ce99a8d5ed473028206e64decd17c1026ff712",
+      "originalSha256": "a11dabb5e99578dbce1876fd38ce99a8d5ed473028206e64decd17c1026ff712"
+    },
+    {
+      "path": "src/sandbox/renderProxyIdentity.ts",
+      "sha256": "9e8714302b759c3236a95238679c1835627a0313c186a1b804dca52aca4e36d9",
+      "originalSha256": "9e8714302b759c3236a95238679c1835627a0313c186a1b804dca52aca4e36d9"
+    },
+    {
+      "path": "src/sandbox/renderVisibility.ts",
+      "sha256": "457437a5ef94f9c4b8cb459831e1ddd6cfa7fc3bd380ffb8552b1c98d17d5262",
+      "originalSha256": "457437a5ef94f9c4b8cb459831e1ddd6cfa7fc3bd380ffb8552b1c98d17d5262"
+    },
+    {
+      "path": "src/sandbox/rendererBundles.ts",
+      "sha256": "1d8c0838ac69099cfe03e5346e1376edb479bb934303aa660d6e44aa865c86c0",
+      "originalSha256": "1d8c0838ac69099cfe03e5346e1376edb479bb934303aa660d6e44aa865c86c0"
+    },
+    {
+      "path": "src/sandbox/rendererPipelineCache.ts",
+      "sha256": "b9aff884bed5d72df7d29d139ccf0f7e6bcf11d5181036ca33b248028dbb0100",
+      "originalSha256": "b9aff884bed5d72df7d29d139ccf0f7e6bcf11d5181036ca33b248028dbb0100"
+    },
+    {
+      "path": "src/sandbox/rendererShaderNames.ts",
+      "sha256": "b81326169d7628c17df0a553c6b0262cf6a8eb19b77772fc4cb740cbe70109d1",
+      "originalSha256": "b81326169d7628c17df0a553c6b0262cf6a8eb19b77772fc4cb740cbe70109d1"
+    },
+    {
+      "path": "src/sandbox/rendererUniformUploads.ts",
+      "sha256": "497b3593407ab6c5da258f9d9af0c35ff11de28b5a70835d44e4b6843f276aff",
+      "originalSha256": "497b3593407ab6c5da258f9d9af0c35ff11de28b5a70835d44e4b6843f276aff"
+    },
+    {
+      "path": "src/sandbox/rendererWebGPU.ts",
+      "sha256": "034b62a84a1ee648e9d18664db46ddd590ba0782c313fcec52d87a40c8b79020",
+      "originalSha256": "034b62a84a1ee648e9d18664db46ddd590ba0782c313fcec52d87a40c8b79020"
+    },
+    {
+      "path": "src/sandbox/rig.ts",
+      "sha256": "87b7dedcebd50851c389f47aae348c6f753400b04d857401b9fabec8eca06284",
+      "originalSha256": "87b7dedcebd50851c389f47aae348c6f753400b04d857401b9fabec8eca06284"
+    },
+    {
+      "path": "src/sandbox/rigView.ts",
+      "sha256": "b427fa97a0c8b7a12d36a1aed3a7ea1d6cadcb5058ac49677bda82d2bdc05e9d",
+      "originalSha256": "b427fa97a0c8b7a12d36a1aed3a7ea1d6cadcb5058ac49677bda82d2bdc05e9d"
+    },
+    {
+      "path": "src/sandbox/runtime.ts",
+      "sha256": "e7b0ffdc7974c2a543efd265342489ea7b7d79963a83a32de10d35a677f8d17c",
+      "originalSha256": "e7b0ffdc7974c2a543efd265342489ea7b7d79963a83a32de10d35a677f8d17c"
+    },
+    {
+      "path": "src/sandbox/scenePresets.ts",
+      "sha256": "940f1d0f5598c508dcc99470f25eeefbbf6329a73ba8cb9087b6dadfb2939491",
+      "originalSha256": "940f1d0f5598c508dcc99470f25eeefbbf6329a73ba8cb9087b6dadfb2939491"
+    },
+    {
+      "path": "src/sandbox/spatial.ts",
+      "sha256": "76a65a83f2a2d9875544ca4c5b416a4653d10ed285826bad2157de5b29436d75",
+      "originalSha256": "76a65a83f2a2d9875544ca4c5b416a4653d10ed285826bad2157de5b29436d75"
+    },
+    {
+      "path": "src/sandbox/spawnView.ts",
+      "sha256": "35d3f9d202b23acdb99ccf670cb90de84fc4702b06f2ce836d2886867eb0d7f4",
+      "originalSha256": "35d3f9d202b23acdb99ccf670cb90de84fc4702b06f2ce836d2886867eb0d7f4"
+    },
+    {
+      "path": "src/sandbox/structuralFracture.ts",
+      "sha256": "5ecb4c86fafce58d3871ceb61a0e57a5f4c55390dafba24c32f9fae07cd8dc92",
+      "originalSha256": "5ecb4c86fafce58d3871ceb61a0e57a5f4c55390dafba24c32f9fae07cd8dc92"
+    },
+    {
+      "path": "src/sandbox/surfaceMaterialView.ts",
+      "sha256": "667dee978518c4490982a417092d9c4b9276300e812d7acf57f0fed71bd5c2a2",
+      "originalSha256": "667dee978518c4490982a417092d9c4b9276300e812d7acf57f0fed71bd5c2a2"
+    },
+    {
+      "path": "src/sandbox/surfaceMaterials.ts",
+      "sha256": "83b0bdd91a6bac9a855e178953f9bb0096269e9bd1ab8c31fdd1b5954565dfbd",
+      "originalSha256": "83b0bdd91a6bac9a855e178953f9bb0096269e9bd1ab8c31fdd1b5954565dfbd"
+    },
+    {
+      "path": "src/sandbox/terrain.ts",
+      "sha256": "046cc365710e8e6bdad2e27912060bbbb189ad95f5badcf1aef644e92f054c5f",
+      "originalSha256": "046cc365710e8e6bdad2e27912060bbbb189ad95f5badcf1aef644e92f054c5f"
+    },
+    {
+      "path": "src/sandbox/terrainAreas.ts",
+      "sha256": "1154f257ede27c11dbbfd3418e0d71266386071eda36d48cf26fe91cea08307b",
+      "originalSha256": "1154f257ede27c11dbbfd3418e0d71266386071eda36d48cf26fe91cea08307b"
+    },
+    {
+      "path": "src/sandbox/terrainAssets.ts",
+      "sha256": "efbedfa4247ec44ab069b0c0860dc5e2af220f3c252537882a04f8e98df3274c",
+      "originalSha256": "efbedfa4247ec44ab069b0c0860dc5e2af220f3c252537882a04f8e98df3274c"
+    },
+    {
+      "path": "src/sandbox/terrainChannels.ts",
+      "sha256": "7bc34276d47a34f2cf1447599bab4ef6e419d26802297534f169685bc269f2c3",
+      "originalSha256": "7bc34276d47a34f2cf1447599bab4ef6e419d26802297534f169685bc269f2c3"
+    },
+    {
+      "path": "src/sandbox/terrainDependencies.ts",
+      "sha256": "e5cebb25803fa394cf1a0b4d6c44fac37c307ba9bb4857376a5ba7cfea40a971",
+      "originalSha256": "e5cebb25803fa394cf1a0b4d6c44fac37c307ba9bb4857376a5ba7cfea40a971"
+    },
+    {
+      "path": "src/sandbox/terrainEnvironment.ts",
+      "sha256": "7d74c65b509fc9250064290052b7f19422069d3e930fa9e6a50bd867a8ae3d39",
+      "originalSha256": "7d74c65b509fc9250064290052b7f19422069d3e930fa9e6a50bd867a8ae3d39"
+    },
+    {
+      "path": "src/sandbox/terrainMaterialView.ts",
+      "sha256": "1a1ab175f05152fc2b3de6991e39a9295dcd9a7fe3890d6390377fff45653a92",
+      "originalSha256": "1a1ab175f05152fc2b3de6991e39a9295dcd9a7fe3890d6390377fff45653a92"
+    },
+    {
+      "path": "src/sandbox/terrainPresets.ts",
+      "sha256": "e13379700f730043697efe0961c80b656b61ffa89ef5c16ab41ae3b0259e6b41",
+      "originalSha256": "e13379700f730043697efe0961c80b656b61ffa89ef5c16ab41ae3b0259e6b41"
+    },
+    {
+      "path": "src/sandbox/terrainQueries.ts",
+      "sha256": "d500c35163514c381a5192a2a91353c5e0bcceec027f8cb63c6b2255a5de4125",
+      "originalSha256": "d500c35163514c381a5192a2a91353c5e0bcceec027f8cb63c6b2255a5de4125"
+    },
+    {
+      "path": "src/sandbox/terrainStreaming.ts",
+      "sha256": "aae51c2f7576799f2cede4ced9a05f5b4864a372e824c3f2b2c8c9669dbe7e80",
+      "originalSha256": "aae51c2f7576799f2cede4ced9a05f5b4864a372e824c3f2b2c8c9669dbe7e80"
+    },
+    {
+      "path": "src/sandbox/terrainView.ts",
+      "sha256": "385cc8c5fe8775275bde5afeffb1e1082e981352995dc6144f9e3a302fd3b5d5",
+      "originalSha256": "385cc8c5fe8775275bde5afeffb1e1082e981352995dc6144f9e3a302fd3b5d5"
+    },
+    {
+      "path": "src/sandbox/terrainVolumes.ts",
+      "sha256": "3c48d0a498af93cd30725e92b26036a12a3bbae5a8f40d455c3676103ff495bc",
+      "originalSha256": "3c48d0a498af93cd30725e92b26036a12a3bbae5a8f40d455c3676103ff495bc"
+    },
+    {
+      "path": "src/sandbox/terrainVolumesView.ts",
+      "sha256": "a958cfcf083ce0fc811f8fadb2d93b51b1b7a29dd9dc36e30f06ca5ade851a23",
+      "originalSha256": "a958cfcf083ce0fc811f8fadb2d93b51b1b7a29dd9dc36e30f06ca5ade851a23"
+    },
+    {
+      "path": "src/sandbox/terrainWindView.ts",
+      "sha256": "347323b297e1ca00567b351ba926e78209a771d99e4f16cf601caa0496776b3a",
+      "originalSha256": "347323b297e1ca00567b351ba926e78209a771d99e4f16cf601caa0496776b3a"
+    },
+    {
+      "path": "src/sandbox/terrainWorld.ts",
+      "sha256": "92c2a55d9ba345edf5a264714ab148ff6f7fc168f2acf7d3b5256584c8a51c02",
+      "originalSha256": "92c2a55d9ba345edf5a264714ab148ff6f7fc168f2acf7d3b5256584c8a51c02"
+    },
+    {
+      "path": "src/sandbox/testRuntime.ts",
+      "sha256": "bfafb2ffb28596804e76932635e791552d8bce339e25e670cc23f23f2a619aec",
+      "originalSha256": "bfafb2ffb28596804e76932635e791552d8bce339e25e670cc23f23f2a619aec"
+    },
+    {
+      "path": "src/sandbox/testkit.ts",
+      "sha256": "36b7a058785e41725843dbb9b734d13bd0c9eedbb137f9269b4aee27298a992c",
+      "originalSha256": "36b7a058785e41725843dbb9b734d13bd0c9eedbb137f9269b4aee27298a992c"
+    },
+    {
+      "path": "src/sandbox/town.ts",
+      "sha256": "f9c03be3c57da888279af76cb1995e6866f453cdeee54c2a24143d6ac6003679",
+      "originalSha256": "f9c03be3c57da888279af76cb1995e6866f453cdeee54c2a24143d6ac6003679"
+    },
+    {
+      "path": "src/sandbox/variation.ts",
+      "sha256": "fa64de3b9fd2faedb25800772bfc7b5fa8659d2799dba4f7a3c35f3e56e37bfc",
+      "originalSha256": "fa64de3b9fd2faedb25800772bfc7b5fa8659d2799dba4f7a3c35f3e56e37bfc"
+    },
+    {
+      "path": "src/sandbox/viewDiagnostics.ts",
+      "sha256": "594642aac215b18c1442619ba392d1b82bc72dbc6129d117f405edb44605c4ee",
+      "originalSha256": "594642aac215b18c1442619ba392d1b82bc72dbc6129d117f405edb44605c4ee"
+    },
+    {
+      "path": "src/sandbox/viewRuntime.ts",
+      "sha256": "351f2b8efe1a6a82f90d7a407711e1f933b3c3a0c810bbf057ed5c87a676c6cf",
+      "originalSha256": "351f2b8efe1a6a82f90d7a407711e1f933b3c3a0c810bbf057ed5c87a676c6cf"
+    },
+    {
+      "path": "src/sandbox/voxelView.ts",
+      "sha256": "e0fc02889186b54d561e8a49c448a416775a575265c886291dd08d979b7d606a",
+      "originalSha256": "e0fc02889186b54d561e8a49c448a416775a575265c886291dd08d979b7d606a"
+    },
+    {
+      "path": "src/sandbox/voxelWorld.ts",
+      "sha256": "6474b12db19221e1c0107148927415ecfe5c0bafc503c2da2860c7765c46deaa",
+      "originalSha256": "6474b12db19221e1c0107148927415ecfe5c0bafc503c2da2860c7765c46deaa"
+    },
+    {
+      "path": "src/sandbox/voxels.ts",
+      "sha256": "3447ba9ff6d88ac5c5fbf439e362afddae49f5e33ecd2e2a247a64bbb378788a",
+      "originalSha256": "3447ba9ff6d88ac5c5fbf439e362afddae49f5e33ecd2e2a247a64bbb378788a"
+    },
+    {
+      "path": "src/sandbox/water.ts",
+      "sha256": "96c599a3012e88bdceef51bfe4a65b2d0b5b065d837c824ecc2460b983cbe9b4",
+      "originalSha256": "96c599a3012e88bdceef51bfe4a65b2d0b5b065d837c824ecc2460b983cbe9b4"
+    },
+    {
+      "path": "src/sandbox/waterBody.ts",
+      "sha256": "8d817400d770e0ea9a19e7c9f6caec0b572dbd63cb014ba58ee3aa970dc99a09",
+      "originalSha256": "8d817400d770e0ea9a19e7c9f6caec0b572dbd63cb014ba58ee3aa970dc99a09"
+    },
+    {
+      "path": "src/sandbox/waterBodyBoundaryMesh.ts",
+      "sha256": "bd531f40bfddec3cdcaa761acdb4085bd9240f21009bd1b37a2a1a7d59ac70ec",
+      "originalSha256": "bd531f40bfddec3cdcaa761acdb4085bd9240f21009bd1b37a2a1a7d59ac70ec"
+    },
+    {
+      "path": "src/sandbox/waterBodyBuoyancy.ts",
+      "sha256": "e50e1cab554c4bf327bcba4f927913ca0d76432ad321abc0344e65da539fd06b",
+      "originalSha256": "e50e1cab554c4bf327bcba4f927913ca0d76432ad321abc0344e65da539fd06b"
+    },
+    {
+      "path": "src/sandbox/waterBodyCapillary.ts",
+      "sha256": "a63ac4718c0b0113c63fb7248f1fae0b78cef52a3254522ed9c59cb5b0147497",
+      "originalSha256": "a63ac4718c0b0113c63fb7248f1fae0b78cef52a3254522ed9c59cb5b0147497"
+    },
+    {
+      "path": "src/sandbox/waterBodyCells.ts",
+      "sha256": "3fad8491f32d4ee355102489175de1a662be46298c89432bddc766af744d1006",
+      "originalSha256": "3fad8491f32d4ee355102489175de1a662be46298c89432bddc766af744d1006"
+    },
+    {
+      "path": "src/sandbox/waterBodyConnections.ts",
+      "sha256": "0b090a8acfc172463d2d5b0ddb3586aa6eb9be0dc0ef0f201872ec8afc3f9728",
+      "originalSha256": "0b090a8acfc172463d2d5b0ddb3586aa6eb9be0dc0ef0f201872ec8afc3f9728"
+    },
+    {
+      "path": "src/sandbox/waterBodyContour.ts",
+      "sha256": "816852da47d670f4a53d1b388236cddbfe55e086b5a3ac87419b1667d59d3176",
+      "originalSha256": "816852da47d670f4a53d1b388236cddbfe55e086b5a3ac87419b1667d59d3176"
+    },
+    {
+      "path": "src/sandbox/waterBodyCurrents.ts",
+      "sha256": "c217bba5d5fd83718b06d2e89f6f727e185509180d14c060b769c0e515d5d0e7",
+      "originalSha256": "c217bba5d5fd83718b06d2e89f6f727e185509180d14c060b769c0e515d5d0e7"
+    },
+    {
+      "path": "src/sandbox/waterBodyDepthCurrents.ts",
+      "sha256": "90e565ee404c64c7a30580299a21a551be2563cbad4a18016c6ab81cd8352fe4",
+      "originalSha256": "90e565ee404c64c7a30580299a21a551be2563cbad4a18016c6ab81cd8352fe4"
+    },
+    {
+      "path": "src/sandbox/waterBodyDepthGraph.ts",
+      "sha256": "6bb74dd18584c6e02ce9cf0e658bf2506ce42154137e941db6966bf0968a5cf6",
+      "originalSha256": "6bb74dd18584c6e02ce9cf0e658bf2506ce42154137e941db6966bf0968a5cf6"
+    },
+    {
+      "path": "src/sandbox/waterBodyDispersion.ts",
+      "sha256": "5ef1a6b20196789a4090349322113dbff16ed6c558ecc8126646766edc534ffe",
+      "originalSha256": "5ef1a6b20196789a4090349322113dbff16ed6c558ecc8126646766edc534ffe"
+    },
+    {
+      "path": "src/sandbox/waterBodyFlights.ts",
+      "sha256": "85d7372755de2905552804a6138a7376263bc67c0905d645605dd64feb0f01f2",
+      "originalSha256": "85d7372755de2905552804a6138a7376263bc67c0905d645605dd64feb0f01f2"
+    },
+    {
+      "path": "src/sandbox/waterBodyFloating.ts",
+      "sha256": "8c70e1a44be8d2ce14513f0cc77679730fe107416b82de8e6ac976e8c761d52f",
+      "originalSha256": "8c70e1a44be8d2ce14513f0cc77679730fe107416b82de8e6ac976e8c761d52f"
+    },
+    {
+      "path": "src/sandbox/waterBodyGrid.ts",
+      "sha256": "d6e983e01a49098de5c144c8126fe0d0308e1be890824009de6cad2bb42e64db",
+      "originalSha256": "d6e983e01a49098de5c144c8126fe0d0308e1be890824009de6cad2bb42e64db"
+    },
+    {
+      "path": "src/sandbox/waterBodyGridRegions.ts",
+      "sha256": "109d826b225b71fb472db01b2b0c59c0a66b6760b1a809ab4d7aa823f4b67587",
+      "originalSha256": "1e7a318cb268dafc6f18b1fba716803a89f8548ecb215a763ab2ef0383549f96"
+    },
+    {
+      "path": "src/sandbox/waterBodyHulls.ts",
+      "sha256": "e5957f4a5c08077c583437abe5da5877e5005544704e658150ae41a07a49711c",
+      "originalSha256": "e5957f4a5c08077c583437abe5da5877e5005544704e658150ae41a07a49711c"
+    },
+    {
+      "path": "src/sandbox/waterBodyPipes.ts",
+      "sha256": "50683d9158241ccb2e96db9996d36971a9c7a2ca6944166e7454219fb393fa94",
+      "originalSha256": "50683d9158241ccb2e96db9996d36971a9c7a2ca6944166e7454219fb393fa94"
+    },
+    {
+      "path": "src/sandbox/waterBodyPressure.ts",
+      "sha256": "f8275167838659303a77141f4c306d9275c63acdc147332b43deb009a917d7fe",
+      "originalSha256": "f8275167838659303a77141f4c306d9275c63acdc147332b43deb009a917d7fe"
+    },
+    {
+      "path": "src/sandbox/waterBodyPuddles.ts",
+      "sha256": "910abe835e01e5a48160abb6e223b330e30f585557b28fa1e9b93e80514c29ad",
+      "originalSha256": "910abe835e01e5a48160abb6e223b330e30f585557b28fa1e9b93e80514c29ad"
+    },
+    {
+      "path": "src/sandbox/waterBodyRegionStorage.ts",
+      "sha256": "01e47bf5c8f3a8d32ccf9346dcd4b6a1fa63ab71b8b6d0d96f5f73d4865352c4",
+      "originalSha256": "01e47bf5c8f3a8d32ccf9346dcd4b6a1fa63ab71b8b6d0d96f5f73d4865352c4"
+    },
+    {
+      "path": "src/sandbox/waterBodySolids.ts",
+      "sha256": "421cadb1ebda15e4f1aa348aff4a05ee210e2d925b2f03d0a11b3482af1ee7fd",
+      "originalSha256": "421cadb1ebda15e4f1aa348aff4a05ee210e2d925b2f03d0a11b3482af1ee7fd"
+    },
+    {
+      "path": "src/sandbox/waterBodyTerrainPartitions.ts",
+      "sha256": "1427a41c4a0218cc49790e5f1a5bd15a88a312b26a5d5f118628ac4749b22389",
+      "originalSha256": "1427a41c4a0218cc49790e5f1a5bd15a88a312b26a5d5f118628ac4749b22389"
+    },
+    {
+      "path": "src/sandbox/waterBodyView.ts",
+      "sha256": "f7cb9bc914f485674d451e7bf9d8146fab5662c878ac80e4dbe9cda29aeecbff",
+      "originalSha256": "503f28f512a0f8bb070381e3da6f480ff04611186dc4d581282c6154af3c52c6"
+    },
+    {
+      "path": "src/sandbox/waterBodyWire.ts",
+      "sha256": "926ee9b3d7c9ea2584e23ef63a28dd9fc8b36df46fd0a2b76d30b299e3a91e8b",
+      "originalSha256": "926ee9b3d7c9ea2584e23ef63a28dd9fc8b36df46fd0a2b76d30b299e3a91e8b"
+    },
+    {
+      "path": "src/sandbox/waterBoundary.ts",
+      "sha256": "97d8d0f01e83db55814cca80d1c73e04797e47bc147a653d6a6cd7f5ce3407c0",
+      "originalSha256": "97d8d0f01e83db55814cca80d1c73e04797e47bc147a653d6a6cd7f5ce3407c0"
+    },
+    {
+      "path": "src/sandbox/waterBoundaryGeometry.ts",
+      "sha256": "c068fd32ea7144daf186bd378dc5d0a214756e339a446d8a961df1b10e0f0bff",
+      "originalSha256": "c068fd32ea7144daf186bd378dc5d0a214756e339a446d8a961df1b10e0f0bff"
+    },
+    {
+      "path": "src/sandbox/waterBoundaryView.ts",
+      "sha256": "a13d19e67f1b4b9477d715b72706c53bf36d156c2dfca178fba0ed449cdd14ab",
+      "originalSha256": "a13d19e67f1b4b9477d715b72706c53bf36d156c2dfca178fba0ed449cdd14ab"
+    },
+    {
+      "path": "src/sandbox/waterCurrentLinesView.ts",
+      "sha256": "6ee15b7a0dcf52a7a143639c966ed196c96b304df46eee7cd1af267865a2aaa6",
+      "originalSha256": "6ee15b7a0dcf52a7a143639c966ed196c96b304df46eee7cd1af267865a2aaa6"
+    },
+    {
+      "path": "src/sandbox/waterCurrentShader.ts",
+      "sha256": "ea90e2fdc16b218ae229bfc7cf080dfc64a91b13d64c5fc56253ec969fa0a9a1",
+      "originalSha256": "ea90e2fdc16b218ae229bfc7cf080dfc64a91b13d64c5fc56253ec969fa0a9a1"
+    },
+    {
+      "path": "src/sandbox/waterDetail.ts",
+      "sha256": "2c275d38de3c3f71f4fbbd2efe351860be1cd379e0402d0a00b0464976294a31",
+      "originalSha256": "2c275d38de3c3f71f4fbbd2efe351860be1cd379e0402d0a00b0464976294a31"
+    },
+    {
+      "path": "src/sandbox/waterDetailView.ts",
+      "sha256": "bc8e7ce9b506ace3eca3bdc721d7ba222d854fb709bfc7dab325021b2d46592f",
+      "originalSha256": "bc8e7ce9b506ace3eca3bdc721d7ba222d854fb709bfc7dab325021b2d46592f"
+    },
+    {
+      "path": "src/sandbox/waterDomain.ts",
+      "sha256": "18e00917a8bd00daaca92a06f37d67ae11249d362df118f81ca909014be411e7",
+      "originalSha256": "18e00917a8bd00daaca92a06f37d67ae11249d362df118f81ca909014be411e7"
+    },
+    {
+      "path": "src/sandbox/waterFlightJunction.ts",
+      "sha256": "9aab942a8d3e1b445f0ad03a4c3200ff5ea850bc903a0979feb05041db222d39",
+      "originalSha256": "9aab942a8d3e1b445f0ad03a4c3200ff5ea850bc903a0979feb05041db222d39"
+    },
+    {
+      "path": "src/sandbox/waterFlightMesh.ts",
+      "sha256": "17c63daa49f53ce37aa5163659aa05872786ffb4c50fddc1ae3c5ab0140eb592",
+      "originalSha256": "17c63daa49f53ce37aa5163659aa05872786ffb4c50fddc1ae3c5ab0140eb592"
+    },
+    {
+      "path": "src/sandbox/waterImpactPlumes.ts",
+      "sha256": "334706b3eb6bcd57e360cefa4d85a665518b228fe3581788f4e8fdd48de37d2f",
+      "originalSha256": "334706b3eb6bcd57e360cefa4d85a665518b228fe3581788f4e8fdd48de37d2f"
+    },
+    {
+      "path": "src/sandbox/waterPlayback.ts",
+      "sha256": "c5fe6ba198d9fee60c56f3582fe2b43d1c132fce33180ba683dea0651d500f5d",
+      "originalSha256": "c5fe6ba198d9fee60c56f3582fe2b43d1c132fce33180ba683dea0651d500f5d"
+    },
+    {
+      "path": "src/sandbox/waterSupportGeometry.ts",
+      "sha256": "cad81e017c0102258bec4311a707ec69d72e2e7371d23df8c2be5750d7f74065",
+      "originalSha256": "cad81e017c0102258bec4311a707ec69d72e2e7371d23df8c2be5750d7f74065"
+    },
+    {
+      "path": "src/sandbox/waterSurfaceOptics.ts",
+      "sha256": "8e56199bc89eb5f74e2c300f0c84ca9e56b41dc1a3d7bab224e2bcb9823ceb43",
+      "originalSha256": "8e56199bc89eb5f74e2c300f0c84ca9e56b41dc1a3d7bab224e2bcb9823ceb43"
+    },
+    {
+      "path": "src/sandbox/waterSwell.ts",
+      "sha256": "f1e1d5e39b5721373e72327675bbe405c82348c9da92e81c67fe6c0e8141696e",
+      "originalSha256": "f1e1d5e39b5721373e72327675bbe405c82348c9da92e81c67fe6c0e8141696e"
+    },
+    {
+      "path": "src/sandbox/waterSystem.ts",
+      "sha256": "aa9cf8e8fbc13f24843454dfc0a9f69c1c4490ffd893be250873a63d277563e6",
+      "originalSha256": "aa9cf8e8fbc13f24843454dfc0a9f69c1c4490ffd893be250873a63d277563e6"
+    },
+    {
+      "path": "src/sandbox/waterSystemBake.ts",
+      "sha256": "e7e3a0f2e179cb4ee353b24e9d022df53d9c23e476c6a22ee07a9d5529ae8cb5",
+      "originalSha256": "e7e3a0f2e179cb4ee353b24e9d022df53d9c23e476c6a22ee07a9d5529ae8cb5"
+    },
+    {
+      "path": "src/sandbox/waterSystemBridge.ts",
+      "sha256": "8a5905198335f7ba9cafac2c21c9620d8c1a69dc28c7380a1bd9e5032bd22a22",
+      "originalSha256": "8a5905198335f7ba9cafac2c21c9620d8c1a69dc28c7380a1bd9e5032bd22a22"
+    },
+    {
+      "path": "src/sandbox/waterSystemDestruction.ts",
+      "sha256": "5672ccb413fae36ed6dffe0ece283f0df9926396bff1802d66d39d3e5f3b1f45",
+      "originalSha256": "5672ccb413fae36ed6dffe0ece283f0df9926396bff1802d66d39d3e5f3b1f45"
+    },
+    {
+      "path": "src/sandbox/waterSystemTransfer.ts",
+      "sha256": "7bc72fe8849b7f21b7033ca2e8ac0becc81926469a700b1972d5a0714fe5e242",
+      "originalSha256": "7bc72fe8849b7f21b7033ca2e8ac0becc81926469a700b1972d5a0714fe5e242"
+    },
+    {
+      "path": "src/sandbox/waterSystemView.ts",
+      "sha256": "548dc8d4cb98018f41cf7ff59ca80b45c77a7f62925998f6785e4ad8c811947d",
+      "originalSha256": "548dc8d4cb98018f41cf7ff59ca80b45c77a7f62925998f6785e4ad8c811947d"
+    },
+    {
+      "path": "src/sandbox/waterSystemWire.ts",
+      "sha256": "9573ce32c614b55e0dd2c5d0297a0b1aa8b764084ecd0df1415918da1802798e",
+      "originalSha256": "9573ce32c614b55e0dd2c5d0297a0b1aa8b764084ecd0df1415918da1802798e"
+    },
+    {
+      "path": "src/sandbox/waterTerrainEffectsView.ts",
+      "sha256": "da05a9ca238bc4ff5500aa17a4aba8f6d740279b02efaf9bfa57c1da4232ff80",
+      "originalSha256": "da05a9ca238bc4ff5500aa17a4aba8f6d740279b02efaf9bfa57c1da4232ff80"
+    },
+    {
+      "path": "src/sandbox/waterView.ts",
+      "sha256": "d473f9e118fff51c51ca2e3997d2c8f08d7564e2687bbabb918befd6152d89f8",
+      "originalSha256": "d473f9e118fff51c51ca2e3997d2c8f08d7564e2687bbabb918befd6152d89f8"
+    },
+    {
+      "path": "src/sandbox/waterWind.ts",
+      "sha256": "0a10892806236d910a719a6c441ee646bac2662738641c71221c9c56b58ab30b",
+      "originalSha256": "0a10892806236d910a719a6c441ee646bac2662738641c71221c9c56b58ab30b"
+    },
+    {
+      "path": "src/sandbox/waterWorld.ts",
+      "sha256": "be22708c1d574fff5152df8fab1ee313aef86b29603b5b0f600e6312414dd1a6",
+      "originalSha256": "be22708c1d574fff5152df8fab1ee313aef86b29603b5b0f600e6312414dd1a6"
+    },
+    {
+      "path": "src/sandbox/waterWorldDetail.ts",
+      "sha256": "75096b0b857de1ec9c3cc5aab8103bf1eea22804df32cc7e0e3f5d347d1451c2",
+      "originalSha256": "75096b0b857de1ec9c3cc5aab8103bf1eea22804df32cc7e0e3f5d347d1451c2"
+    },
+    {
+      "path": "src/sandbox/waterWorldSurface.ts",
+      "sha256": "e0f7122bb1e18debc1e95a78e7bff4bc36171c33db76c3cd2bebb45e6ccdb650",
+      "originalSha256": "e0f7122bb1e18debc1e95a78e7bff4bc36171c33db76c3cd2bebb45e6ccdb650"
+    },
+    {
+      "path": "src/sandbox/webgpuViewRuntime.ts",
+      "sha256": "6ee64d12ef29bc34a910615cde479f633276be2a1cff8d74a4104f85be95a68e",
+      "originalSha256": "6ee64d12ef29bc34a910615cde479f633276be2a1cff8d74a4104f85be95a68e"
+    },
+    {
+      "path": "src/sandbox/worldFoundations.ts",
+      "sha256": "79bf9dde01ceec27fd27d1000ec5a4d715402e7357deab3e86652c2f62ac703c",
+      "originalSha256": "79bf9dde01ceec27fd27d1000ec5a4d715402e7357deab3e86652c2f62ac703c"
+    },
+    {
+      "path": "src/sandbox/worldPlan.ts",
+      "sha256": "38dd8abf96cdd5f9c99f86e553fe18c0023a9e7fe26361f1e84202217a316d41",
+      "originalSha256": "38dd8abf96cdd5f9c99f86e553fe18c0023a9e7fe26361f1e84202217a316d41"
+    },
+    {
+      "path": "src/sandbox/worldPlanView.ts",
+      "sha256": "f2569351c9c9fa2ba34bde4f4f9db4ea74517a6374e673db25cedec17c7da16f",
+      "originalSha256": "f2569351c9c9fa2ba34bde4f4f9db4ea74517a6374e673db25cedec17c7da16f"
+    },
+    {
+      "path": "src/sandbox/worldRoads.ts",
+      "sha256": "625a79d9631ef384ba977adaa89fc5288df71af90df71859a7369bbcc773023e",
+      "originalSha256": "625a79d9631ef384ba977adaa89fc5288df71af90df71859a7369bbcc773023e"
+    },
+    {
+      "path": "src/shared/actionBindings.ts",
+      "sha256": "effdba7ebab967c2e43ed0e1e726d8c3a0730f622183ac6f6a03bc44c82273f3",
+      "originalSha256": "effdba7ebab967c2e43ed0e1e726d8c3a0730f622183ac6f6a03bc44c82273f3"
+    },
+    {
+      "path": "src/shared/controlSheet.ts",
+      "sha256": "8f0f5be8627932d1fcf4da8333771933d6f18432277c838ffc2baa89dd357655",
+      "originalSha256": "8f0f5be8627932d1fcf4da8333771933d6f18432277c838ffc2baa89dd357655"
+    },
+    {
+      "path": "src/shared/customBuildReport.ts",
+      "sha256": "32b34f67b924f12fc6f9ef5227da41683dbc972ceb6bd453ecfb28f7303fbba5",
+      "originalSha256": "32b34f67b924f12fc6f9ef5227da41683dbc972ceb6bd453ecfb28f7303fbba5"
+    },
+    {
+      "path": "src/shared/customGames.ts",
+      "sha256": "087891db409216f68aba2f968c563b5c34708fbcbdeb7865d39cd9e6d6ba531f",
+      "originalSha256": "087891db409216f68aba2f968c563b5c34708fbcbdeb7865d39cd9e6d6ba531f"
+    },
+    {
+      "path": "src/shared/env.d.ts",
+      "sha256": "7a71cfc5b260850ff5867911a4852b4ab887c61df0e1ca1b786d8e47a2c27b1b",
+      "originalSha256": "7a71cfc5b260850ff5867911a4852b4ab887c61df0e1ca1b786d8e47a2c27b1b"
+    },
+    {
+      "path": "src/shared/fastLane.ts",
+      "sha256": "a050832f781198351f66a806466a3bb6b43faea201993c7b5febb1f5403cedb3",
+      "originalSha256": "a050832f781198351f66a806466a3bb6b43faea201993c7b5febb1f5403cedb3"
+    },
+    {
+      "path": "src/shared/featureManifest.ts",
+      "sha256": "b171478d807200b610505edb4504d25782b598699b25e75cc373963421a18a0f",
+      "originalSha256": "b171478d807200b610505edb4504d25782b598699b25e75cc373963421a18a0f"
+    },
+    {
+      "path": "src/shared/gameApi.ts",
+      "sha256": "6c659e7ab3780c6004e9737fe44bbd09913c71b4d2b80573c1bc2ee101692ecf",
+      "originalSha256": "6c659e7ab3780c6004e9737fe44bbd09913c71b4d2b80573c1bc2ee101692ecf"
+    },
+    {
+      "path": "src/shared/gameFeatures.ts",
+      "sha256": "d30f504e01d413c333f10ab326182027280b9c1513a714d1d14f82d5c883cb8a",
+      "originalSha256": "d30f504e01d413c333f10ab326182027280b9c1513a714d1d14f82d5c883cb8a"
+    },
+    {
+      "path": "src/shared/gameModes.ts",
+      "sha256": "0335ef9bd1cc7dec14c2f81b93fe0e8edb8ec7e6682978bf21addbd7a11291b5",
+      "originalSha256": "0335ef9bd1cc7dec14c2f81b93fe0e8edb8ec7e6682978bf21addbd7a11291b5"
+    },
+    {
+      "path": "src/shared/gameSceneUi.ts",
+      "sha256": "a4d32379edf96785888f5f63de3691440b2b8a32fc2f36092aabb34e3150b636",
+      "originalSha256": "a4d32379edf96785888f5f63de3691440b2b8a32fc2f36092aabb34e3150b636"
+    },
+    {
+      "path": "src/shared/gameScenes.ts",
+      "sha256": "adbade95fe87e2ec2f629d50020579acd3e2247e7c757a865a6aeefc015a6a5b",
+      "originalSha256": "adbade95fe87e2ec2f629d50020579acd3e2247e7c757a865a6aeefc015a6a5b"
+    },
+    {
+      "path": "src/shared/gameSourcePath.ts",
+      "sha256": "11690310602f3a2d94230328d16d7714e136cd223e5518e068cab43ffb9b149a",
+      "originalSha256": "11690310602f3a2d94230328d16d7714e136cd223e5518e068cab43ffb9b149a"
+    },
+    {
+      "path": "src/shared/gameTags.ts",
+      "sha256": "7c8593b113d1a5e1a5420c47825c37b2fa7b260e2bfd75ad861ca9b4ed1b40ac",
+      "originalSha256": "7c8593b113d1a5e1a5420c47825c37b2fa7b260e2bfd75ad861ca9b4ed1b40ac"
+    },
+    {
+      "path": "src/shared/gameUi.ts",
+      "sha256": "15fb5c1a9da38bba1dc4b3b5bbd4f7dccb6786fc527767fc3ef9cbdcae41a3d4",
+      "originalSha256": "15fb5c1a9da38bba1dc4b3b5bbd4f7dccb6786fc527767fc3ef9cbdcae41a3d4"
+    },
+    {
+      "path": "src/shared/gameUiDefaults.ts",
+      "sha256": "a975fe92f4ac734220c3094691309f35a7daed6fa48be33cb36dc41d23de3d8a",
+      "originalSha256": "a975fe92f4ac734220c3094691309f35a7daed6fa48be33cb36dc41d23de3d8a"
+    },
+    {
+      "path": "src/shared/gameUiEvents.ts",
+      "sha256": "2ef70d40c6d21f4316c084338c378ad19fa5c6a773b2c87372bf32775a41a242",
+      "originalSha256": "2ef70d40c6d21f4316c084338c378ad19fa5c6a773b2c87372bf32775a41a242"
+    },
+    {
+      "path": "src/shared/gameUiLayout.ts",
+      "sha256": "399eac3b8fe138e00d0de8128a0ce25689c6580ee65ce5ebf9ed2ec0fa7dd297",
+      "originalSha256": "f83a7511e958cada82f8e4486b387fa8126110dc57de2b97f56566dfa8f5a2d2"
+    },
+    {
+      "path": "src/shared/gameUiMod.ts",
+      "sha256": "55d81bccd218bddc7d7affb894493fd4655ef56e5b4e567a5d9fbee3e18f0963",
+      "originalSha256": "55d81bccd218bddc7d7affb894493fd4655ef56e5b4e567a5d9fbee3e18f0963"
+    },
+    {
+      "path": "src/shared/inspectionCamera.ts",
+      "sha256": "71f2cae7a6135fad2e1afc91e74b0337c98388b0890c72e010422139f8241968",
+      "originalSha256": "71f2cae7a6135fad2e1afc91e74b0337c98388b0890c72e010422139f8241968"
+    },
+    {
+      "path": "src/shared/inspectionTrace.ts",
+      "sha256": "4c46f128663d9ab756436f432396f30229492243ed9a3e15d3d9a5520a2df397",
+      "originalSha256": "4c46f128663d9ab756436f432396f30229492243ed9a3e15d3d9a5520a2df397"
+    },
+    {
+      "path": "src/shared/materialRecipeData.ts",
+      "sha256": "6d826372da0a83d410cbcf0c418f9fe151fea51d13a31a28d3ca172731f4dd6d",
+      "originalSha256": "6d826372da0a83d410cbcf0c418f9fe151fea51d13a31a28d3ca172731f4dd6d"
+    },
+    {
+      "path": "src/shared/materialRecipeRenderer.ts",
+      "sha256": "633fa348c94efbbde7f53d7be882414dca4eec6a1e21e771ebd9bee34b4052b7",
+      "originalSha256": "633fa348c94efbbde7f53d7be882414dca4eec6a1e21e771ebd9bee34b4052b7"
+    },
+    {
+      "path": "src/shared/mediaAssetData.ts",
+      "sha256": "1e7ba2524e840260714e6b47544d6976b9a424a0165e721f64f6cb2e67b63e62",
+      "originalSha256": "1e7ba2524e840260714e6b47544d6976b9a424a0165e721f64f6cb2e67b63e62"
+    },
+    {
+      "path": "src/shared/mediaAssets.ts",
+      "sha256": "b9f542ddd2b186abd40581602a3af8614480f0e222b9d0003ebd81c9a386f887",
+      "originalSha256": "b9f542ddd2b186abd40581602a3af8614480f0e222b9d0003ebd81c9a386f887"
+    },
+    {
+      "path": "src/shared/mediaRecipes.ts",
+      "sha256": "bbc8e9d4740e7c6b567a9fc6d0aca63dbbd04dc0f2b7d1b5361d2a1a273fc0c5",
+      "originalSha256": "bbc8e9d4740e7c6b567a9fc6d0aca63dbbd04dc0f2b7d1b5361d2a1a273fc0c5"
+    },
+    {
+      "path": "src/shared/rendererBundle.ts",
+      "sha256": "bc77cf8eabe1086ec7113856877f7bfe9b51b71178367051ca9273619c873941",
+      "originalSha256": "bc77cf8eabe1086ec7113856877f7bfe9b51b71178367051ca9273619c873941"
+    },
+    {
+      "path": "src/shared/rosterFile.ts",
+      "sha256": "41bd1f1bc7fea2423d30942c5c3aefc8e9c19a1858cdf87c816c93706a086503",
+      "originalSha256": "41bd1f1bc7fea2423d30942c5c3aefc8e9c19a1858cdf87c816c93706a086503"
+    },
+    {
+      "path": "src/shared/roundSeries.ts",
+      "sha256": "c335e89385d3b25637fa0ba3c31926feeeec9b4771c322cde5dc90e0ffa07123",
+      "originalSha256": "c335e89385d3b25637fa0ba3c31926feeeec9b4771c322cde5dc90e0ffa07123"
+    },
+    {
+      "path": "src/shared/schema.ts",
+      "sha256": "a1aa1cb47e025c67ad1631aa50947e352fb3e464ff8b853aa7d8da33af94d62f",
+      "originalSha256": "a1aa1cb47e025c67ad1631aa50947e352fb3e464ff8b853aa7d8da33af94d62f"
+    },
+    {
+      "path": "src/shared/seasonGames.ts",
+      "sha256": "d320972bd06568c2dbe2546d821b6c8f912d140f04af9c06e1439609a35846e5",
+      "originalSha256": "d320972bd06568c2dbe2546d821b6c8f912d140f04af9c06e1439609a35846e5"
+    },
+    {
+      "path": "src/shared/shapes.ts",
+      "sha256": "f85ab0ad68d9a0ca94f1f8a9a86059d678bc8238919e14a2608c8bab6ab9a03a",
+      "originalSha256": "f85ab0ad68d9a0ca94f1f8a9a86059d678bc8238919e14a2608c8bab6ab9a03a"
+    },
+    {
+      "path": "src/shared/soundAudition.ts",
+      "sha256": "be531ea632fad14a6e36c72d06805c19f7e2fbc462a5189d90211955c98781a7",
+      "originalSha256": "be531ea632fad14a6e36c72d06805c19f7e2fbc462a5189d90211955c98781a7"
+    },
+    {
+      "path": "src/shared/soundBehavior.ts",
+      "sha256": "623014173fa78f79e7da4523b44af2452bd2ce1c0fe3484c6545ad0c06d4214d",
+      "originalSha256": "623014173fa78f79e7da4523b44af2452bd2ce1c0fe3484c6545ad0c06d4214d"
+    },
+    {
+      "path": "src/shared/soundBehaviorPreview.ts",
+      "sha256": "13dc9e48f2f5a94a6592c16b1cc37a217990920a66fe21233b7d55705ff5a925",
+      "originalSha256": "13dc9e48f2f5a94a6592c16b1cc37a217990920a66fe21233b7d55705ff5a925"
+    },
+    {
+      "path": "src/shared/soundPitch.ts",
+      "sha256": "d1f237437253bbe8cbf1241ad62531922459990cb99cac0a8b42f6395fc721e2",
+      "originalSha256": "d1f237437253bbe8cbf1241ad62531922459990cb99cac0a8b42f6395fc721e2"
+    },
+    {
+      "path": "src/shared/soundRecipeRenderer.ts",
+      "sha256": "339c873d4050d81e0c13be0742729ffaa9a98b2abbf14ce71c66b89db563845c",
+      "originalSha256": "339c873d4050d81e0c13be0742729ffaa9a98b2abbf14ce71c66b89db563845c"
+    },
+    {
+      "path": "src/shared/soundRecipes.ts",
+      "sha256": "244448d08a81ae5ad481621d545c4e9d3c5fc6784c19995c8ee7815607eb6bba",
+      "originalSha256": "244448d08a81ae5ad481621d545c4e9d3c5fc6784c19995c8ee7815607eb6bba"
+    },
+    {
+      "path": "src/shared/statePaths.ts",
+      "sha256": "2262b2784cebb0fe8570802f255fe6a57bf82c07da36411e96150b451849edd8",
+      "originalSha256": "2262b2784cebb0fe8570802f255fe6a57bf82c07da36411e96150b451849edd8"
+    },
+    {
+      "path": "src/shared/tuningSchema.ts",
+      "sha256": "a9e62e0638e4d335a57a21e4537683c8f1426e4e529bc083f84979e351f85d14",
+      "originalSha256": "a9e62e0638e4d335a57a21e4537683c8f1426e4e529bc083f84979e351f85d14"
+    },
+    {
+      "path": "src/shared/types.ts",
+      "sha256": "4a4366b581af21430048694ce5fbd62252772d5c29ea46052caa76d5c9c3e101",
+      "originalSha256": "4a4366b581af21430048694ce5fbd62252772d5c29ea46052caa76d5c9c3e101"
+    },
+    {
+      "path": "src/shared/voicePolicy.ts",
+      "sha256": "da923814c120996ab2a8531991f1d3dcfa927380c6f2323daef78de1cd86a706",
+      "originalSha256": "da923814c120996ab2a8531991f1d3dcfa927380c6f2323daef78de1cd86a706"
+    },
+    {
+      "path": "tests/core/animation.test.ts",
+      "sha256": "64868db6085b4e59c53150a6b57b7ffc16164230a38ac1ddad3271966e4e17ef",
+      "originalSha256": "64868db6085b4e59c53150a6b57b7ffc16164230a38ac1ddad3271966e4e17ef"
+    },
+    {
+      "path": "tests/core/damage.test.ts",
+      "sha256": "e4f751911d5ef916b317539e274630d19cfd0683755e39bc6c3af40eeb4847f3",
+      "originalSha256": "e4f751911d5ef916b317539e274630d19cfd0683755e39bc6c3af40eeb4847f3"
+    },
+    {
+      "path": "tests/core/equipmentOrientation.test.ts",
+      "sha256": "ac792b25204e4648e2eee9a190a22e68be4bb1c1699dda67866934257ec4778f",
+      "originalSha256": "ac792b25204e4648e2eee9a190a22e68be4bb1c1699dda67866934257ec4778f"
+    },
+    {
+      "path": "tests/core/executionBudget.test.ts",
+      "sha256": "483cbe249ee2355b43fe723809a5cfcdaabfc53e84183b87fa45d6691e7a9196",
+      "originalSha256": "483cbe249ee2355b43fe723809a5cfcdaabfc53e84183b87fa45d6691e7a9196"
+    },
+    {
+      "path": "tests/core/executionClock.test.ts",
+      "sha256": "057f57a956ba9c6b5525ca1fb9db39961314c4a04511d6fbc8c7a2e7ef58cbb8",
+      "originalSha256": "057f57a956ba9c6b5525ca1fb9db39961314c4a04511d6fbc8c7a2e7ef58cbb8"
+    },
+    {
+      "path": "tests/core/firearms.test.ts",
+      "sha256": "f3e44f903cda4a8afcc8d496a5432c23a7eeaf847859381c69cfd504a34ab105",
+      "originalSha256": "f3e44f903cda4a8afcc8d496a5432c23a7eeaf847859381c69cfd504a34ab105"
+    },
+    {
+      "path": "tests/core/fixtures/round-series/logic.ts",
+      "sha256": "df8d95069799faf913ca7c5c8f385c4225560110854acfa2ba83a2897ac8c0d0",
+      "originalSha256": "df8d95069799faf913ca7c5c8f385c4225560110854acfa2ba83a2897ac8c0d0"
+    },
+    {
+      "path": "tests/core/gameUiLayout.test.ts",
+      "sha256": "25b3d44f950e1386cd190e48efbf5881cb3321beffb0f43508765b1283934921",
+      "originalSha256": "25b3d44f950e1386cd190e48efbf5881cb3321beffb0f43508765b1283934921"
+    },
+    {
+      "path": "tests/core/mapAssembly.test.ts",
+      "sha256": "6524a4e8dc0e185021c1ebbf75c669fbc1b8ee0a03f98c4c24b9604bfe0f7933",
+      "originalSha256": "6524a4e8dc0e185021c1ebbf75c669fbc1b8ee0a03f98c4c24b9604bfe0f7933"
+    },
+    {
+      "path": "tests/core/mapAssemblyAdversarial.test.ts",
+      "sha256": "3abdfb5fafa7db451475be8f92112d8377ed990d0bb57ae3f4b391f5ac3d84f4",
+      "originalSha256": "3abdfb5fafa7db451475be8f92112d8377ed990d0bb57ae3f4b391f5ac3d84f4"
+    },
+    {
+      "path": "tests/core/mapAssemblyRevision.test.ts",
+      "sha256": "8352731a64575de072d707b447aedfe836e95580773b0d2534858149740522e1",
+      "originalSha256": "8352731a64575de072d707b447aedfe836e95580773b0d2534858149740522e1"
+    },
+    {
+      "path": "tests/core/objectPool.test.ts",
+      "sha256": "c107cf501ef285d90013922a14e31f2796c3c22b9b8f076c9692ff2cf0fd34d5",
+      "originalSha256": "c107cf501ef285d90013922a14e31f2796c3c22b9b8f076c9692ff2cf0fd34d5"
+    },
+    {
+      "path": "tests/core/physicsMassProperties.test.ts",
+      "sha256": "9460bc0e787d87a90975ceee012d7faba9525c469856d21b3330e61d7c1cdc2d",
+      "originalSha256": "9460bc0e787d87a90975ceee012d7faba9525c469856d21b3330e61d7c1cdc2d"
+    },
+    {
+      "path": "tests/core/roundSeries.test.ts",
+      "sha256": "b6c62dcbd8262cd3148702210e1c10da5d6a85b4a69a337187ece3de17994df2",
+      "originalSha256": "b6c62dcbd8262cd3148702210e1c10da5d6a85b4a69a337187ece3de17994df2"
+    },
+    {
+      "path": "tests/core/spatial.test.ts",
+      "sha256": "bec5692c826215f7121a6132c8d2f55e2a4bc99fd4fa7623ee82eb0b2651fd56",
+      "originalSha256": "bec5692c826215f7121a6132c8d2f55e2a4bc99fd4fa7623ee82eb0b2651fd56"
+    },
+    {
+      "path": "tests/core/terrainStreaming.test.ts",
+      "sha256": "e18f2b1b58ab28e4ee36b218d497d0e40aae37244fa1142fe0438f445b8edfcb",
+      "originalSha256": "e18f2b1b58ab28e4ee36b218d497d0e40aae37244fa1142fe0438f445b8edfcb"
+    },
+    {
+      "path": "tests/core/voxels.test.ts",
+      "sha256": "ec215691f6cac98b269144f01e220b55cc3f5eae087d796a39cba631569b2b5b",
+      "originalSha256": "ec215691f6cac98b269144f01e220b55cc3f5eae087d796a39cba631569b2b5b"
+    },
+    {
+      "path": "tests/runtimeInitialization.ts",
+      "sha256": "03ef01b890b0bb994f4cdc3d699fcb76227497db10689d05b9a616270586ff7e",
+      "originalSha256": "03ef01b890b0bb994f4cdc3d699fcb76227497db10689d05b9a616270586ff7e"
+    },
+    {
+      "path": "tests/standalone.test.ts",
+      "sha256": "fa0a0bb5f2114abd9403f74014c3d8ae9465626cd19fa978ebebfb651cfd68d4",
+      "origin": "standalone engine addition"
+    }
+  ],
+  "differences": [
+    "Unreal-derived baked locomotion excluded; original procedural starter substituted.",
+    "Standalone package, test configuration, example and public documentation added.",
+    "Hosted platform services and all original Git history excluded."
+  ],
+  "validation": {
+    "typecheck": "passed",
+    "testFiles": 17,
+    "testsPassed": 207,
+    "headlessExample": "passed:60ticks,two authoritative input streams",
+    "packageDryRun": {
+      "entries": 306,
+      "unpackedBytes": 10074126
+    }
+  },
+  "platformMigration": "Production platform still uses its existing source tree. Migrating it to a pinned external engine dependency is a subsequent change."
+}
