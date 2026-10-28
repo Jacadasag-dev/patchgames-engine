@@ -100,6 +100,10 @@ function entryFile(root: string, name: string): string {
  */
 function lockedInputs(root: string): Set<string> {
   return new Set([
+    // Optional host-owned data adapters. Authored games cannot write these paths.
+    // Hosts can retain separately licensed asset banks without forking the engine.
+    real(resolve(root, 'src/sandbox/hostAssets.ts')),
+    real(resolve(root, 'src/sandbox/ueLocomotionData.ts')),
     ...SANDBOX_FILES,
     ...['gameScenes.ts','gameUi.ts','gameUiEvents.ts','mediaAssets.ts','mediaAssetData.ts','mediaRecipes.ts','materialRecipeData.ts','materialRecipeRenderer.ts','soundRecipes.ts','soundRecipeRenderer.ts','soundPitch.ts','soundBehavior.ts','soundAudition.ts','soundBehaviorPreview.ts','mediaRecipeExamples.ts','pointerLook.ts','roundSeries.ts','statePaths.ts','voicePolicy.ts','fastLane.ts'].flatMap(name => [real(resolve(root, 'src/shared', name)), real(fileURLToPath(new URL('../../shared/'+name, import.meta.url)))]),
     GAME_API,
