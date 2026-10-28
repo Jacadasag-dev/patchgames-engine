@@ -75,7 +75,7 @@ To use a bank you have rights to distribute, call
 `configureSharedHumanoidLocomotion(packedBank)` before building motion databases.
 The importer, retargeting, and playback code are available independently.
 
-Included Mesh2Motion creature data uses CC0-1.0. Media catalog entries retain
+Included Mesh2Motion and Quaternius creature data uses CC0-1.0. Media catalog entries retain
 source metadata; hosted texture/audio binaries are not bundled. Applications
 must supply their own media resolver and assets. See
 [third-party notices](THIRD_PARTY_NOTICES.md).
