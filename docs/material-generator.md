@@ -1,5 +1,74 @@
 # Material generator
 
+## Patterned blending and plant materials
+
+Use a base material plus a patterned layer for ore, moss, paint, aggregate or veins.
+`shared/materialPatterns` exports pure `parseMaterialPattern`,
+`sampleMaterialPattern` and `MATERIAL_PATTERN_TYPES`. Patterns support `patches`,
+`clusters`, `veins`, `cells`, `stripes`, and `speckles`. Parameters are
+`sizeMeters`, `coverage`, `irregularity`, `edgeSoftnessMeters`, `angleRadians`,
+`seed`, and `invert`. Coverage is an artistic threshold, not an exact area fraction.
+Up to three non-recursive `gates:[{operation:'intersect'|'union'|'subtract',pattern}]`
+combine patterns. For example, intersect clusters with veins. The same seed and
+coordinates reproduce the same mask; object-wide masks do not change with source
+texture repeats or image resolution.
+
+For boxes use `OBJECT_SURFACE_EXAMPLES.iron`, `.diamond`, `.gold`, or
+`['moss-bark']` from `shared/objectSurface`. They are editable recipes:
+
+```ts
+const layer = {
+  id:'ore',
+  material:{pattern:{family:'metal'},color:'#d5ac40',secondaryColor:'#76551b'},
+  coverage:{kind:'pattern',pattern:{type:'clusters',sizeMeters:.17,coverage:.36,seed:19}},
+  opacity:1,
+  heightOffsetMeters:-.006
+};
+```
+
+Object masks sample continuous 3D model coordinates, so the mask agrees at face
+corners. An optional coverage `selection:{space:'model',faces:['front']}` restricts
+application. Each source material still uses its own physical face UVs. Pattern
+coverage, source alpha and layer opacity jointly blend color, height, roughness,
+metalness and cavity shading; normals derive from the final height. Positive
+height offsets raise the layer, negative offsets recess it. This is shallow
+shading relief, not a mesh cut. Source texture seams can remain even where mask
+coverage is continuous.
+
+Ordinary `TextureRecipe` layers use the same masks:
+`mask:{kind:'pattern',tileMeters:[1,1],pattern:{type:'veins',sizeMeters:.12}}`.
+Here tileMeters converts the composition's UV frame to metres; it does not use
+the layer's source repeats. This is a planar slice of the 3D field. Finite patterned
+tiles are not guaranteed seamless when subsequently repeated; use model-wide
+object surfaces or inspect the tile boundaries. Existing noise/height/slope masks
+remain available. Authoritative data parsers validate the same bounded recipes.
+
+Four additional generator families provide editable plant surfaces:
+
+| Family | Controls |
+| --- | --- |
+| bark | ridge metres, fissures, peeling, knots, vertical/horizontal direction |
+| leaf | length/width metres, vein spacing/strength, pointed/oval/lobed outline, edge serration, damage |
+| needle | length/width metres, taper, vein strength, damage |
+| exposed-wood | growth-ring metres, grain, knots, end/lengthwise cut |
+
+Use the family presets for suitable colors and physical tiles. Leaves/needles are
+individual silhouettes centred in the tile; leave space around their length and
+width. Generated color alpha contains real cutouts. Generated material handles
+use alpha testing and two-sided rendering. Recipe compositions and surface-cache
+clones retain cutout state; partially transparent compositions use blending.
+These generators do not produce a tree mesh, branching, wind, refraction, or
+subsurface light transmission. Bark and leaf detail are procedural approximations;
+resolution alone does not establish photorealism.
+
+The lab has 54 material swatches plus six object recipes. Choose an ore/moss
+example to edit the pattern, source colors/repeats, opacity and recess/raise depth,
+add/remove layers, or restrict a pattern to veins. **Blend mask** shows combined
+coverage/opacity before source cutouts; **Opacity** shows final color alpha.
+Filter the library by bark, leaf, needle or exposed-wood to edit those generators.
+Leaves/needles select a physical-size card preview. Changes rebake in a cancellable
+worker without resetting the camera. Save/export stores recipe data, not pixels.
+
 ## Physical mapping and inspection
 
 For a generated box, prefer `createGeneratedMaterialBox(recipe, [width, height, depth])`
@@ -67,7 +136,7 @@ material library. PNG export in the lab remains an explicit user action.
 ## Interactive lab
 
 Run Vite from a checkout and open `examples/material-lab.html`. The lab includes
-50 named editable examples, live family controls, a rotatable sphere/cube/plane,
+54 named editable examples, live family controls, a rotatable sphere/cube/plane,
 six map views, lighting choices, pixel/realistic output and PNG/JSON exports.
 Custom presets save locally in the browser; exporting JSON makes them portable.
 The browser generates everything in workers, without an account or image service.

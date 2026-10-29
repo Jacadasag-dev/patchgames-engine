@@ -1,4 +1,5 @@
 import {parseMaterialGeneratorData} from './materialGeneratorData.ts';
+import {parseMaterialPattern} from './materialPatterns.ts';
 /** Dependency-free material recipe data validation for authoritative game logic.
  * Keep this parser equivalent to mediaRecipes.ts; parity tests cover defaults,
  * limits and each nested field. The renderer/editor retain their Zod schemas. */
@@ -52,6 +53,9 @@ function source(input: unknown): Source {
   return { kind: 'noise', colors: pair(value.colors, color, 'Noise colors'), scale: number(value.scale === undefined ? 8 : value.scale, 1, 64, 'Noise scale', true), ...optional(value, 'seed', seed) };
 }
 function mask(input: unknown): Mask {
+  if(input&&typeof input==='object'&&(input as Data).kind==='pattern'){
+    const value=object(input,['kind','pattern','tileMeters'],'Pattern mask');return{kind:'pattern',pattern:parseMaterialPattern(value.pattern),tileMeters:pair(value.tileMeters===undefined?[1,1]:value.tileMeters,v=>number(v,.002,100,'Pattern tile metres'),'Pattern tile metres')};
+  }
   const value = object(input, ['kind', 'field', 'min', 'max', 'softness', 'invert', 'scale', 'seed'], 'Texture mask');
   const min = unit(value.min === undefined ? .35 : value.min), max = unit(value.max === undefined ? 1 : value.max);
   if (min > max) throw new Error('Mask min must be at most max.');

@@ -1,5 +1,6 @@
 import {materialRecipe} from './materialRegistry.ts';
 import { generateMaterial } from './materialGenerator.ts';
+import {sampleMaterialPattern} from './materialPatterns.ts';
 import { textureRecipeSchema, type ResolvedTextureRecipe, type TextureRecipe } from './mediaRecipes.ts';
 
 /** Color images use sRGB RGBA8. Height/roughness/metalness use linear grayscale RGBA8. */
@@ -147,7 +148,7 @@ export async function renderMaterialRecipe(input: TextureRecipe, options: Materi
     const mask = layer.mask;
     const previousHeights = mask?.kind === 'slope' && mask.field === 'material' ? heights.slice() : heights;
     let surfaceField: ArrayLike<number> | undefined;
-    if (mask?.field === 'surface' && mask.kind !== 'noise') {
+    if (mask&&mask.kind!=='pattern'&&mask.field === 'surface' && mask.kind !== 'noise') {
       surfaceField = mask.kind === 'height' ? surface?.elevation : surface?.slope;
       if (!surface || !surfaceField) throw new Error(`Layer ${layer.name ?? layerIndex + 1}: ${mask.kind} surface mask needs a normalized ${mask.kind === 'height' ? 'elevation' : 'slope'} field.`);
     }
@@ -159,7 +160,8 @@ export async function renderMaterialRecipe(input: TextureRecipe, options: Materi
       const g = maps ? linear(sample(maps.color, su, sv, 1)) : solid?.[1] ?? mix(low![1], high![1], n);
       const b = maps ? linear(sample(maps.color, su, sv, 2)) : solid?.[2] ?? mix(low![2], high![2], n);
       let weight = layer.opacity * (maps ? sample(maps.color, su, sv, 3) : 1);
-      if (mask) {
+      if(mask?.kind==='pattern')weight*=sampleMaterialPattern(mask.pattern,[tu*mask.tileMeters[0],tv*mask.tileMeters[1],0]);
+      else if (mask) {
         let value: number;
         if (mask.kind === 'noise') value = noise(tu, tv, mask.scale, mask.seed ?? recipe.seed + layerIndex + 101);
         else if (surfaceField && surface) value = fieldAt(surfaceField, surface.width, surface.height, u, v);

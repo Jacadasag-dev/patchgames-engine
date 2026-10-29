@@ -328,7 +328,7 @@ export class TerrainView {
       let routeMaterial: THREE.MeshStandardMaterial;
       if (route.material) {
         const resolved = resolveSurfaceMaterial(route.material, { seed: manifest.recipe.seed, key: `terrain:route:${route.id}` });
-        if (resolved.texture.layers.some(layer => layer.mask?.field === 'surface' && layer.mask.kind !== 'noise')) {
+        if (resolved.texture.layers.some(layer => layer.mask && layer.mask.kind !== 'pattern' && layer.mask.field === 'surface' && layer.mask.kind !== 'noise')) {
           const atlas = createTerrainMaterialAtlas(manifest, this.materialCache, this.options.terrainMaterials, route); materialAtlases.push(atlas); routeMaterial = atlas.material; routeMaterial.side = THREE.DoubleSide;
           familyResources.add(routeMaterial);
         } else {

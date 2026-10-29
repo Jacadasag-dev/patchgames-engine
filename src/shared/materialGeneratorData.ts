@@ -5,6 +5,10 @@ const patterns:Record<string,Record<string,unknown>>={
   rock:{grainMeters:0.08,fractures:0.3,layering:0.2},wood:{plankMeters:0.2,grain:0.7,knots:0.3,gapMeters:0.004,direction:'vertical'},
   dirt:{grainMeters:0.05,clumping:0.6,moisture:0.1,stones:0.2},gravel:{stoneMeters:0.08,roundness:0.6,sizeVariation:0.4},
   grass:{bladeMeters:0.03,density:0.8,dryness:0.2,barePatches:0.15},metal:{brushing:0.4,oxidation:0.1,metalness:0.95},plaster:{grainMeters:0.02,cracks:0.15},
+  bark:{ridgeMeters:.04,fissures:.7,peeling:.2,knots:.3,direction:'vertical'},
+  leaf:{lengthMeters:.18,widthMeters:.08,veinSpacingMeters:.015,veins:.7,edgeSerration:.2,damage:.05,outline:'pointed'},
+  needle:{lengthMeters:.12,widthMeters:.006,taper:.8,veins:.5,damage:0},
+  'exposed-wood':{ringMeters:.008,grain:.6,knots:.2,cut:'end'},
 };
 function object(value:unknown,keys:string[],where:string):Record<string,unknown>{
   if(!value||typeof value!=='object'||Array.isArray(value)||![Object.prototype,null].includes(Object.getPrototypeOf(value))||Object.keys(value).some(k=>!keys.includes(k)))throw Error(where+': expected plain recipe data with supported fields.');return value as Record<string,unknown>;
@@ -26,7 +30,7 @@ export function parseMaterialGeneratorData(input:unknown):ResolvedMaterialGenera
   for(const[key,value]of Object.entries(result.pattern)){
     if(key==='family')continue;
     if(key==='blockMeters'){result.pattern[key]=pair(value,key);continue;}
-    const choices:Record<string,string[]>={shape:['rectangle','square','triangle'],bond:['stack','staggered'],direction:['vertical','horizontal']};
+    const choices:Record<string,string[]>={shape:['rectangle','square','triangle'],bond:['stack','staggered'],direction:['vertical','horizontal'],outline:['pointed','oval','lobed'],cut:['end','lengthwise']};
     if(choices[key]){if(!choices[key].includes(String(value)))throw Error('Invalid '+key);continue;}
     num(value,key.endsWith('Meters')&&!['mortarMeters','gapMeters'].includes(key)?0.002:0,key==='mortarMeters'?0.1:key==='gapMeters'?0.05:key.endsWith('Meters')?100:1,key);
   }

@@ -30,6 +30,7 @@ export function createGeneratedMaterialFromPixels(baked:GeneratedMaterialPixels,
     return[name,map];
   })) as Record<'color'|'normal'|'roughness'|'metalness'|'height'|'ao',THREE.DataTexture>;
   const material=new THREE.MeshStandardMaterial({name:baked.recipe.name,map:maps.color,normalMap:maps.normal,roughnessMap:maps.roughness,metalnessMap:maps.metalness,aoMap:maps.ao,roughness:1,metalness:1});
+  if(baked.color.data.some((v,i)=>i%4===3&&v<255)){material.alphaTest=.5;material.side=THREE.DoubleSide;}
   material.userData.materialGenerator={recipe:baked.recipe,diagnostics:baked.diagnostics};
   let disposed=false;
   return{material,maps,recipe:baked.recipe,diagnostics:baked.diagnostics,dispose(){if(disposed)return;disposed=true;material.dispose();Object.values(maps).forEach(map=>map.dispose());}};

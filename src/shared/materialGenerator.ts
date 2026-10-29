@@ -20,6 +20,10 @@ export const materialGeneratorSchema=z.object({
     z.object({family:z.literal('grass'),bladeMeters:length.default(0.03),density:unit.default(0.8),dryness:unit.default(0.2),barePatches:unit.default(0.15)}).strict(),
     z.object({family:z.literal('metal'),brushing:unit.default(0.4),oxidation:unit.default(0.1),metalness:unit.default(0.95)}).strict(),
     z.object({family:z.literal('plaster'),grainMeters:length.default(0.02),cracks:unit.default(0.15)}).strict(),
+    z.object({family:z.literal('bark'),ridgeMeters:length.default(.04),fissures:unit.default(.7),peeling:unit.default(.2),knots:unit.default(.3),direction:z.enum(['vertical','horizontal']).default('vertical')}).strict(),
+    z.object({family:z.literal('leaf'),lengthMeters:length.default(.18),widthMeters:length.default(.08),veinSpacingMeters:length.default(.015),veins:unit.default(.7),edgeSerration:unit.default(.2),damage:unit.default(.05),outline:z.enum(['pointed','oval','lobed']).default('pointed')}).strict(),
+    z.object({family:z.literal('needle'),lengthMeters:length.default(.12),widthMeters:length.default(.006),taper:unit.default(.8),veins:unit.default(.5),damage:unit.default(0)}).strict(),
+    z.object({family:z.literal('exposed-wood'),ringMeters:length.default(.008),grain:unit.default(.6),knots:unit.default(.2),cut:z.enum(['end','lengthwise']).default('end')}).strict(),
   ]),
 }).strict().superRefine((r,ctx)=>{
   if(r.pattern.family==='masonry' && r.pattern.mortarMeters>=Math.min(...r.pattern.blockMeters)/2)
@@ -29,7 +33,7 @@ export const materialGeneratorSchema=z.object({
 });
 export type MaterialGeneratorRecipe=z.input<typeof materialGeneratorSchema>;
 export type ResolvedMaterialGenerator=z.output<typeof materialGeneratorSchema>;
-export const MATERIAL_FAMILIES=['masonry','rock','wood','dirt','gravel','grass','metal','plaster'] as const;
+export const MATERIAL_FAMILIES=['masonry','rock','wood','dirt','gravel','grass','metal','plaster','bark','leaf','needle','exposed-wood'] as const;
 const clamp=(v:number)=>Math.max(0,Math.min(1,v));
 const mix=(a:number,b:number,t:number)=>a+(b-a)*t;
 const wrap=(v:number,n=1)=>((v%n)+n)%n;
@@ -72,10 +76,37 @@ export function sampleMaterialGenerator(r:ResolvedMaterialGenerator,u:number,v:n
     const n=noise(u,v,cells(r.tileMeters[0],p.bladeMeters),cells(r.tileMeters[1],p.bladeMeters*4),s+3),growth=coarse>p.barePatches?1:0.15;h=n*p.density*growth*0.6;t=0.2+n*p.density*growth*0.6+p.dryness*0.2;
   }else if(p.family==='metal'){
     h=0.5+noise(u,v,4,128,s)*p.brushing*0.04;t=0.5+fine*0.2-coarse*p.oxidation*0.3;metal=p.metalness*(1-p.oxidation*coarse);rough=clamp(rough+coarse*p.oxidation*0.3);
+  }else if(p.family==='bark'){
+    const a=p.direction==='vertical'?u:v,b=p.direction==='vertical'?v:u,span=p.direction==='vertical'?r.tileMeters[0]:r.tileMeters[1],nx=cells(span,p.ridgeMeters);
+    const bend=noise(u,v,8,8,s)*.9+Math.sin(b*Math.PI*8)*p.knots*.4,phase=(a*nx+bend)*Math.PI*2,ridge=(Math.sin(phase)+1)/2,crack=Math.pow(1-ridge,5)*p.fissures;
+    const peel=Math.max(0,noise(u,v,nx,16,s+7)-.55)*p.peeling;
+    h=.35+ridge*.3-crack*.3+peel*.5;t=.22+ridge*.45-crack*.2+peel;ao=1-crack*.6;rough=clamp(r.roughness+peel*.2);
+  }else if(p.family==='leaf'||p.family==='needle'){
+    const x=(u-.5)*r.tileMeters[0],y=(v-.5)*r.tileMeters[1],half=p.lengthMeters/2;
+    const centre=Math.exp(-Math.abs(x)/Math.max(.0002,p.widthMeters*.025)),spacing=p.family==='leaf'?p.veinSpacingMeters:p.lengthMeters*.2;
+    const branch=(1-Math.abs(Math.sin((y-Math.abs(x)*.7)*Math.PI/spacing)))**12;
+    const vein=clamp(centre+branch*.6)*p.veins;h=.45+vein*.18+Math.max(0,1-Math.abs(x)/(p.widthMeters/2))*.08;t=.35+coarse*.25+vein*.15+(y/half)*.04;ao=1-vein*.08;
+  }else if(p.family==='exposed-wood'){
+    const x=(u-.5)*r.tileMeters[0],y=(v-.5)*r.tileMeters[1],radius=Math.hypot(x,y);
+    const phase=(p.cut==='end'?radius:x)/p.ringMeters+coarse*p.knots*2,ring=(Math.sin(phase*Math.PI*2)+1)/2;
+    t=.3+ring*p.grain*.35+coarse*.2;h=.4+ring*p.grain*.07;ao=1-(1-ring)*.1;
   }else{
     const n=noise(u,v,cells(r.tileMeters[0],p.grainMeters),cells(r.tileMeters[1],p.grainMeters),s+3),crack=(1-clamp(Math.abs(coarse-0.5)*60))*p.cracks;h=0.5+n*0.08-crack*0.2;t=0.6+n*0.15-crack*0.25;ao=1-crack*0.3;
   }
   return[clamp(t+(fine-0.5)*r.variation*0.15+(micro-0.5)*0.06),clamp(h-fine*r.weathering*0.05+(micro-0.5)*0.012),clamp(rough+(fine-0.5)*r.variation*0.12),metal,ao];
+}
+/** Alpha silhouette for individual leaves/needles, centred in their physical tile.
+ * Not a leaf mesh or a transparency/lighting model. Other families are opaque.
+ */
+export function sampleMaterialOpacity(r:ResolvedMaterialGenerator,u:number,v:number):number{
+  const p=r.pattern;if(p.family!=='leaf'&&p.family!=='needle')return 1;
+  const x=Math.abs((wrap(u)-.5)*r.tileMeters[0]),y=(wrap(v)-.5)*r.tileMeters[1],t=(y/p.lengthMeters+.5);
+  if(t<=0||t>=1)return 0;
+  let width=p.widthMeters*.5*(p.family==='needle'?Math.pow(Math.sin(t*Math.PI),.25+p.taper*1.5):p.outline==='oval'?Math.sqrt(Math.max(0,1-(2*t-1)**2)):Math.sin(t*Math.PI));
+  if(p.family==='leaf'){width*=1-p.edgeSerration*.15*(.5+.5*Math.sin(t*90));if(p.outline==='lobed')width*=.65+.35*Math.sin(t*5*Math.PI)**2;}
+  if(x>width)return 0;
+  if(p.damage>0&&noise(u,v,24,24,r.seed+887)>1-p.damage*.3)return 0;
+  return 1;
 }
 export interface GeneratedMaterialPixels {recipe:ResolvedMaterialGenerator;color:TexturePixels;normal:TexturePixels;height:TexturePixels;roughness:TexturePixels;metalness:TexturePixels;ao:TexturePixels;diagnostics:{resolution:number;bytes:number;tileMeters:[number,number];warnings:string[]}}
 /** Bake during authoring/loading, not frame updates. Supply a scheduler when rendering on a UI thread. */
@@ -91,7 +122,7 @@ export async function generateMaterial(input:MaterialGeneratorRecipe,options:{re
     for(let x=0;x<size;x++){
       const i=y*size+x,k=i*4,[value,h,r,m,a]=sampleMaterialGenerator(recipe,(x+0.5)/size,(y+0.5)/size);heights[i]=h;
       const t=recipe.output.style==='realistic'?value:Math.round(value*(recipe.output.paletteSteps-1))/(recipe.output.paletteSteps-1);
-      for(let c=0;c<3;c++)color.data[k+c]=Math.round(mix(low[c],high[c],t));color.data[k+3]=255;
+      for(let c=0;c<3;c++)color.data[k+c]=Math.round(mix(low[c],high[c],t));color.data[k+3]=Math.round(sampleMaterialOpacity(recipe,(x+.5)/size,(y+.5)/size)*255);
       for(const[map,v]of[[height,h],[roughness,r],[metalness,m],[ao,a]]as const){map.data[k]=map.data[k+1]=map.data[k+2]=Math.round(v*255);map.data[k+3]=255;}
     }
   }
@@ -104,8 +135,13 @@ export async function generateMaterial(input:MaterialGeneratorRecipe,options:{re
     }
   }
   const warnings:string[]=[];
+  if(recipe.pattern.family==='leaf'||recipe.pattern.family==='needle'){
+    if(recipe.pattern.widthMeters>recipe.tileMeters[0]||recipe.pattern.lengthMeters>recipe.tileMeters[1])warnings.push('Plant silhouette exceeds its tile and will be clipped. Increase tileMeters to fit.');
+    if(recipe.pattern.widthMeters/recipe.tileMeters[0]*size<2)warnings.push('Plant width is below two texels. Increase resolution or reduce the physical tile size.');
+    warnings.push('Leaf/needle opacity is a cutout. No geometric thickness, wind or subsurface transmission is generated.');
+  }
   if(recipe.pattern.family==='masonry')warnings.push('Block counts are rounded to whole repeats to keep the tile seamless.');
   if(recipe.reliefMeters>0)warnings.push('Height supplies shading relief, not collision or silhouette geometry.');
   return{recipe,color,normal,height,roughness,metalness,ao,diagnostics:{resolution:size,bytes:size*size*24,tileMeters:recipe.tileMeters,warnings}};
 }
-export const MATERIAL_GENERATOR_PRESETS:ReadonlyArray<{id:string;name:string;recipe:MaterialGeneratorRecipe}>=MATERIAL_FAMILIES.map(family=>({id:'generator-'+family,name:family+' material',recipe:materialGeneratorSchema.parse({name:family+' material',pattern:{family},...({grass:{color:'#658344',secondaryColor:'#384124'},metal:{color:'#bcc2cc',secondaryColor:'#51565e'},plaster:{color:'#e8deca',secondaryColor:'#a89983'},rock:{color:'#a4a6a5',secondaryColor:'#515859'},wood:{color:'#b78045',secondaryColor:'#503322'},dirt:{color:'#94724e',secondaryColor:'#453426'},gravel:{color:'#a8a49b',secondaryColor:'#575a55'},masonry:{color:'#c1aa86',secondaryColor:'#625a4c'}}[family])})}));
+export const MATERIAL_GENERATOR_PRESETS:ReadonlyArray<{id:string;name:string;recipe:MaterialGeneratorRecipe}>=MATERIAL_FAMILIES.map(family=>({id:'generator-'+family,name:family+' material',recipe:materialGeneratorSchema.parse({name:family+' material',pattern:{family},...({grass:{color:'#658344',secondaryColor:'#384124'},metal:{color:'#bcc2cc',secondaryColor:'#51565e'},plaster:{color:'#e8deca',secondaryColor:'#a89983'},rock:{color:'#a4a6a5',secondaryColor:'#515859'},wood:{color:'#b78045',secondaryColor:'#503322'},dirt:{color:'#94724e',secondaryColor:'#453426'},gravel:{color:'#a8a49b',secondaryColor:'#575a55'},masonry:{color:'#c1aa86',secondaryColor:'#625a4c'},bark:{color:'#866142',secondaryColor:'#30291e',tileMeters:[.4,.8]},leaf:{color:'#689b36',secondaryColor:'#203d15',tileMeters:[.12,.22],reliefMeters:.001},needle:{color:'#3f6936',secondaryColor:'#152d1b',tileMeters:[.016,.15],reliefMeters:.0005},'exposed-wood':{color:'#c99a65',secondaryColor:'#775131',tileMeters:[.2,.2]}}[family])})}));

@@ -198,7 +198,7 @@ export function createTerrainMaterialAtlas(manifest: TerrainManifest, cache: Sur
     for (const layer of layers) {
       if (!layer.source) { sources.push({ layer, world: false }); continue; }
       const resolved = resolveSurfaceMaterial(layer.source, { seed: manifest.recipe.seed, key: `terrain:${layer.id}` });
-      const world = resolved.texture.layers.some(item => item.mask?.field === 'surface' && item.mask.kind !== 'noise');
+      const world = resolved.texture.layers.some(item => item.mask && item.mask.kind !== 'pattern' && item.mask.field === 'surface' && item.mask.kind !== 'noise');
       const c = Math.cos(resolved.rotation), s = Math.sin(resolved.rotation), tx = resolved.tileSize[0], tz = resolved.tileSize[1];
       const coordinates = { origin: [(c * x0 + s * z0) / tx, (-s * x0 + c * z0) / tz] as [number, number],
         uAxis: [c * span / tx, -s * span / tz] as [number, number], vAxis: [s * span / tx, c * span / tz] as [number, number], metres: [span, span] as [number, number] };

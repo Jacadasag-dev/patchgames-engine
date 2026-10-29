@@ -1,5 +1,6 @@
 import { materialGeneratorSchema } from './materialGenerator.ts';
 import { z } from 'zod';
+import {materialPatternSchema} from './materialPatternSchema.ts';
 
 export const MATERIAL_RECIPE_VERSION = 1;
 export const MAX_MATERIAL_RESOLUTION = 512;
@@ -15,14 +16,15 @@ export const textureSourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('noise'), colors: z.tuple([color, color]),
     scale: z.number().int().min(1).max(64).default(8), seed: seed.optional() }).strict(),
 ]);
-export const textureMaskSchema = z.object({
+export const textureMaskSchema = z.union([z.object({
   kind: z.enum(['noise', 'height', 'slope']),
   /** Material masks read previously composed detail; slope is tilt / 90 degrees. Surface masks read supplied normalized terrain fields. */
   field: z.enum(['material', 'surface']).default('material'),
   min: unit.default(0.35), max: unit.default(1), softness: unit.default(0.1),
   invert: z.boolean().default(false),
   scale: z.number().int().min(1).max(64).default(8), seed: seed.optional(),
-}).strict().refine(mask => mask.min <= mask.max, { message: 'Mask min must be at most max.', path: ['max'] });
+}).strict().refine(mask => mask.min <= mask.max, { message: 'Mask min must be at most max.', path: ['max'] }),
+z.object({kind:z.literal('pattern'),pattern:materialPatternSchema,tileMeters:z.tuple([z.number().finite().min(.002).max(100),z.number().finite().min(.002).max(100)]).default([1,1])}).strict()]);
 export const textureLayerSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   source: textureSourceSchema,

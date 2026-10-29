@@ -129,8 +129,9 @@ export class SurfaceMaterialCache {
         })) as Maps;
         owner.maps = maps; owner.unsubscribe=value.onUpdate(()=>{
           if(owner.released)return;for(const name of Object.keys(maps) as (keyof Maps)[]){maps[name].dispose();maps[name].source=value.maps[name].source;maps[name].needsUpdate=true;}material.userData.materialRecipe=value.material.userData.materialRecipe;
+          material.transparent=value.material.transparent;material.alphaTest=value.material.alphaTest;material.side=options.side??value.material.side;material.needsUpdate=true;
         }); Object.assign(material, { map: maps.color, normalMap: maps.normal, roughnessMap: maps.roughness, metalnessMap: maps.metalness,
-          roughness: 1, metalness: 1, transparent: value.material.transparent });
+          roughness: 1, metalness: 1, transparent: value.material.transparent, alphaTest:value.material.alphaTest, side:options.side??value.material.side });
         material.name = surface.texture.name; material.userData.surfaceMaterial = { key: surface.key, ...value.diagnostics }; material.needsUpdate = true;
       });
       // The public promise still rejects for callers; observing it here prevents

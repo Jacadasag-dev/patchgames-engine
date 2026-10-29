@@ -1,6 +1,8 @@
 import {z} from 'zod';
-import {materialGeneratorSchema,sampleMaterialGenerator,type ResolvedMaterialGenerator,type GeneratedMaterialPixels} from './materialGenerator.ts';
+import {materialGeneratorSchema,sampleMaterialGenerator,sampleMaterialOpacity,type ResolvedMaterialGenerator,type GeneratedMaterialPixels} from './materialGenerator.ts';
 import {materialRecipe} from './materialRegistry.ts';
+import {materialPatternSchema} from './materialPatternSchema.ts';
+import {sampleMaterialPattern} from './materialPatterns.ts';
 
 export const BOX_SURFACES=['right','left','top','bottom','front','back'] as const;
 export type BoxSurface=typeof BOX_SURFACES[number];
@@ -13,9 +15,10 @@ export const objectSurfaceSchema=z.object({
   sizeMeters:z.tuple([metres,metres,metres]),
   orientation:z.object({front:z.enum(['+z','-z','+x','-x']).default('+z'),up:z.literal('+y').default('+y')}).strict().default({front:'+z',up:'+y'}),
   seed:z.number().int().min(-2147483648).max(2147483647).default(1),base:materialGeneratorSchema,
-  layers:z.array(z.object({id:z.string().min(1).max(64),material:materialGeneratorSchema,coverage:z.discriminatedUnion('kind',[
+  layers:z.array(z.object({id:z.string().min(1).max(64),material:materialGeneratorSchema,opacity:unit.default(1),heightOffsetMeters:z.number().finite().min(-.1).max(.1).default(0),coverage:z.discriminatedUnion('kind',[
     z.object({kind:z.literal('faces'),selection}).strict(),
     z.object({kind:z.literal('top-fringe'),space:z.literal('model'),depthMeters:z.number().finite().min(0).max(2),variation:unit.default(0.5),featherMeters:z.number().finite().min(0).max(0.2).default(0.01)}).strict(),
+    z.object({kind:z.literal('pattern'),pattern:materialPatternSchema,selection:selection.optional()}).strict(),
   ])}).strict()).max(4).default([]),
   effects:z.array(z.object({id:z.string().min(1).max(64),kind:z.literal('slash'),enabled:z.boolean().default(true),
     surface:face,space:z.enum(['geometry','model']).default('model'),
@@ -37,7 +40,7 @@ export type ObjectSurfaceRecipe=z.input<typeof objectSurfaceSchema>;
 export type ResolvedObjectSurface=z.output<typeof objectSurfaceSchema>;
 const materialSlot=z.union([materialGeneratorSchema,z.object({ref:z.string().min(1).max(120).regex(/^[a-z][a-z0-9._-]*$/i)}).strict()]);
 /** Named slots reference the shared registry; inline recipes remain useful for portable lab examples. */
-export const objectSurfaceDocumentSchema=z.object({...objectSurfaceSchema.shape,base:materialSlot,layers:z.array(z.object({id:z.string().min(1).max(64),material:materialSlot,coverage:objectSurfaceSchema.shape.layers.unwrap().element.shape.coverage}).strict()).max(4).default([])}).strict().superRefine((doc,ctx)=>{
+export const objectSurfaceDocumentSchema=z.object({...objectSurfaceSchema.shape,base:materialSlot,layers:z.array(objectSurfaceSchema.shape.layers.unwrap().element.extend({material:materialSlot})).max(4).default([])}).strict().superRefine((doc,ctx)=>{
   const placeholder=materialGeneratorSchema.parse({pattern:{family:'plaster'}}),result=objectSurfaceSchema.safeParse({...doc,base:'ref'in doc.base?placeholder:doc.base,layers:doc.layers.map(layer=>({...layer,material:'ref'in layer.material?placeholder:layer.material}))});
   if(!result.success)for(const issue of result.error.issues)ctx.addIssue({code:'custom',path:issue.path,message:issue.message});
 });
@@ -69,6 +72,10 @@ function field(x:number,z:number,seed:number){const ix=Math.floor(x),iz=Math.flo
 export function surfaceCoverage(r:ResolvedObjectSurface,layer:ResolvedObjectSurface['layers'][number],faceName:BoxSurface,point:Vec):number{
   const c=layer.coverage;
   if(c.kind==='faces')return c.selection.faces.some(f=>resolveSurfaceName(r.orientation.front,f,c.selection.space)===faceName)?1:0;
+  if(c.kind==='pattern'){
+    if(c.selection&&!c.selection.faces.some(f=>resolveSurfaceName(r.orientation.front,f,c.selection!.space)===faceName))return 0;
+    return sampleMaterialPattern(c.pattern,point);
+  }
   if(faceName==='top')return 1;if(faceName==='bottom')return 0;
   const n=field(point[0]*7,point[2]*7,r.seed)*0.7+field(point[0]*23,point[2]*23,r.seed+11)*0.3;
   const boundary=r.sizeMeters[1]/2-c.depthMeters*(1-c.variation+c.variation*n),delta=point[1]-boundary;
@@ -88,16 +95,18 @@ export function slashCoverage(r:ResolvedObjectSurface,e:ResolvedObjectSurface['e
 const rgb=(hex:string)=>[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16));
 function materialSample(m:ResolvedMaterialGenerator,u:number,v:number,output:ResolvedObjectSurface['output']){
   const [value,h,roughness,metalness,ao]=sampleMaterialGenerator(m,u,v),t=output.style==='realistic'?value:Math.round(value*(output.paletteSteps-1))/(output.paletteSteps-1),low=rgb(m.secondaryColor),high=rgb(m.color);
-  return{color:low.map((n,i)=>mix(n,high[i],t)),height:h*m.reliefMeters,roughness,metalness,ao};
+  return{color:low.map((n,i)=>mix(n,high[i],t)),height:h*m.reliefMeters,roughness,metalness,ao,opacity:sampleMaterialOpacity(m,u,v)};
 }
 /** Base UVs repeat in metres. Slash coordinates remain bounded to one face and never use those UVs. */
 export function sampleObjectSurface(r:ResolvedObjectSurface,name:BoxSurface,u:number,v:number){
   const frame=boxSurfaceFrame(r.sizeMeters,name),point=frame.point(u,v),result=materialSample(r.base,u*frame.span[0]/r.base.tileMeters[0],v*frame.span[1]/r.base.tileMeters[1],r.output);
-  for(const layer of r.layers){const weight=surfaceCoverage(r,layer,name,point);if(!weight)continue;const m=layer.material;
+  for(const layer of r.layers){let weight=surfaceCoverage(r,layer,name,point)*layer.opacity;if(!weight)continue;const m=layer.material;
     // Coverage shares one model-space field, but texture projection must span the
     // actual face. Top-down projection on vertical faces collapses one axis.
     const top=layer.coverage.kind==='top-fringe'&&name==='top',sample=materialSample(m,top?(point[0]+r.sizeMeters[0]/2)/m.tileMeters[0]:u*frame.span[0]/m.tileMeters[0],top?(point[2]+r.sizeMeters[2]/2)/m.tileMeters[1]:v*frame.span[1]/m.tileMeters[1],r.output);
-    result.color=result.color.map((c,i)=>mix(c,sample.color[i],weight));for(const key of ['height','roughness','metalness','ao'] as const)result[key]=mix(result[key],sample[key],weight);
+    sample.height+=layer.heightOffsetMeters;
+    weight*=sample.opacity;const previousOpacity=result.opacity;result.opacity+=weight*(1-result.opacity);
+    result.color=result.color.map((c,i)=>(c*previousOpacity*(1-weight)+sample.color[i]*weight)/Math.max(1e-9,result.opacity));for(const key of ['height','roughness','metalness','ao'] as const)result[key]=mix(result[key],sample[key],weight);
   }
   for(const effect of r.effects){const weight=slashCoverage(r,effect,name,u,v);if(!weight)continue;const inner=rgb(effect.exposedColor);result.color=result.color.map((c,i)=>mix(c,inner[i]*0.65,weight));result.height-=effect.depthMeters*weight;result.roughness=mix(result.roughness,0.95,weight);result.metalness*=1-weight;result.ao=mix(result.ao,0.3,weight);}
   return result;
@@ -116,7 +125,7 @@ export async function generateObjectSurface(input:ObjectSurfaceDocument,options:
     for(let y=0;y<rows;y++){
       if(y%16===0){options.signal?.throwIfAborted();await(options.yieldControl?.()??Promise.resolve());}
       for(let x=0;x<width;x++){const index=y*width+x,k=index*4,sample=sampleObjectSurface(recipe,name,(x+0.5)/width,(y+0.5)/rows);heights[index]=sample.height;
-        for(let c=0;c<3;c++)color.data[k+c]=Math.round(sample.color[c]);color.data[k+3]=255;
+        for(let c=0;c<3;c++)color.data[k+c]=Math.round(sample.color[c]);color.data[k+3]=Math.round(sample.opacity*255);
         for(const[map,value]of[[height,clamp(0.5+sample.height/0.4)],[roughness,sample.roughness],[metalness,sample.metalness],[ao,sample.ao]]as const){map.data[k]=map.data[k+1]=map.data[k+2]=Math.round(value*255);map.data[k+3]=255;}
       }
     }
@@ -128,7 +137,11 @@ export async function generateObjectSurface(input:ObjectSurfaceDocument,options:
   if(recipe.effects.some(e=>e.enabled&&e.depthMeters>0))warnings.push('Slash depth is shading relief, not a hole or collision change.');
   return{recipe,faces,diagnostics:{bytes,warnings}};
 }
-export const OBJECT_SURFACE_EXAMPLES:Record<'grass'|'slash',ObjectSurfaceRecipe>={
+export const OBJECT_SURFACE_EXAMPLES:Record<'grass'|'slash'|'iron'|'diamond'|'gold'|'moss-bark',ObjectSurfaceRecipe>={
+  iron:{kind:'object-surface',version:1,name:'Iron ore in stone',sizeMeters:[1,1,1],base:{pattern:{family:'rock'},tileMeters:[1,1],color:'#92958e',secondaryColor:'#484e4e'},layers:[{id:'ore',material:{pattern:{family:'metal',oxidation:.7,metalness:.65},tileMeters:[.3,.3],color:'#b78a65',secondaryColor:'#674332',reliefMeters:.01},coverage:{kind:'pattern',pattern:{type:'clusters',sizeMeters:.17,coverage:.36,irregularity:.9,seed:19,edgeSoftnessMeters:.005}},heightOffsetMeters:-.006}],output:{resolution:128,style:'pixel',paletteSteps:8}},
+  diamond:{kind:'object-surface',version:1,name:'Diamond mineral in stone',sizeMeters:[1,1,1],base:{pattern:{family:'rock'},tileMeters:[1,1],color:'#92958e',secondaryColor:'#484e4e'},layers:[{id:'mineral',material:{pattern:{family:'rock',grainMeters:.012,fractures:.05},tileMeters:[.25,.25],color:'#67e9e5',secondaryColor:'#156c83',roughness:.2,reliefMeters:.014},coverage:{kind:'pattern',pattern:{type:'clusters',sizeMeters:.18,coverage:.34,irregularity:1,seed:42,edgeSoftnessMeters:.002}},heightOffsetMeters:.003}],output:{resolution:128,style:'pixel',paletteSteps:8}},
+  gold:{kind:'object-surface',version:1,name:'Gold veins in rock',sizeMeters:[1,1,1],base:{pattern:{family:'rock'},tileMeters:[1,1],color:'#878c91',secondaryColor:'#343a40'},layers:[{id:'veins',material:{pattern:{family:'metal',metalness:1,brushing:0},tileMeters:[.3,.3],color:'#e7bc49',secondaryColor:'#836017',roughness:.25},coverage:{kind:'pattern',pattern:{type:'veins',sizeMeters:.2,coverage:.17,irregularity:.7,seed:8,edgeSoftnessMeters:.002}},heightOffsetMeters:-.005}],output:{resolution:128,style:'realistic',paletteSteps:8}},
+  'moss-bark':{kind:'object-surface',version:1,name:'Moss patches on bark',sizeMeters:[.5,1,.5],base:{pattern:{family:'bark'},tileMeters:[.4,.8],color:'#896347',secondaryColor:'#33281f'},layers:[{id:'moss',material:{pattern:{family:'grass',bladeMeters:.008,density:.8},tileMeters:[.2,.2],color:'#6f8d3b',secondaryColor:'#263e21',reliefMeters:.006},coverage:{kind:'pattern',pattern:{type:'patches',sizeMeters:.15,coverage:.5,seed:7,edgeSoftnessMeters:.015}},heightOffsetMeters:.003}],output:{resolution:128,style:'realistic',paletteSteps:8}},
   grass:{kind:'object-surface',version:1,name:'Grass-topped dirt block',sizeMeters:[1,1,1],seed:42,base:{pattern:{family:'dirt',clumping:0.8},tileMeters:[1,1],color:'#987044',secondaryColor:'#493324'},layers:[{id:'grass',material:{pattern:{family:'grass',density:1,barePatches:0.05},tileMeters:[1,1],color:'#77a649',secondaryColor:'#36582b'},coverage:{kind:'top-fringe',space:'model',depthMeters:0.24,variation:0.65,featherMeters:0.015}}],output:{resolution:128,style:'pixel',paletteSteps:8}},
   slash:{kind:'object-surface',version:1,name:'Brick wall with a slash',sizeMeters:[4,2.5,0.22],seed:42,base:{pattern:{family:'masonry',blockMeters:[0.3,0.12],mortarMeters:0.012,chipping:0.3},tileMeters:[1.2,0.6],color:'#b86c4b',secondaryColor:'#54433a'},effects:[{id:'slash',kind:'slash',surface:'front',space:'model',pathMeters:[[0.65,1.9],[1.8,1.25],[3.25,0.65]],widthMeters:0.065,depthMeters:0.025,branching:0.6,chipping:0.5,exposedColor:'#9e9078'}],output:{resolution:256,style:'realistic',paletteSteps:8}},
 };
