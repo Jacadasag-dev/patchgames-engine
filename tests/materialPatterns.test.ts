@@ -167,3 +167,14 @@ it('grouping births actual parent collections and group size changes their scale
  expect(features.length).toBeGreaterThan(20);expect(features.every(f=>f.proposal==='group'&&f.groupId&&f.sizeScale===1)).toBe(true);
  expect(inspectMaterialPatternDistribution(r,{faceMeters:[100,100]}).complete).toBe(false);
 });
+
+it.each(MATERIAL_PATTERN_TYPES)('%s irregularity changes contours independently of generation and opacity',type=>{
+ const frame={faceMeters:[1,1] as const},base=parseMaterialPattern({type,irregularity:0,shapeVariation:0,sizeVariation:0,density:64,sizeMeters:.2,coverage:.6,edgeSoftnessMeters:0});
+ const changed={...base,irregularity:1},a=createMaterialPatternSampler(base),b=createMaterialPatternSampler(changed);
+ const points=Array.from({length:4096},(_,i)=>[(i%64)/63- .5,Math.floor(i/64)/63- .5,0] as const);
+ const values=points.map(p=>a(p,{...frame,face:[p[0]*2,p[1]*2,0]})),other=points.map(p=>b(p,{...frame,face:[p[0]*2,p[1]*2,0]}));
+ expect(other).not.toEqual(values);expect(other.every(v=>v===0||v===1)).toBe(true);
+ expect(inspectMaterialPatternDistribution(changed,frame)).toEqual(inspectMaterialPatternDistribution(base,frame));
+ for(let x=-2;x<2;x++)expect(materialPatternFeaturesAtCell(changed,[x,0,0],frame)).toEqual(materialPatternFeaturesAtCell(base,[x,0,0],frame));
+ expect(other).toEqual(points.map(p=>sampleMaterialPattern(changed,p,{...frame,face:[p[0]*2,p[1]*2,0]})));
+});

@@ -166,20 +166,27 @@ function single(r:MaterialPattern,point:Vec,frame?:MaterialPatternFrame,applyBou
   let weight=0,first=Infinity,second=Infinity,winner:MaterialPatternFeature|undefined;
   const draw=(feature:MaterialPatternFeature)=>{
     const x=(warped[0]-feature.center[0]/r.sizeMeters)/feature.sizeScale,y=(warped[1]-feature.center[1]/r.sizeMeters)/feature.sizeScale,z=dimensions===2?0:(warped[2]-feature.center[2]/r.sizeMeters)/feature.sizeScale;
-    const u=x*c-y*s,v=x*s+y*c,dist=Math.hypot(u,v,z);
+    const u=x*c-y*s,v=x*s+y*c;
+    // Low-frequency, per-feature contours. This remains independent of the
+    // finer shapeVariation warp and never moves/counts/fades feature centres.
+    const phase=hash(Math.floor(feature.center[0]*10000),Math.floor(feature.center[1]*10000),Math.floor(feature.center[2]*10000),r.seed+809)*Math.PI*2;
+    const angle=Math.atan2(v,u),elevation=Math.atan2(z,Math.hypot(u,v));
+    const contour=1+r.irregularity*.3*(.65*Math.sin(angle*3+phase+elevation*2)+.35*Math.sin(angle*5-phase+elevation*3));
+    const dist=Math.hypot(u,v,z)/contour;
     if(dist<first){second=first;first=dist;winner=feature;}else second=Math.min(second,dist);
     if(!feature.accepted||r.type==='cells')return;
     let signed:number;
     if(r.type==='stripes'||r.type==='veins'){
-      const bend=r.type==='veins'?Math.sin(v*5+feature.center[0]/r.sizeMeters*7)*(.04+r.irregularity*.16):0;
-      signed=Math.max(Math.hypot(u+bend,z)-radius*.4,Math.abs(v)-.6);
+      const bend=r.irregularity*(r.type==='veins'?.16:.08)*Math.sin(v*6+phase);
+      const width=radius*.4*(1+r.irregularity*.3*Math.sin(v*9-phase));
+      signed=Math.max(Math.hypot(u+bend,z)-width,Math.abs(v)-.6);
     }else{
       const scale=r.type==='speckles'?.5:r.type==='patches'?1.25:1;
       signed=dist-radius*scale;
     }
     const t=clamp(.5-signed/softness);weight=Math.max(weight,t*t*(3-2*t));
   };
-  const support=r.type==='cells'?1.5:.9+softness*.675,reach=Math.ceil((support+.25)*r.sizeMeters/spacing)+1;
+  const support=r.type==='cells'?1.5:1.2+softness*.675,reach=Math.ceil((support+.25)*r.sizeMeters/spacing)+1;
   if(reach>8)throw Error('Feature amount and size exceed the sampling budget. Reduce density or feature size.');
   const queryBase=warped.map(v=>v*r.sizeMeters/spacing),baseSupport=support*r.sizeMeters/spacing;
   for(let dz=dimensions===2?0:-reach;dz<= (dimensions===2?0:reach);dz++)for(let dy=-reach;dy<=reach;dy++)for(let dx=-reach;dx<=reach;dx++){

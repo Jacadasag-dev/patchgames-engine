@@ -25,7 +25,7 @@ every cell. The mixed process uses ordered-point probability `regularity` and
 scatter rate `1-regularity`; the four-scatter-proposal cap slightly truncates rare
 tails. Small surfaces naturally vary in count. Clumping redistributes scattered proposals; concentration decides
 which generate; shape, size and source opacity remain separate.
-`irregularity` bends veins without changing the placement grid.
+`irregularity` controls coarse per-feature contour unevenness for every pattern: lobed blob/cell outlines and bending, variable-width strands. Zero gives smooth outlines/straight strands. It preserves generated centres, counts, size scales and material opacity; `shapeVariation` independently adds finer boundary warping.
 
 Every pattern also accepts `shapeVariation` and `sizeVariation` (0–1). Shape
 variation applies a finer irregular warp to boundaries; size variation applies a
