@@ -1,6 +1,6 @@
 {
   "name": "@patchgames/engine",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "description": "Sandboxed multiplayer game runtime, authoring helpers and browser presentation for PatchGames.",
@@ -18,7 +18,8 @@
       "types": "./tools/generated/materialize-engine.d.mts",
       "default": "./tools/generated/materialize-engine.mjs"
     },
-    "./starters": "./tools/starters.ts"
+    "./starters": "./tools/starters.ts",
+    "./material-lab": "./examples/material-lab.ts"
   },
   "files": [
     "src",
@@ -37,7 +38,8 @@
     "demo": "node --no-liftoff --no-wasm-lazy-compilation --v8-pool-size=1 examples/headless.ts",
     "check:boundary": "node tools/check-public-boundary.mjs",
     "check:package": "node tools/check-public-boundary.mjs --pack",
-    "prepack": "node tools/check-public-boundary.mjs"
+    "prepack": "node tools/check-public-boundary.mjs",
+    "demo:materials": "vite --host 127.0.0.1 --open /examples/material-lab.html"
   },
   "dependencies": {
     "zod": "^4.6.5",

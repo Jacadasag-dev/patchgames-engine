@@ -16,6 +16,9 @@ The engine provides:
 - [Material generators](docs/material-generator.md) with eight editable families,
   repeatable PBR maps, physical scale and pixel-art through 2048-pixel output.
 
+Run `npm run demo:materials` for the interactive Material Lab: 50 generated
+presets, editable controls, 3D preview, texture maps and PNG/JSON exports.
+
 ## Complete starter games
 
 Six editable games ship with the engine: Duel, Arena, RPG, Social Lounge,

@@ -1,5 +1,20 @@
 # Material generator
 
+## Interactive lab
+
+Run Vite from a checkout and open `examples/material-lab.html`. The lab includes
+50 named editable examples, live family controls, a rotatable sphere/cube/plane,
+six map views, lighting choices, pixel/realistic output and PNG/JSON exports.
+Custom presets save locally in the browser; exporting JSON makes them portable.
+The browser generates everything in workers, without an account or image service.
+The main preview cancels obsolete jobs while gallery thumbnails use a separate queue.
+
+Applications can import `mountMaterialLab` from `@patchgames/engine/material-lab`
+and call it with a container and optional close callback. It returns cleanup.
+Bundle it with Vite (including its CSS and module worker). Avoid loading this demo
+in gameplay bundles unless requested; a dynamic import works well.
+`MATERIAL_LAB_PRESETS` in `shared/materialLabPresets` exposes the fifty recipes.
+
 Generate original tileable materials from small versioned recipes. No image service,
 network connection, source asset, or private connector is needed. Eight families
 cover masonry (brick and cut stone), rock, wood, dirt, gravel, grass, metal and plaster.
