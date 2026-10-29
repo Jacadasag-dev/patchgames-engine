@@ -21,14 +21,27 @@ export async function bakeFoliageModel(model:FoliageModel,options:{resolution?:n
   const pixels=await Promise.all([generateMaterial(bark,{resolution,signal:options.signal}),generateMaterial(leaf,{resolution,signal:options.signal})]);
   return{model,bark:pixels[0],leaf:pixels[1],flower:model.flowers.length?await generateMaterial(resolve(model.recipe.materials.flower),{resolution,signal:options.signal}):undefined};
 }
+/** Sweep one welded tube per woody path. Shared bend rings prevent stacked cylinders,
+ * internal caps and independently rotated cross sections from showing through. */
 function woodGeometry(model:FoliageModel){
-  const sides={low:5,medium:8,high:12}[model.recipe.quality],positions:number[]=[],uvs:number[]=[],indices:number[]=[],pathDistance=new Map<number,number>();
-  for(const branch of model.branches){const a=new THREE.Vector3(...branch.start),b=new THREE.Vector3(...branch.end),axis=b.clone().sub(a).normalize(),x=new THREE.Vector3(Math.abs(axis.y)<.9?0:1,Math.abs(axis.y)<.9?1:0,0).cross(axis).normalize(),z=axis.clone().cross(x),base=positions.length/3,length=a.distanceTo(b),offset=pathDistance.get(branch.path)??0;pathDistance.set(branch.path,offset+length);
-    for(let ring=0;ring<2;ring++)for(let j=0;j<=sides;j++){const angle=j/sides*Math.PI*2,radius=ring?branch.radiusEnd:branch.radiusStart,p=(ring?b:a).clone().addScaledVector(x,Math.cos(angle)*radius).addScaledVector(z,Math.sin(angle)*radius);positions.push(p.x,p.y,p.z);uvs.push(j/sides*Math.PI*2*radius,offset+ring*length);}
-    for(let j=0;j<sides;j++){const k=base+j,l=k+sides+1;indices.push(k,k+1,l,k+1,l+1,l);}
-    const bottom=positions.length/3;positions.push(a.x,a.y,a.z,b.x,b.y,b.z);uvs.push(0,offset,0,offset+length);const cap=positions.length/3;for(let ring=0;ring<2;ring++)for(let j=0;j<=sides;j++){const k=(base+ring*(sides+1)+j)*3;positions.push(positions[k],positions[k+1],positions[k+2]);uvs.push(j/sides,ring);}for(let j=0;j<sides;j++){indices.push(bottom,cap+j+1,cap+j);indices.push(bottom+1,cap+sides+1+j,cap+sides+2+j);}
+  const sides={low:5,medium:8,high:12}[model.recipe.quality],positions:number[]=[],uvs:number[]=[],indices:number[]=[],seams:[number,number][]=[];
+  const paths=new Map<number,typeof model.branches>();for(const branch of model.branches){const path=paths.get(branch.path)??[];path.push(branch);paths.set(branch.path,path);}
+  for(const path of paths.values()){
+    const points=[new THREE.Vector3(...path[0].start),...path.map(b=>new THREE.Vector3(...b.end))],radii=[path[0].radiusStart,...path.map(b=>b.radiusEnd)],axes=path.map((_,i)=>points[i+1].clone().sub(points[i]).normalize()),base=positions.length/3;
+    let previous=axes[0].clone(),x=new THREE.Vector3(Math.abs(previous.y)<.9?0:1,Math.abs(previous.y)<.9?1:0,0).cross(previous).normalize(),distance=0;
+    for(let i=0;i<points.length;i++){
+      const tangent=i===0?axes[0].clone():i===path.length?axes[i-1].clone():axes[i-1].clone().add(axes[i]).normalize();
+      x.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(previous,tangent));x.addScaledVector(tangent,-x.dot(tangent)).normalize();const z=tangent.clone().cross(x);previous=tangent;
+      if(i)distance+=points[i].distanceTo(points[i-1]);
+      for(let j=0;j<=sides;j++){const angle=j/sides*Math.PI*2,p=points[i].clone().addScaledVector(x,Math.cos(angle)*radii[i]).addScaledVector(z,Math.sin(angle)*radii[i]);positions.push(p.x,p.y,p.z);uvs.push(j/sides*Math.PI*2*radii[i],distance);}
+      seams.push([base+i*(sides+1),base+i*(sides+1)+sides]);
+      if(i)for(let j=0;j<sides;j++){const k=base+(i-1)*(sides+1)+j,l=k+sides+1;indices.push(k,k+1,l,k+1,l+1,l);}
+    }
+    // Only terminal caps have separate vertices/normals; no disks inside bends.
+    for(const end of [0,path.length]){const center=positions.length/3;positions.push(...points[end].toArray());uvs.push(0,0);const cap=positions.length/3;for(let j=0;j<=sides;j++){const k=(base+end*(sides+1)+j)*3;positions.push(positions[k],positions[k+1],positions[k+2]);uvs.push(j/sides,1);}for(let j=0;j<sides;j++)indices.push(center,cap+j+(end?0:1),cap+j+(end?1:0));}
   }
-  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));g.setIndex(indices);g.computeVertexNormals();g.computeBoundingSphere();return g;
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));g.setIndex(indices);g.computeVertexNormals();
+  const normals=g.attributes.normal;for(const [a,b]of seams){const n=new THREE.Vector3().fromBufferAttribute(normals,a).add(new THREE.Vector3().fromBufferAttribute(normals,b)).normalize();normals.setXYZ(a,n.x,n.y,n.z);normals.setXYZ(b,n.x,n.y,n.z);}g.computeBoundingSphere();return g;
 }
 function mergedLeaves(instances:THREE.InstancedMesh){
   const source=instances.geometry,p=source.attributes.position,n=source.attributes.normal,uv=source.attributes.uv,index=source.index!,count=p.count*instances.count;

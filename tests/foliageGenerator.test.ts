@@ -54,4 +54,9 @@ it('generic growth controls change architecture while preserving connected frond
 });
 it('validates new architecture and bloom controls',()=>{for(const extra of [{branchSegments:3},{winding:2},{leafArrangement:'invalid'},{flowers:{density:-1}},{flowers:{petals:2}},{trunkTaper:0}])expect(()=>parseFoliageRecipe({...small,...extra})).toThrow();});
 
-it('keeps bark UVs continuous across segmented winding limbs',async()=>{const bake=await generateFoliage({...small,branchSegments:12,winding:.8},{resolution:32}),view=new FoliageView(bake),uv=(view.root.children[0] as Mesh).geometry.attributes.uv,sides=8,vertices=(sides+1)*4+2;for(let i=1;i<12;i++)expect(uv.getY(i*vertices)).toBeCloseTo(uv.getY((i-1)*vertices+sides+1),5);view.dispose();});
+it('sweeps welded bend rings with continuous bark UVs and no internal caps',async()=>{
+ const bake=await generateFoliage({...small,branchSegments:12,winding:.8},{resolution:32}),view=new FoliageView(bake),g=(view.root.children[0] as Mesh).geometry,uv=g.attributes.uv,n=g.attributes.normal,sides=8;
+ const paths=new Set(bake.model.branches.map(b=>b.path)).size;expect(g.attributes.position.count).toBe(paths*((12+1)*(sides+1)+2*(sides+2)));expect(g.index!.count).toBe(paths*(12*6*sides+2*3*sides));
+ for(let i=1;i<=12;i++)expect(uv.getY(i*(sides+1))).toBeGreaterThan(uv.getY((i-1)*(sides+1)));
+ for(let i=0;i<=12;i++){const a=i*(sides+1),b=a+sides;expect([n.getX(a),n.getY(a),n.getZ(a)]).toEqual([n.getX(b),n.getY(b),n.getZ(b)]);}view.dispose();
+});
