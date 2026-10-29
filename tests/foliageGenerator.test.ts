@@ -54,4 +54,4 @@ it('generic growth controls change architecture while preserving connected frond
 });
 it('validates new architecture and bloom controls',()=>{for(const extra of [{branchSegments:3},{winding:2},{leafArrangement:'invalid'},{flowers:{density:-1}},{flowers:{petals:2}},{trunkTaper:0}])expect(()=>parseFoliageRecipe({...small,...extra})).toThrow();});
 
-it('keeps bark UVs continuous across segmented winding limbs',async()=>{const bake=await generateFoliage({...small,branchSegments:12,winding:.8},{resolution:32}),view=new FoliageView(bake),uv=(view.root.children[0] as Mesh).geometry.attributes.uv,sides=8,vertices=(sides+1)*2+2;for(let i=1;i<12;i++)expect(uv.getY(i*vertices)).toBeCloseTo(uv.getY((i-1)*vertices+sides+1),5);view.dispose();});
+it('keeps bark UVs continuous across segmented winding limbs',async()=>{const bake=await generateFoliage({...small,branchSegments:12,winding:.8},{resolution:32}),view=new FoliageView(bake),uv=(view.root.children[0] as Mesh).geometry.attributes.uv,sides=8,vertices=(sides+1)*4+2;for(let i=1;i<12;i++)expect(uv.getY(i*vertices)).toBeCloseTo(uv.getY((i-1)*vertices+sides+1),5);view.dispose();});

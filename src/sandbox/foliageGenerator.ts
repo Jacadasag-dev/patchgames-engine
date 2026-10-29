@@ -26,7 +26,7 @@ function woodGeometry(model:FoliageModel){
   for(const branch of model.branches){const a=new THREE.Vector3(...branch.start),b=new THREE.Vector3(...branch.end),axis=b.clone().sub(a).normalize(),x=new THREE.Vector3(Math.abs(axis.y)<.9?0:1,Math.abs(axis.y)<.9?1:0,0).cross(axis).normalize(),z=axis.clone().cross(x),base=positions.length/3,length=a.distanceTo(b),offset=pathDistance.get(branch.path)??0;pathDistance.set(branch.path,offset+length);
     for(let ring=0;ring<2;ring++)for(let j=0;j<=sides;j++){const angle=j/sides*Math.PI*2,radius=ring?branch.radiusEnd:branch.radiusStart,p=(ring?b:a).clone().addScaledVector(x,Math.cos(angle)*radius).addScaledVector(z,Math.sin(angle)*radius);positions.push(p.x,p.y,p.z);uvs.push(j/sides*Math.PI*2*radius,offset+ring*length);}
     for(let j=0;j<sides;j++){const k=base+j,l=k+sides+1;indices.push(k,k+1,l,k+1,l+1,l);}
-    const bottom=positions.length/3;positions.push(a.x,a.y,a.z,b.x,b.y,b.z);uvs.push(0,0,0,length);for(let j=0;j<sides;j++){indices.push(bottom,base+j+1,base+j);indices.push(bottom+1,base+sides+1+j,base+sides+2+j);}
+    const bottom=positions.length/3;positions.push(a.x,a.y,a.z,b.x,b.y,b.z);uvs.push(0,offset,0,offset+length);const cap=positions.length/3;for(let ring=0;ring<2;ring++)for(let j=0;j<=sides;j++){const k=(base+ring*(sides+1)+j)*3;positions.push(positions[k],positions[k+1],positions[k+2]);uvs.push(j/sides,ring);}for(let j=0;j<sides;j++){indices.push(bottom,cap+j+1,cap+j);indices.push(bottom+1,cap+sides+1+j,cap+sides+2+j);}
   }
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));g.setIndex(indices);g.computeVertexNormals();g.computeBoundingSphere();return g;
 }
