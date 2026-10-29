@@ -23,3 +23,10 @@ it('makes material generators importable through the real game compiler boundary
  writeFileSync(file,readFileSync(file,'utf8')+"\nexport {createGeneratedMaterial} from '../sandbox/materialGenerator.ts';\n");
  expect(buildView(root).length).toBeGreaterThan(100);
 });
+it('packages named material recipes and rejects malformed material documents',()=>{
+ const root=project('blank'),file=join(root,'src/game/materials.json');
+ writeFileSync(file,JSON.stringify({version:1,materials:{'test.paint':{pattern:{family:'plaster'},color:'#f0a080'}}}));
+ expect(buildView(root)).toContain('test.paint');
+ writeFileSync(file,JSON.stringify({version:1,materials:{bad:{pattern:{family:'unknown'}}}}));
+ expect(()=>buildView(root)).toThrow();
+});

@@ -1,3 +1,4 @@
+import {parseMaterialGeneratorData} from './materialGeneratorData.ts';
 /** Dependency-free material recipe data validation for authoritative game logic.
  * Keep this parser equivalent to mediaRecipes.ts; parity tests cover defaults,
  * limits and each nested field. The renderer/editor retain their Zod schemas. */
@@ -42,7 +43,8 @@ function optional<T>(input: Data, key: string, parse: (value: unknown) => T): Re
   return Object.hasOwn(input, key) ? { [key]: input[key] === undefined ? undefined : parse(input[key]) } : {};
 }
 function source(input: unknown): Source {
-  const value = object(input, ['kind', 'id', 'color', 'colors', 'scale', 'seed'], 'Texture source');
+  const value = object(input, ['kind', 'id', 'color', 'colors', 'scale', 'seed', 'recipe'], 'Texture source');
+  if (value.kind === 'generator') { object(value,['kind','recipe'],'Generator source');return {kind:'generator',recipe:parseMaterialGeneratorData(value.recipe)}; }
   if (value.kind === 'asset') { object(value, ['kind', 'id'], 'Asset source'); return { kind: 'asset', id: assetId(value.id) }; }
   if (value.kind === 'solid') { object(value, ['kind', 'color'], 'Solid source'); return { kind: 'solid', color: color(value.color) }; }
   if (value.kind !== 'noise') throw new Error('Texture source kind is invalid.');

@@ -1,3 +1,4 @@
+import {readMaterialRecipes,type MaterialRecipes} from '../../shared/materialRegistry.ts';
 /// <reference path="../../shared/env.d.ts" />
 import bootstrapUrl from './viewFrame.js?url&no-inline';
 import { conformViewInfo } from '../../shared/shapes.ts';
@@ -106,6 +107,8 @@ export class GameViewHost {
   private readonly messageListener = (event: MessageEvent) => this.onMessage(event);
   private audio = createGameAudio({ resolveSource: loadSoundAsset });
   private readonly unlockAudio = () => { void this.audio.resume(); };
+  private materialRecipes:MaterialRecipes|undefined;
+  updateMaterialRecipes(recipes:MaterialRecipes):void{this.materialRecipes=readMaterialRecipes(JSON.stringify({version:1,materials:recipes}));if(this.ready)this.iframe?.contentWindow?.postMessage({type:'material-recipes',materials:this.materialRecipes},'*');}
   private mediaRequests = 0;
   private selectedCode: Promise<string> | undefined;
   private rendererSelection: RendererLoadingSelection<RendererReplayFrame>;
@@ -465,6 +468,7 @@ export class GameViewHost {
         if (event.source !== this.iframe?.contentWindow) return;
         this.iframe.contentWindow!.postMessage({ type: 'init', code, backend: this.rendererReport.backend }, '*');
         this.ready = true;
+        if(this.materialRecipes)this.updateMaterialRecipes(this.materialRecipes);
         const latest = this.latestDraw; this.latestDraw = undefined;
         if (latest) this.sendFrame(latest.frame, latest.reviewCamera, true);
       }).catch(error => { if (event.source === this.iframe?.contentWindow) this.reportError(String(error)); });

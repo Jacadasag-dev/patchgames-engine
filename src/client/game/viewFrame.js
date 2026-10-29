@@ -108,7 +108,7 @@ function bootstrap(maxMessagesPerSecond, maxErrorsPerSecond) {
         crop.getContext('2d')?.drawImage(canvas,(canvas.width-size)/2,(canvas.height-size)/2,size,size,0,0,512,512);
         toPage({type:'snapshot',image:crop.toDataURL('image/png')});
       } catch { toPage({type:'snapshot',image:null}); }
-    } else if (message?.type === 'frame' || message?.type === 'media-response') {
+    } else if (message?.type === 'frame' || message?.type === 'media-response' || message?.type === 'material-recipes') {
       worker?.postMessage(message);
     }
   });

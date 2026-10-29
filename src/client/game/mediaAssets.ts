@@ -1,5 +1,7 @@
-import { mediaAsset, mediaFileUrl, type MediaFile, type TextureAsset } from '../../shared/mediaAssets.ts';
-import type { MaterialSourcePixels, TexturePixels } from '../../shared/materialRecipeRenderer.ts';
+import {generateMaterial} from '../../shared/materialGenerator.ts';
+import {materialRecipe} from '../../shared/materialRegistry.ts';
+import { mediaAsset, mediaFileUrl, type MediaFile } from '../../shared/mediaAssets.ts';
+import type { MaterialSourcePixels } from '../../shared/materialRecipeRenderer.ts';
 import { decodeSoundWav } from '../../shared/soundRecipeRenderer.ts';
 
 const bytes = new Map<string, Promise<Uint8Array>>();
@@ -24,13 +26,7 @@ async function loadFile(file: MediaFile): Promise<Uint8Array> {
   return result;
 }
 export async function loadTextureAsset(id: string): Promise<MaterialSourcePixels> {
-  const asset = mediaAsset(id, 'texture') as TextureAsset;
-  const entries = await Promise.all(Object.entries(asset.maps).map(async ([name, file]) => {
-    const data = await loadFile(file);
-    if (data.length !== asset.width * asset.height * 4) throw new Error('Invalid texture dimensions');
-    return [name, { width: asset.width, height: asset.height, data: data.slice() } satisfies TexturePixels] as const;
-  }));
-  return Object.fromEntries(entries) as unknown as MaterialSourcePixels;
+  const recipe=materialRecipe(id);if(!recipe)throw Error('Unknown material recipe: '+id);return generateMaterial(recipe);
 }
 export async function loadSoundAsset(id: string) {
   const asset = mediaAsset(id, 'sound');

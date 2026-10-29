@@ -84,8 +84,8 @@ To use a bank you have rights to distribute, call
 `configureSharedHumanoidLocomotion(packedBank)` before building motion databases.
 The importer, retargeting, and playback code are available independently.
 
-Hosted texture/audio binaries are not bundled. Applications
-must supply their own media resolver and assets. See
+Materials are stored as editable recipes and rendered into temporary GPU textures.
+No texture image bank is bundled. Hosted audio binaries require an application resolver. See
 [third-party notices](THIRD_PARTY_NOTICES.md).
 
 Animation banks, rigs, clips and bodies use neutral identifiers such as

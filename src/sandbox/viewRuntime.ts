@@ -1,3 +1,4 @@
+import {replaceMaterialRecipes,readMaterialRecipes} from '../shared/materialRegistry.ts';
 import type { CreateView, GameView, InspectionFocus, ReviewCamera, TuningValues, ViewFrame } from '../shared/gameApi.ts';
 import { beginViewRenderProfile, captureViewDiagnostics, composeViewDiagnostics, endViewRenderProfile } from './viewDiagnostics.ts';
 import { beginEnvironmentFrame, endEnvironmentFrame, environmentInspection, resetEnvironmentRuntime } from './environmentRuntime.ts';
@@ -6,7 +7,7 @@ import { collectInspectionGeometry } from './inspectionGeometry.ts';
 import { createEquipmentOrientationSampler } from './equipmentOrientation.ts';
 import { beginInspectionCameraFrame, endInspectionCameraFrame } from './inspectionCamera.ts';
 import { terrainInterestsFor } from './terrainWorld.ts';
-import { configureMediaTransport, receiveMediaSource, settleMediaSources, mediaSourceInfo } from './media.ts';
+import { settleMediaSources, mediaSourceInfo } from './media.ts';
 import { settleSurfaceMaterials, surfaceMaterialLoadingInfo } from './surfaceMaterialView.ts';
 import { configureSoundTransport, setSoundPresentationTime } from './audio.ts';
 import { beginSoundCameraFrame, endSoundCameraFrame, installSoundCameraTracking, registerSoundViewCamera, resetSoundCameraTracking } from './audioListener.ts';
@@ -28,7 +29,6 @@ const MAX_ERRORS_PER_SECOND = 2;
 
 export function start(createView: CreateView<unknown, unknown, TuningValues>, initialize?: () => Promise<void>): void {
   const scope = globalThis as unknown as WorkerScope;
-  configureMediaTransport(message => scope.postMessage(message));
   let sceneEpoch='';
   configureSoundTransport(message => scope.postMessage({...message,...(sceneEpoch?{sceneEpoch}:{})}));
   resetEnvironmentRuntime();
@@ -68,10 +68,11 @@ export function start(createView: CreateView<unknown, unknown, TuningValues>, in
   }
 
   scope.onmessage = async (event) => {
-    if (event.data?.type === 'media-response') { receiveMediaSource(event.data); return; }
     const message = event.data as
+      | {type:'material-recipes';materials:Record<string,unknown>}
       | { type: 'init'; canvas: OffscreenCanvas }
       | { type: 'frame'; frame: ViewFrame<unknown, unknown, TuningValues>; width: number; height: number; pixelRatio: number; reviewCamera?: ReviewCamera | null; inspectionFocus?: InspectionFocus | null; inspection?: boolean; inspectionAtMs?: number; inspectionDetails?: boolean; inspectionProfile?: boolean; gpuCompletion?: boolean; gpuStartup?: boolean; gpuWarmup?: boolean };
+    if(message.type==='material-recipes'){try{replaceMaterialRecipes(readMaterialRecipes(JSON.stringify({version:1,materials:message.materials})));}catch(error){report('Material update failed',error);}return;}
     if (message.type === 'init') {
       if (initialize) {
         void initialize().then(() => { view = createView(message.canvas); registerSoundViewCamera(view); ready(); }).catch(error => report('createView', error));

@@ -1,5 +1,33 @@
 # Material generator
 
+## Recipe-only storage and live edits
+
+The engine stores named material recipes rather than baked image assets. The
+standard game document is `src/game/materials.json`:
+
+```json
+{"version":1,"materials":{"wall.stone":{"pattern":{"family":"masonry"},"color":"#c1aa86"}}}
+```
+
+Reference it from a texture layer with `{source:{kind:'asset',id:'wall.stone'}}`.
+Here `asset` identifies a named recipe, not a file. Existing built-in `texture.*`
+names resolve to generator recipes too; their appearances are now procedural.
+There are no saved RGBA maps in the material bank or embedded starter pixels.
+
+`buildView` validates and embeds this document for published games. A host can
+call `GameViewHost.updateMaterialRecipes` to replace the named recipe set without
+restarting simulation or resetting the camera. The renderer updates existing
+material textures and cached surface copies in place. Invalid documents are
+rejected atomically. Removing a referenced custom recipe produces a neutral
+placeholder and an error diagnostic, rather than retaining stale pixels.
+
+Use `replaceMaterialRecipes` from `shared/materialRegistry` in a standalone view.
+The PatchGames editor streams saved AI changes to the owner via authenticated SSE;
+local file edits also preview directly. Source-code/geometry changes still need
+compilation. The recipe-only preview is not a substitute for final build checks.
+Pixels exist temporarily in memory for rendering; they are not persisted to the
+material library. PNG export in the lab remains an explicit user action.
+
 ## Interactive lab
 
 Run Vite from a checkout and open `examples/material-lab.html`. The lab includes

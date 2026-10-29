@@ -1,3 +1,4 @@
+import {readMaterialRecipes} from '../../shared/materialRegistry.ts';
 import { buildSync, type Metafile } from 'esbuild';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
@@ -41,7 +42,7 @@ function real(path: string): string {
   }
 }
 /** src/sandbox files that run inside the sandboxes, next to game code. */
-const SANDBOX_NAMES = ['materialGenerator.ts', 'media.ts', 'starterMedia.ts', 'starterTextureData.ts', 'materialRecipes.ts', 'audio.ts', 'lockdown.ts', 'match.ts', 'runtime.ts', 'testkit.ts', 'testRuntime.ts', 'viewRuntime.ts', 'viewDiagnostics.ts', 'inspectionFocus.ts', 'inspectionCamera.ts', 'inspectionGeometry.ts', 'inspectionTelemetry.ts', 'features.ts', 'featureViewHost.ts', 'playerAppearance.ts', 'characters.ts', 'physics.ts', 'rig.ts', 'rigView.ts', 'actorAnimation.ts', 'actorLocomotion.ts', 'animation.ts', 'animationView.ts', 'equipmentView.ts', 'equipmentOrientation.ts', 'equipmentMotion.ts', 'humanoidRig.ts', 'animationLibrary.ts', 'defaultLocomotionData.ts', 'creatureRigs.ts', 'creatureAnimationLibrary.ts', 'creatureAnimationView.ts', 'creatureModelView.ts', 'creatureModelData.ts', 'creatureMotion.ts', 'creatureFootPlacement.ts', 'flight.ts', 'creatureAnimationData.ts', 'locomotion.ts', 'motionMatching.ts', 'animationImport.ts', 'model.ts', 'modelView.ts', 'modelRuntime.ts', 'modelStarters.ts', 'spawnView.ts', 'lighting.ts', 'terrain.ts', 'terrainView.ts', 'terrainPresets.ts', 'terrainQueries.ts', 'terrainWorld.ts', 'terrainStreaming.ts', 'preparationTransfer.ts', 'health.ts', 'damage.ts', 'battleRoyale.ts'];
+const SANDBOX_NAMES = ['materialGenerator.ts', 'media.ts', 'starterMedia.ts', 'materialRecipes.ts', 'audio.ts', 'lockdown.ts', 'match.ts', 'runtime.ts', 'testkit.ts', 'testRuntime.ts', 'viewRuntime.ts', 'viewDiagnostics.ts', 'inspectionFocus.ts', 'inspectionCamera.ts', 'inspectionGeometry.ts', 'inspectionTelemetry.ts', 'features.ts', 'featureViewHost.ts', 'playerAppearance.ts', 'characters.ts', 'physics.ts', 'rig.ts', 'rigView.ts', 'actorAnimation.ts', 'actorLocomotion.ts', 'animation.ts', 'animationView.ts', 'equipmentView.ts', 'equipmentOrientation.ts', 'equipmentMotion.ts', 'humanoidRig.ts', 'animationLibrary.ts', 'defaultLocomotionData.ts', 'creatureRigs.ts', 'creatureAnimationLibrary.ts', 'creatureAnimationView.ts', 'creatureModelView.ts', 'creatureModelData.ts', 'creatureMotion.ts', 'creatureFootPlacement.ts', 'flight.ts', 'creatureAnimationData.ts', 'locomotion.ts', 'motionMatching.ts', 'animationImport.ts', 'model.ts', 'modelView.ts', 'modelRuntime.ts', 'modelStarters.ts', 'spawnView.ts', 'lighting.ts', 'terrain.ts', 'terrainView.ts', 'terrainPresets.ts', 'terrainQueries.ts', 'terrainWorld.ts', 'terrainStreaming.ts', 'preparationTransfer.ts', 'health.ts', 'damage.ts', 'battleRoyale.ts'];
 SANDBOX_NAMES.push('audioListener.ts', 'terrainEnvironment.ts', 'terrainWindView.ts', 'environmentRuntime.ts');
 SANDBOX_NAMES.push('terrainVolumes.ts', 'terrainVolumesView.ts');
 SANDBOX_NAMES.push('waterWorld.ts', 'waterWorldDetail.ts', 'buildingWaterGeometry.ts', 'waterSupportGeometry.ts');
@@ -104,7 +105,7 @@ function lockedInputs(root: string): Set<string> {
     // Hosts can retain separately licensed asset banks without forking the engine.
     real(resolve(root, 'src/sandbox/hostAssets.ts')),
     ...SANDBOX_FILES,
-    ...['gameScenes.ts','gameUi.ts','gameUiEvents.ts','materialGenerator.ts','mediaAssets.ts','mediaAssetData.ts','mediaRecipes.ts','materialRecipeData.ts','materialRecipeRenderer.ts','soundRecipes.ts','soundRecipeRenderer.ts','soundPitch.ts','soundBehavior.ts','soundAudition.ts','soundBehaviorPreview.ts','mediaRecipeExamples.ts','pointerLook.ts','roundSeries.ts','statePaths.ts','voicePolicy.ts','fastLane.ts'].flatMap(name => [real(resolve(root, 'src/shared', name)), real(fileURLToPath(new URL('../../shared/'+name, import.meta.url)))]),
+    ...['gameScenes.ts','gameUi.ts','gameUiEvents.ts','materialRegistry.ts','materialRecipeLibrary.ts','materialGeneratorData.ts','materialGenerator.ts','mediaAssets.ts','mediaAssetData.ts','mediaRecipes.ts','materialRecipeData.ts','materialRecipeRenderer.ts','soundRecipes.ts','soundRecipeRenderer.ts','soundPitch.ts','soundBehavior.ts','soundAudition.ts','soundBehaviorPreview.ts','mediaRecipeExamples.ts','pointerLook.ts','roundSeries.ts','statePaths.ts','voicePolicy.ts','fastLane.ts'].flatMap(name => [real(resolve(root, 'src/shared', name)), real(fileURLToPath(new URL('../../shared/'+name, import.meta.url)))]),
     GAME_API,
     FEATURE_API,
     SHAPES,
@@ -359,6 +360,8 @@ function bundleLogic(root: string, gameDir: string, inputs?: (files: string[]) =
 /** The game view for its sandboxed Web Worker, with three.js. */
 export function buildView(root: string, gameDir = GAME_DIR, inputs?: (files: string[]) => void,boundaryOnly=false): string {
   const features = sourceFeatures(root, gameDir), entry = featureEntry(root, gameDir, features, true);
+  const materialFile=join(root,gameDir,'materials.json');
+  const hasMaterials=existsSync(materialFile);if(hasMaterials)readMaterialRecipes(readFileSync(materialFile,'utf8'));
   let baselineInputs: string[] = [];
   const target: BuildTarget = {
     root,boundaryOnly,
@@ -372,6 +375,11 @@ export function buildView(root: string, gameDir = GAME_DIR, inputs?: (files: str
         `import { withFeatureViewHost } from ${importPath(root, entryFile(root, 'featureViewHost.ts'))};`,
         `const createView=composeFeatureViews(withFeatureViewHost(baseView),${entry.list});`,
       ] : ['const createView=baseView;']),
+      ...(hasMaterials?[
+        `import materialDocument from ${importPath(root,gameDir+'/materials.json')};`,
+        `import {replaceMaterialRecipes,readMaterialRecipes} from ${importPath(root,'src/shared/materialRegistry.ts')};`,
+        'replaceMaterialRecipes(readMaterialRecipes(JSON.stringify(materialDocument)));',
+      ]:[]),
       'start(createView);',
     ].join('\n'),
     allowedDirs: [gameDir],

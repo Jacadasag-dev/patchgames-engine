@@ -41,7 +41,7 @@ interface TextureEntry {
   recipe: ResolvedSurfaceMaterial['texture']; options: MaterialRecipeOptions; value?: RecipeMaterial;
   ready: Promise<RecipeMaterial>; resolve(value: RecipeMaterial): void; reject(error: Error): void; untrack(): void;
 }
-interface MaterialEntry { key: string; material: MeshStandardMaterial; maps?: Maps; texture: TextureEntry; references: number; released: boolean; ready: Promise<void> }
+interface MaterialEntry { unsubscribe?:()=>void; key: string; material: MeshStandardMaterial; maps?: Maps; texture: TextureEntry; references: number; released: boolean; ready: Promise<void> }
 const plain = (value: unknown): boolean => !!value && typeof value === 'object' && !Array.isArray(value)
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
@@ -127,7 +127,9 @@ export class SurfaceMaterialCache {
         const maps = Object.fromEntries(Object.entries(value.maps).map(([name, map]) => {
           const copy = map.clone(); copy.repeat.set(1 / surface.tileSize[0], 1 / surface.tileSize[1]); copy.rotation = surface.rotation; copy.needsUpdate = true; return [name, copy];
         })) as Maps;
-        owner.maps = maps; Object.assign(material, { map: maps.color, normalMap: maps.normal, roughnessMap: maps.roughness, metalnessMap: maps.metalness,
+        owner.maps = maps; owner.unsubscribe=value.onUpdate(()=>{
+          if(owner.released)return;for(const name of Object.keys(maps) as (keyof Maps)[]){maps[name].image=value.maps[name].image;maps[name].needsUpdate=true;}material.userData.materialRecipe=value.material.userData.materialRecipe;
+        }); Object.assign(material, { map: maps.color, normalMap: maps.normal, roughnessMap: maps.roughness, metalnessMap: maps.metalness,
           roughness: 1, metalness: 1, transparent: value.material.transparent });
         material.name = surface.texture.name; material.userData.surfaceMaterial = { key: surface.key, ...value.diagnostics }; material.needsUpdate = true;
       });
@@ -177,7 +179,7 @@ export class SurfaceMaterialCache {
   }
   private releaseMaterial(entry: MaterialEntry): void {
     if (entry.released) return; entry.released = true; this.materials.delete(entry.key);
-    entry.material.dispose(); if (entry.maps) for (const map of Object.values(entry.maps)) map.dispose();
+    entry.unsubscribe?.();entry.material.dispose(); if (entry.maps) for (const map of Object.values(entry.maps)) map.dispose();
     if (--entry.texture.references === 0) this.releaseTexture(entry.texture);
   }
   private releaseTexture(entry: TextureEntry): void {

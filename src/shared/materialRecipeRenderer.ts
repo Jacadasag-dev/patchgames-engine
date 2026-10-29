@@ -1,3 +1,4 @@
+import {materialRecipe} from './materialRegistry.ts';
 import { generateMaterial } from './materialGenerator.ts';
 import { textureRecipeSchema, type ResolvedTextureRecipe, type TextureRecipe } from './mediaRecipes.ts';
 
@@ -99,11 +100,12 @@ export async function renderMaterialRecipe(input: TextureRecipe, options: Materi
   const derivedHeightSourceIds: string[] = [];
   const sourceIds = [...new Set(recipe.layers.flatMap(layer => layer.source.kind === 'asset' ? [layer.source.id] : []))];
   const loadedSources = await Promise.all(sourceIds.map(async id => {
-    if (!options.resolveSource) throw new Error(`Material source ${id} needs a source resolver.`);
-    const result = await options.resolveSource(id);
+    const procedural=materialRecipe(id);
+    if (!procedural&&!options.resolveSource) throw new Error(`Material source ${id} needs a recipe.`);
+    const result = options.resolveSource?await options.resolveSource(id):await generateMaterial(procedural!,{resolution:size});
     if (!result || typeof result !== 'object') throw new Error(`Material source ${id} is missing its pixel data.`);
     const maps = 'data' in result ? { color: result } : result;
-    for (const [mapName, pixels] of Object.entries(maps)) if (pixels) validatePixels(pixels, `${id}.${mapName}`);
+    for (const mapName of ['color','height','roughness','metalness'] as const) {const pixels=maps[mapName];if(pixels)validatePixels(pixels,`${id}.${mapName}`);}
     if (!maps.color) throw new Error(`Material source ${id} is missing its color map.`);
     return maps;
   }));
