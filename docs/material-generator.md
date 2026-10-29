@@ -67,7 +67,13 @@ boundary for cross-sections. The default mode is `features`.
 `clumping:0..1` moves the scattered component into seeded parent/offspring groups.
 `groupSizeMeters` sets parent spacing and child spread (radius up to .45 times
 that size). Larger groups are fewer and broader, with more children per parent;
-the mean feature density stays similar. Ordered placements retain their grid and
+finite face/model domains partition their bounds into jittered parent groups and
+allocate children from the domain feature budget. Requested scales beyond the
+domain become one broad group; children spilling over an outer edge reflect
+inside. Thus large groups do not disappear outside the crop or multiply the
+feature budget by an unbounded group volume. Concentration still decides whole-
+feature acceptance. Unbounded sampling retains Poisson parents/offspring.
+Ordered placements retain their grid and
 use correlated occupancy instead. All six pattern types share these controls.
 Feature interiors keep their material opacity and individual size.
 

@@ -90,12 +90,21 @@ function feature(r:MaterialPattern,cell:Vec,center:[number,number,number],frame:
   if(r.concentration.strength)probability=1-Math.abs(r.concentration.strength)+Math.abs(r.concentration.strength)*profile(r.concentration,normalized);
   // Ordered placements retain their grid; grouping modulates occupancy there.
   // Scattered/grouped proposals instead come from actual parent/offspring births.
-  if(r.clumping&&proposal==='grid'){const g=field(center[0]/r.groupSizeMeters,center[1]/r.groupSizeMeters,center[2]/r.groupSizeMeters,r.seed+941);probability=clamp(probability*((1-r.clumping)+r.clumping*clamp(.7+(g-.5)*5)/.7));}
+  if(r.clumping&&proposal==='grid'&&!(meters&&meters.every(v=>v<=r.groupSizeMeters))){const g=field(center[0]/r.groupSizeMeters,center[1]/r.groupSizeMeters,center[2]/r.groupSizeMeters,r.seed+941);probability=clamp(probability*((1-r.clumping)+r.clumping*clamp(.7+(g-.5)*5)/.7));}
   // A finite face/object cannot generate feature centres outside its bounds.
   if(!selected||meters&&normalized.some(v=>Math.abs(v)>1))probability=0;
   return{id:idPrefix+cell.join(':')+':'+slot,proposal,center,probability,accepted:hash(a,b,d,r.seed+977+offset)<probability,sizeScale:1+r.sizeVariation*.35*(hash(a,b,d,r.seed+983+offset)*2-1)};
 }
 function poisson(lambda:number,u:number,cap:number){let count=0,mass=Math.exp(-lambda),cdf=mass;while(u>cdf&&count<cap){count++;mass*=lambda/count;cdf+=mass;}return count;}
+/** Finite surfaces own their groups: a larger requested scale eventually becomes
+ * one group, rather than moving its parents outside the authored object. */
+function groupGrid(r:MaterialPattern,frame?:MaterialPatternFrame){
+  const {meters,dimensions}=domain(r,frame);if(!meters)return;
+  const counts=[...meters.map(v=>Math.max(1,Math.ceil(v/r.groupSizeMeters))),...(dimensions===2?[1]:[])] as [number,number,number];
+  const spacing=[...meters.map((v,i)=>v/counts[i]),...(dimensions===2?[1]:[])] as [number,number,number];
+  const origin=[...meters.map(v=>-v/2),...(dimensions===2?[0]:[])] as [number,number,number];
+  return{counts,spacing,origin,dimensions};
+}
 /** Full proposal set: a density-preserving mixture of ordered points and a
  * bounded Poisson process. Random regions may contain zero or several points;
  * this is not one jittered feature per cell. Cell boundaries are implementation
@@ -119,15 +128,25 @@ export function materialPatternFeaturesAtCell(r:MaterialPattern,cell:Vec,frame?:
 export function materialPatternGroupedFeaturesAtCell(r:MaterialPattern,cell:Vec,frame?:MaterialPatternFrame):MaterialPatternFeature[]{
   if(!cell.every(Number.isSafeInteger))throw Error('Group cell coordinates must be safe integers.');
   if(!r.clumping||!r.density||r.placementRegularity===1||r.mode==='solid')return[];
-  const {dimensions}=domain(r,frame),lambda=r.density*r.clumping*(1-r.placementRegularity)*Math.pow(r.groupSizeMeters,dimensions);
+  const {dimensions}=domain(r,frame),grid=groupGrid(r,frame);
+  if(grid&&cell.some((v,i)=>v<0||v>=grid.counts[i]))return[];
+  const volume=grid?grid.spacing.slice(0,dimensions).reduce((a,b)=>a*b,1):Math.pow(r.groupSizeMeters,dimensions);
+  const lambda=r.density*r.clumping*(1-r.placementRegularity)*volume;
   if(lambda>256)throw Error('Group size and feature amount exceed the group sampling budget. Reduce group size or feature amount.');
-  const [a,b,d]=cell,result:MaterialPatternFeature[]=[],parents=poisson(1,hash(a,b,d,r.seed+2003),4);
+  const [a,b,d]=cell,result:MaterialPatternFeature[]=[],parents=grid?1:poisson(1,hash(a,b,d,r.seed+2003),4);
   for(let parent=0;parent<parents;parent++){
-    const seed=r.seed+parent*997,center=[(a+hash(a,b,d,seed+2011))*r.groupSizeMeters,(b+hash(a,b,d,seed+2017))*r.groupSizeMeters,dimensions===2?0:(d+hash(a,b,d,seed+2027))*r.groupSizeMeters];
-    const children=poisson(lambda,hash(a,b,d,seed+2039),512),groupId=cell.join(':')+':parent:'+parent;
+    const seed=r.seed+parent*997,center=grid?cell.map((v,i)=>i>=dimensions?0:grid.origin[i]+(v+.5+(grid.counts[i]===1?0:(hash(a,b,d,seed+2011+i*13)-.5)*.7))*grid.spacing[i]):[(a+hash(a,b,d,seed+2011))*r.groupSizeMeters,(b+hash(a,b,d,seed+2017))*r.groupSizeMeters,dimensions===2?0:(d+hash(a,b,d,seed+2027))*r.groupSizeMeters];
+    // Stochastic rounding preserves the finite domain's requested feature budget.
+    const children=grid?Math.floor(lambda)+Number(hash(a,b,d,seed+2039)<lambda%1):poisson(lambda,hash(a,b,d,seed+2039),512),groupId=cell.join(':')+':parent:'+parent;
     for(let child=0;child<children;child++){
       const offset=child*59,radius=.45*r.groupSizeMeters*Math.pow(hash(a,b,d,seed+2053+offset),1.5),angle=hash(a,b,d,seed+2063+offset)*Math.PI*2,z=dimensions===2?0:hash(a,b,d,seed+2069+offset)*2-1,radial=Math.sqrt(1-z*z);
       const point:[number,number,number]=[center[0]+radius*radial*Math.cos(angle),center[1]+radius*radial*Math.sin(angle),center[2]+radius*z];
+      if(grid)for(let i=0;i<dimensions;i++){
+        point[i]=center[i]+(point[i]-center[i])*grid.spacing[i]/r.groupSizeMeters;
+        const low=grid.origin[i],high=-low;
+        // Reflect a spill at the outer edge instead of discarding that feature.
+        if(point[i]<low)point[i]=low+(low-point[i]);else if(point[i]>high)point[i]=high-(point[i]-high);
+      }
       const f=feature(r,cell,point,frame,child+parent*1024,true,'group','group:');f.groupId=groupId;result.push(f);
     }
   }return result;
@@ -142,8 +161,8 @@ export function inspectMaterialPatternDistribution(r:MaterialPattern,frame:Mater
   if(r.mode==='solid'||!r.density)return{count,groups:0,regions,complete,solid:r.mode==='solid'};
   for(const grouped of [false,true]){
     if(grouped&&(!r.clumping||r.placementRegularity===1))continue;
-    const spacing=grouped?r.groupSizeMeters:Math.pow(r.density,-1/dimensions),pad=grouped?.45:0;
-    const low=meters.map(v=>Math.floor(-v/2/spacing-pad)),high=meters.map(v=>Math.floor(v/2/spacing+pad));
+    const spacing=grouped?r.groupSizeMeters:Math.pow(r.density,-1/dimensions),pad=grouped?.45:0,grid=grouped?groupGrid(r,frame):undefined;
+    const low=grid?[0,0,0]:meters.map(v=>Math.floor(-v/2/spacing-pad)),high=grid?grid.counts.map(v=>v-1):meters.map(v=>Math.floor(v/2/spacing+pad));
     outer:for(let z=dimensions===2?0:low[2];z<=(dimensions===2?0:high[2]);z++)for(let y=low[1];y<=high[1];y++)for(let x=low[0];x<=high[0];x++){
       if(regions++>=4096){complete=false;break outer;}
       for(const f of (grouped?materialPatternGroupedFeaturesAtCell:materialPatternFeaturesAtCell)(r,[x,y,z],frame))if(f.accepted){count++;if(f.groupId)groups.add(f.groupId);}
@@ -195,6 +214,13 @@ function single(r:MaterialPattern,point:Vec,frame?:MaterialPatternFrame,applyBou
     for(const feature of proposals(cell,frame))draw(feature);
   }
   if(r.clumping&&r.placementRegularity<1){
+    const grid=groupGrid(r,frame);
+    if(grid){
+      const low=grid.spacing.map((v,i)=>i>=dimensions?0:Math.max(0,Math.floor((warped[i]*r.sizeMeters-support*r.sizeMeters-grid.origin[i])/v-.8)));
+      const high=grid.spacing.map((v,i)=>i>=dimensions?0:Math.min(grid.counts[i]-1,Math.floor((warped[i]*r.sizeMeters+support*r.sizeMeters-grid.origin[i])/v+.8)));
+      if(high.reduce((n,v,i)=>n*Math.max(0,v-low[i]+1),1)>4096)throw Error('Feature size exceeds the finite group search budget. Increase group size or reduce feature size.');
+      for(let z=low[2];z<=high[2];z++)for(let y=low[1];y<=high[1];y++)for(let x=low[0];x<=high[0];x++)for(const f of proposals([x,y,z],frame,true))draw(f);
+    }else{
     const groupReach=Math.ceil(support*r.sizeMeters/r.groupSizeMeters+.45)+1;
     if(groupReach>8)throw Error('Group size is too small for the feature-size sampling budget. Increase group size or reduce feature size.');
     const query=warped.map(v=>v*r.sizeMeters/r.groupSizeMeters),groupSupport=support*r.sizeMeters/r.groupSizeMeters+.45;
@@ -202,6 +228,7 @@ function single(r:MaterialPattern,point:Vec,frame?:MaterialPatternFrame,applyBou
       const cell:Vec=[Math.floor(query[0])+dx,Math.floor(query[1])+dy,dimensions===2?0:Math.floor(query[2])+dz];
       if(Math.hypot(...cell.slice(0,dimensions).map((v,i)=>Math.max(v-query[i],query[i]-v-1,0)))>groupSupport)continue;
       for(const feature of proposals(cell,frame,true))draw(feature);
+    }
     }
   }
   if(r.type==='cells'&&winner?.accepted){const t=clamp((Math.pow(r.coverage,.3)-first/Math.max(Math.min(second,1.5),.000001))/softness+.5),cap=clamp(.5-(first-.85)/softness);weight=t*t*(3-2*t)*cap*cap*(3-2*cap);}

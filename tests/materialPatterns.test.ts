@@ -178,3 +178,27 @@ it.each(MATERIAL_PATTERN_TYPES)('%s irregularity changes contours independently 
  for(let x=-2;x<2;x++)expect(materialPatternFeaturesAtCell(changed,[x,0,0],frame)).toEqual(materialPatternFeaturesAtCell(base,[x,0,0],frame));
  expect(other).toEqual(points.map(p=>sampleMaterialPattern(changed,p,{...frame,face:[p[0]*2,p[1]*2,0]})));
 });
+
+it.each(MATERIAL_PATTERN_TYPES)('%s retains finite feature budgets when groups exceed the surface',type=>{
+ for(const seed of [1,19,42,97])for(const groupSizeMeters of [.25,.6,1.2,5,20]){
+  const r=parseMaterialPattern({type,seed,density:64,clumping:1,groupSizeMeters,concentration:{strength:0}}),frame={faceMeters:[1,1] as const};
+  const info=inspectMaterialPatternDistribution(r,frame);expect(info.complete).toBe(true);expect(info.count).toBeGreaterThan(48);expect(info.count).toBeLessThan(80);
+  if(groupSizeMeters>=1){expect(info.groups).toBe(1);expect(info.count).toBe(64);}
+ }
+ const r=parseMaterialPattern({type,seed:42,density:64,clumping:1,groupSizeMeters:20,concentration:{strength:1,radius:.9}}),frame={faceMeters:[1,1] as const},features=materialPatternGroupedFeaturesAtCell(r,[0,0,0],frame).filter(f=>f.accepted);
+ expect(features.length).toBeGreaterThan(10);
+ const sampler=createMaterialPatternSampler(r);expect(features.some(f=>sampler(f.center,{...frame,face:f.center.map(v=>v*2) as [number,number,number]})>0)).toBe(true);
+});
+it('finite model grouping respects thin domains and density at large scales',()=>{
+ const r=parseMaterialPattern({type:'clusters',density:128,clumping:1,groupSizeMeters:20,concentration:{space:'model'}}),frame={modelMeters:[2,.1,2] as const};
+ const f=materialPatternGroupedFeaturesAtCell(r,[0,0,0],frame);expect(f.length).toBeGreaterThan(40);expect(f.every(v=>v.accepted&&v.center.every((n,i)=>Math.abs(n)<=frame.modelMeters[i]/2))).toBe(true);
+ const sampler=createMaterialPatternSampler(r);expect(f.some(v=>sampler(v.center,{...frame,model:v.center.map((n,i)=>n*2/frame.modelMeters[i]) as [number,number,number]})>0)).toBe(true);
+ expect(inspectMaterialPatternDistribution({...r,density:0},frame).count).toBe(0);
+});
+
+it('large finite groups cannot erase ordered or mixed placements either',()=>{
+ for(const placementRegularity of [0,.5,1]){
+  const r=parseMaterialPattern({type:'clusters',density:64,clumping:1,groupSizeMeters:20,placementRegularity}),info=inspectMaterialPatternDistribution(r,{faceMeters:[1,1]});
+  expect(info.count).toBeGreaterThan(40);
+ }
+});
