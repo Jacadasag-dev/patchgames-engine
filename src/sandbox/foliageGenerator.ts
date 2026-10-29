@@ -59,7 +59,7 @@ export class FoliageView {
   update(bake:FoliageBake){
     if(this.disposed)throw Error('Foliage view disposed.');
     const {model}=bake,bark=createGeneratedMaterialFromPixels(bake.bark,{uvSpace:'metres'}),leaf=createGeneratedMaterialFromPixels(bake.leaf);
-    leaf.material.side=THREE.DoubleSide;leaf.material.alphaTest=.5;leaf.material.emissive.set(bake.leaf.recipe.color);leaf.material.emissiveIntensity=.08;
+    leaf.material.side=THREE.DoubleSide;leaf.material.alphaTest=.2;leaf.material.alphaToCoverage=true;leaf.material.emissive.set(bake.leaf.recipe.color);leaf.material.emissiveIntensity=.08;
     const plant=bake.leaf.recipe.pattern,length=plant.family==='leaf'||plant.family==='needle'?plant.lengthMeters:bake.leaf.recipe.tileMeters[1],scale=model.recipe.leafSizeMeters/length;
     const flower=bake.flower?createGeneratedMaterialFromPixels(bake.flower):undefined;if(flower){flower.material.side=THREE.DoubleSide;flower.material.alphaTest=.5;}
     const key=JSON.stringify([{...model.recipe,name:undefined,materials:undefined},bake.leaf.recipe.tileMeters,length,bake.flower?.recipe.tileMeters,bake.flower?.recipe.pattern]);

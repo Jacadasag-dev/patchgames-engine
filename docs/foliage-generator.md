@@ -162,3 +162,5 @@ scene.add(view.root);
 ```
 
 The same assetFactory works with TerrainWorldView for streamed worlds and biome scatter. Override each entry.environment for different wind responses; pass {} to opt out. Terrain uses world-space time/positions for continuous wind across chunk reloads, measured height for size response, distance-prioritized updates, and anchored root sway shared by wood/leaves/flowers. Authoritative colliders stay static; add foliageColliders explicitly if needed. This integration does not add branch physics, leaf flutter deformation or automatic geometry LOD. Choose bounded species quality before preparing the library. The lab grove is a small procedural heightfield and scatter scene using these exact helpers.
+
+Foliage cutouts use alpha-to-coverage with a .2 alpha threshold, preserving thin needle coverage as textures minify in world views. Multisample renderers smooth these edges; the threshold also works without multisampling. This is not geometry LOD.
