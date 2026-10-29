@@ -1,3 +1,4 @@
+import {applyMaterialOptics} from './materialOptics.ts';
 import * as THREE from 'three';
 import {generateMaterial,type GeneratedMaterialPixels,type MaterialGeneratorRecipe} from '../shared/materialGenerator.ts';
 import {mapBoxMaterialMeters} from './materialMapping.ts';
@@ -29,7 +30,8 @@ export function createGeneratedMaterialFromPixels(baked:GeneratedMaterialPixels,
     map.generateMipmaps=true;map.needsUpdate=true;
     return[name,map];
   })) as Record<'color'|'normal'|'roughness'|'metalness'|'height'|'ao',THREE.DataTexture>;
-  const material=new THREE.MeshStandardMaterial({name:baked.recipe.name,map:maps.color,normalMap:maps.normal,roughnessMap:maps.roughness,metalnessMap:maps.metalness,aoMap:maps.ao,roughness:1,metalness:1});
+  const material=new THREE.MeshPhysicalMaterial({name:baked.recipe.name,map:maps.color,normalMap:maps.normal,roughnessMap:maps.roughness,metalnessMap:maps.metalness,aoMap:maps.ao,roughness:1,metalness:1});
+  applyMaterialOptics(material,baked.recipe.optics);
   if(baked.color.data.some((v,i)=>i%4===3&&v<255)){material.alphaTest=.5;material.side=THREE.DoubleSide;}
   material.userData.materialGenerator={recipe:baked.recipe,diagnostics:baked.diagnostics};
   let disposed=false;

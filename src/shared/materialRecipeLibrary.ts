@@ -1,6 +1,8 @@
+import {MATERIAL_OPTICAL_PRESETS} from './materialOpticalPresets.ts';
 import type {ResolvedMaterialGenerator} from './materialGenerator.ts';
 /** Named procedural recipes; no stored texture pixels or imported image metadata. */
 export const MATERIAL_RECIPE_LIBRARY:Record<string,ResolvedMaterialGenerator>={
+  ...Object.fromEntries(MATERIAL_OPTICAL_PRESETS.map(p=>['texture.'+p.id,p.recipe])),
   "texture.wood-floor": {
     "version": 1,
     "seed": 4452,

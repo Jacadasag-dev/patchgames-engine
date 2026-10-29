@@ -1,5 +1,5 @@
 import {materialRecipe} from './materialRegistry.ts';
-import { generateMaterial } from './materialGenerator.ts';
+import { generateMaterial,type MaterialOptics } from './materialGenerator.ts';
 import {createMaterialPatternSampler} from './materialPatterns.ts';
 import { textureRecipeSchema, type ResolvedTextureRecipe, type TextureRecipe } from './mediaRecipes.ts';
 
@@ -32,6 +32,7 @@ export interface MaterialRecipeOptions {
 }
 export interface MaterialRecipePixels {
   recipe: ResolvedTextureRecipe;
+  optics?:MaterialOptics;
   color: TexturePixels; normal: TexturePixels; roughness: TexturePixels; metalness: TexturePixels; height: TexturePixels;
   diagnostics: {
     resolution: number; layerCount: number; sourceIds: string[];
@@ -88,8 +89,16 @@ function range(values: Float32Array): [number, number] {
 }
 
 /** Pure, deterministic material composition shared by host previews and runtime. No DOM or network. */
+/** Optical response belongs to the mesh, not a blendable RGBA pixel layer. */
+export function resolveMaterialRecipeOptics(recipe:ResolvedTextureRecipe):MaterialOptics|undefined{
+  const optical=recipe.layers.map(l=>l.source.kind==='generator'?l.source.recipe.optics:l.source.kind==='asset'?materialRecipe(l.source.id)?.optics:undefined);
+  if(!optical.some(Boolean))return;
+  const layer=recipe.layers[0];if(recipe.layers.length!==1||layer.opacity!==1||layer.mask||layer.blend!=='normal')throw Error('Optical materials require one unmasked full-opacity source. Use separate meshes for glass and opaque surfaces.');
+  return optical[0];
+}
 export async function renderMaterialRecipe(input: TextureRecipe, options: MaterialRecipeOptions = {}): Promise<MaterialRecipePixels> {
   const recipe = textureRecipeSchema.parse(input);
+  const optics=resolveMaterialRecipeOptics(recipe);
   const size = options.resolution ?? recipe.resolution;
   if (!Number.isInteger(size) || size < 16 || size > 512) throw new Error('Material resolution must be an integer from 16 to 512.');
   const coordinates = options.coordinates;
@@ -209,7 +218,7 @@ export async function renderMaterialRecipe(input: TextureRecipe, options: Materi
     normal.data[p + 1] = Math.round((-dy / length * 0.5 + 0.5) * 255);
     normal.data[p + 2] = Math.round((1 / length * 0.5 + 0.5) * 255); normal.data[p + 3] = 255;
   }
-  return { recipe, color, normal, roughness: roughnessMap, metalness: metalnessMap, height,
+  return { recipe,...(optics?{optics}:{}), color, normal, roughness: roughnessMap, metalness: metalnessMap, height,
     diagnostics: { resolution: size, layerCount: recipe.layers.length, sourceIds: [...sources.keys()], derivedHeightSourceIds,
       heightRange: range(heights), roughnessRange: range(roughness), metalnessRange: range(metalness),
       warnings: derivedHeightSourceIds.length ? ['Color-only source relief is derived from luminance, not measured PBR height. Set heightStrength:0 for flat color, or supply source height maps.'] : [] } };

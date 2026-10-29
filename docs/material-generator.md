@@ -323,3 +323,36 @@ using the outer recipe's `reliefScale`. Direct generator bakes support 2048 and
 their own physical `reliefMeters`. Preview at modest resolution before baking.
 Save the recipe with the game; it is deterministic for this generator version.
 Re-use baked output and dispose GPU resources when no longer needed.
+
+## Glass and mirrors
+
+`shared/materialOpticalPresets` exports eight editable `MATERIAL_OPTICAL_PRESETS`:
+clear, green, blue, amber and frosted glass; polished silver, bronze and aged
+mirrors. Named recipes use `texture.clear-glass`, `texture.silver-mirror`, etc.
+The lab includes all eight with a studio reflection environment and a transmission
+check backdrop. Select a preset and tune roughness, transmission, IOR, optical
+thickness, absorption color/distance and reflection intensity live.
+
+These reuse the existing plaster/metal procedural maps with an optional whole-
+material `optics` block, rather than pretending transparency is a color texture:
+
+```ts
+optics: {transmission:1, ior:1.5, thicknessMeters:.008,
+  attenuationColor:'#ffffff', attenuationDistanceMeters:.25, envMapIntensity:1}
+```
+
+Optics defaults: transmission 0 (0–1), IOR 1.5 (1–2.5), thickness .02 m (0–2),
+white absorption color, absorption distance 1 m (.001–100), environment intensity
+1 (0–4). Generated and recipe material handles use physical shading; named live
+updates and cached surface copies propagate/reset optical settings. Glass uses
+transmission with opacity 1, not alpha cutout or alpha blending. Frosting uses
+roughness; tinted glass absorbs light over its optical thickness. Supply a scene
+environment for reflections. Mirrors are polished metals reflecting that
+**environment**, not automatic live planar reflections of players/objects. Use a
+separate scene reflection system for that behavior. The lab studio environment
+is preview lighting, not a baked or downloaded texture asset.
+
+Optical response is mesh-wide: texture compositions require one unmasked,
+full-opacity normal-blend source. Object surfaces require one optical base and
+no layers/effects. Use separate meshes for opaque frames and glass/mirror panes.
+PNG maps contain only surface maps; export the recipe to retain optical settings.

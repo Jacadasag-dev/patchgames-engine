@@ -9,6 +9,7 @@ export const materialGeneratorSchema=z.object({
   version:z.literal(1).default(1),seed:z.number().int().min(-2147483648).max(2147483647).default(1),
   name:z.string().min(1).max(120).default('Generated material'),tileMeters:z.tuple([length,length]).default([2,2]),
   color:color.default('#967b60'),secondaryColor:color.default('#514637'),variation:unit.default(0.3),roughness:unit.default(0.8),weathering:unit.default(0.15),
+  optics:z.object({transmission:unit.default(0),ior:z.number().finite().min(1).max(2.5).default(1.5),thicknessMeters:z.number().finite().min(0).max(2).default(.02),attenuationColor:color.default('#ffffff'),attenuationDistanceMeters:z.number().finite().min(.001).max(100).default(1),envMapIntensity:z.number().finite().min(0).max(4).default(1)}).strict().optional(),
   reliefMeters:z.number().finite().min(0).max(0.2).default(0.008),
   output:z.object({resolution:z.union([z.literal(32),z.literal(64),z.literal(128),z.literal(256),z.literal(512),z.literal(1024),z.literal(2048)]).default(256),style:z.enum(['realistic','stylized','pixel']).default('realistic'),paletteSteps:z.number().int().min(2).max(32).default(8)}).strict().default({resolution:256,style:'realistic',paletteSteps:8}),
   pattern:z.discriminatedUnion('family',[
@@ -33,6 +34,7 @@ export const materialGeneratorSchema=z.object({
 });
 export type MaterialGeneratorRecipe=z.input<typeof materialGeneratorSchema>;
 export type ResolvedMaterialGenerator=z.output<typeof materialGeneratorSchema>;
+export type MaterialOptics=NonNullable<ResolvedMaterialGenerator['optics']>;
 export const MATERIAL_FAMILIES=['masonry','rock','wood','dirt','gravel','grass','metal','plaster','bark','leaf','needle','exposed-wood'] as const;
 const clamp=(v:number)=>Math.max(0,Math.min(1,v));
 const mix=(a:number,b:number,t:number)=>a+(b-a)*t;
@@ -135,6 +137,7 @@ export async function generateMaterial(input:MaterialGeneratorRecipe,options:{re
     }
   }
   const warnings:string[]=[];
+  if(recipe.optics)warnings.push('Optical response requires a physical material and scene environment. Mirrors reflect the environment; live planar reflections require a separate scene reflection system. PNG maps alone do not preserve optics.');
   if(recipe.pattern.family==='leaf'||recipe.pattern.family==='needle'){
     if(recipe.pattern.widthMeters>recipe.tileMeters[0]||recipe.pattern.lengthMeters>recipe.tileMeters[1])warnings.push('Plant silhouette exceeds its tile and will be clipped. Increase tileMeters to fit.');
     if(recipe.pattern.widthMeters/recipe.tileMeters[0]*size<2)warnings.push('Plant width is below two texels. Increase resolution or reduce the physical tile size.');

@@ -1,6 +1,7 @@
+import {copyMaterialOptics} from './materialOptics.ts';
 /** View-owned, bounded procedural materials. Geometry supplies UVs in metres.
  * Leases borrow immutable maps/materials; release the lease, never their maps. */
-import { MeshStandardMaterial, type Side } from 'three';
+import { MeshPhysicalMaterial, type Side } from 'three';
 import { createRecipeMaterial, type RecipeMaterial } from './materialRecipes.ts';
 import type { MaterialRecipeOptions, MaterialSourceResolver, MaterialSurfaceFields } from '../shared/materialRecipeRenderer.ts';
 import { validateResolvedSurfaceMaterial, type ResolvedSurfaceMaterial } from './surfaceMaterials.ts';
@@ -14,7 +15,7 @@ export interface SurfaceMaterialAcquireOptions {
   surface?: MaterialSurfaceFields;
   coordinates?: MaterialRecipeOptions['coordinates'];
 }
-export interface SurfaceMaterialHandle { material: MeshStandardMaterial; ready: Promise<void>; dispose(): void }
+export interface SurfaceMaterialHandle { material: MeshPhysicalMaterial; ready: Promise<void>; dispose(): void }
 interface TrackedWork { done: Promise<void>; cancel(): void }
 const work = new Set<TrackedWork>();
 let globalErrors = 0;
@@ -41,7 +42,7 @@ interface TextureEntry {
   recipe: ResolvedSurfaceMaterial['texture']; options: MaterialRecipeOptions; value?: RecipeMaterial;
   ready: Promise<RecipeMaterial>; resolve(value: RecipeMaterial): void; reject(error: Error): void; untrack(): void;
 }
-interface MaterialEntry { unsubscribe?:()=>void; key: string; material: MeshStandardMaterial; maps?: Maps; texture: TextureEntry; references: number; released: boolean; ready: Promise<void> }
+interface MaterialEntry { unsubscribe?:()=>void; key: string; material: MeshPhysicalMaterial; maps?: Maps; texture: TextureEntry; references: number; released: boolean; ready: Promise<void> }
 const plain = (value: unknown): boolean => !!value && typeof value === 'object' && !Array.isArray(value)
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
@@ -118,7 +119,7 @@ export class SurfaceMaterialCache {
       let source = this.textures.get(textureKey);
       if (!source) source = this.enqueue(textureKey, surface.texture, { ...(sampled.surface ? { surface: sampled.surface } : {}), ...(coords ? { coordinates: coords } : {}) });
       source.references++;
-      const material = new MeshStandardMaterial({ color: surface.tint, roughness: .85, metalness: 0, vertexColors: options.vertexColors ?? false,
+      const material = new MeshPhysicalMaterial({ color: surface.tint, roughness: .85, metalness: 0, vertexColors: options.vertexColors ?? false,
         side: options.side ?? 0, ...(options.emissive ? { emissive: options.emissive, emissiveIntensity: options.emissiveIntensity ?? 1 } : {}) });
       entry = { key: materialKey, material, texture: source, references: 0, released: false, ready: Promise.resolve() };
       const owner = entry;
@@ -129,9 +130,10 @@ export class SurfaceMaterialCache {
         })) as Maps;
         owner.maps = maps; owner.unsubscribe=value.onUpdate(()=>{
           if(owner.released)return;for(const name of Object.keys(maps) as (keyof Maps)[]){maps[name].dispose();maps[name].source=value.maps[name].source;maps[name].needsUpdate=true;}material.userData.materialRecipe=value.material.userData.materialRecipe;
-          material.transparent=value.material.transparent;material.alphaTest=value.material.alphaTest;material.side=options.side??value.material.side;material.needsUpdate=true;
+          copyMaterialOptics(material,value.material);material.transparent=value.material.transparent;material.alphaTest=value.material.alphaTest;material.side=options.side??value.material.side;material.needsUpdate=true;
         }); Object.assign(material, { map: maps.color, normalMap: maps.normal, roughnessMap: maps.roughness, metalnessMap: maps.metalness,
           roughness: 1, metalness: 1, transparent: value.material.transparent, alphaTest:value.material.alphaTest, side:options.side??value.material.side });
+        copyMaterialOptics(material,value.material);
         material.name = surface.texture.name; material.userData.surfaceMaterial = { key: surface.key, ...value.diagnostics }; material.needsUpdate = true;
       });
       // The public promise still rejects for callers; observing it here prevents

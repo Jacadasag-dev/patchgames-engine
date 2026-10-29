@@ -30,6 +30,7 @@ export const objectSurfaceSchema=z.object({
   }).strict()).max(4).default([]),
   output:z.object({resolution:z.union([z.literal(32),z.literal(64),z.literal(128),z.literal(256),z.literal(512)]).default(128),style:z.enum(['realistic','stylized','pixel']).default('realistic'),paletteSteps:z.number().int().min(2).max(32).default(8)}).strict().default({resolution:128,style:'realistic',paletteSteps:8}),
 }).strict().superRefine((r,ctx)=>{
+  if(r.layers.some(l=>l.material.optics)||r.base.optics&&(r.layers.length||r.effects.length))ctx.addIssue({code:'custom',message:'Optical surfaces require a single base material without layers or effects. Use separate meshes for optical and opaque surfaces.'});
   const ids=new Set<string>();for(const item of [...r.layers,...r.effects]){if(ids.has(item.id))ctx.addIssue({code:'custom',message:'Surface layer/effect IDs must be unique.'});ids.add(item.id);}
   for(const [i,effect]of r.effects.entries()){
     const target=resolveSurfaceName(r.orientation.front,effect.surface,effect.space),span=boxSurfaceFrame(r.sizeMeters,target).span;
