@@ -36,7 +36,8 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
   for(const id of Object.keys(surfaceDrafts))try{const saved=localStorage.getItem('patchgames-object-surface-'+id);if(saved)surfaceDrafts[id as SurfaceExample]=objectSurfaceSchema.parse(JSON.parse(saved));}catch{}
   const root=node('section','','ml');root.setAttribute('aria-label','Material generator lab');const style=node('style');style.textContent=css;root.append(style);
   const header=node('header'),brand=node('div');brand.append(node('div','PATCHGAMES ENGINE / MATERIALS','eyebrow'),node('div','Material Lab','brand'));
-  header.append(brand,node('p','Make a surface. Shape its character. Keep the recipe.'),node('div','','spacer'),node('span','67 materials + 7 surface examples','badge'));
+  const foliageLink=node('a','Foliage Lab');foliageLink.href='foliage-lab.html';foliageLink.style.color='#d1ed9c';
+  header.append(brand,node('p','Make a surface. Shape its character. Keep the recipe.'),node('div','','spacer'),node('span','67 materials + 7 surface examples','badge'),foliageLink);
   if(onClose){const close=node('button','Close lab','close');close.onclick=onClose;header.append(close);}root.append(header);
   const body=node('div','','body'),library=node('aside','','library'),workspace=node('main','','workspace'),controls=node('aside','','controls');body.append(library,workspace,controls);root.append(body);
   const examples=node('div','','surface-examples');

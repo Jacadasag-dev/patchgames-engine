@@ -1,6 +1,6 @@
 {
   "name": "@patchgames/engine",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "private": true,
   "type": "module",
   "description": "Sandboxed multiplayer game runtime, authoring helpers and browser presentation for PatchGames.",
@@ -19,7 +19,8 @@
       "default": "./tools/generated/materialize-engine.mjs"
     },
     "./starters": "./tools/starters.ts",
-    "./material-lab": "./examples/material-lab.ts"
+    "./material-lab": "./examples/material-lab.ts",
+    "./foliage-lab": "./examples/foliage-lab.ts"
   },
   "files": [
     "src",
@@ -39,7 +40,8 @@
     "check:boundary": "node tools/check-public-boundary.mjs",
     "check:package": "node tools/check-public-boundary.mjs --pack",
     "prepack": "node tools/check-public-boundary.mjs",
-    "demo:materials": "vite --host 127.0.0.1 --open /examples/material-lab.html"
+    "demo:materials": "vite --host 127.0.0.1 --open /examples/material-lab.html",
+    "demo:foliage": "vite --host 127.0.0.1 --open /examples/foliage-lab.html"
   },
   "dependencies": {
     "zod": "^4.6.5",

@@ -35,3 +35,10 @@ it('packages named material recipes and rejects malformed material documents',()
  writeFileSync(file,JSON.stringify({version:1,materials:{bad:{pattern:{family:'unknown'}}}}));
  expect(()=>buildView(root)).toThrow();
 });
+
+it('makes procedural foliage and collider helpers importable through the real game boundary',()=>{
+ const root=project('blank'),view=join(root,'src/game/view.ts'),logic=join(root,'src/game/logic.ts');
+ writeFileSync(view,readFileSync(view,'utf8')+"\nexport {createFoliage,FOLIAGE_PRESETS} from '../sandbox/foliageGenerator.ts';\n");
+ writeFileSync(logic,readFileSync(logic,'utf8')+"\nexport {compileFoliage,foliageColliders} from '../shared/foliageGenerator.ts';\n");
+ expect(buildView(root).length).toBeGreaterThan(100);expect(buildLogic(root).length).toBeGreaterThan(100);
+});

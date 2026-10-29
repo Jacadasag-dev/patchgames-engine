@@ -105,3 +105,6 @@ whose redistribution terms have not been verified.
 Apache-2.0 permits commercial use and modification. Third-party components keep
 their own licenses. The license does not grant permission to use PatchGames
 trademarks to imply endorsement.
+
+Procedural trees and bushes use the [foliage generator](docs/foliage-generator.md),
+with shared bark/leaf materials, seeded clustering, attached twigs and a live Foliage Lab.

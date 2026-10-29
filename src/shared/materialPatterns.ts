@@ -126,14 +126,15 @@ export function materialPatternFeaturesAtCell(r:MaterialPattern,cell:Vec,frame?:
 /** Parent/offspring grouping. Group size sets parent spacing and the radius of
  * child collections. Density changes child counts, not their individual sizes.
  */
-export function materialPatternGroupedFeaturesAtCell(r:MaterialPattern,cell:Vec,frame?:MaterialPatternFrame):MaterialPatternFeature[]{
+export function materialPatternGroupedFeaturesAtCell(r:MaterialPattern,cell:Vec,frame?:MaterialPatternFrame,maxChildren=256):MaterialPatternFeature[]{
   if(!cell.every(Number.isSafeInteger))throw Error('Group cell coordinates must be safe integers.');
   if(!r.clumping||!r.density||r.placementRegularity===1||r.mode==='solid')return[];
   const {dimensions}=domain(r,frame),grid=groupGrid(r,frame);
   if(grid&&cell.some((v,i)=>v<0||v>=grid.counts[i]))return[];
   const volume=grid?grid.spacing.slice(0,dimensions).reduce((a,b)=>a*b,1):Math.pow(r.groupSizeMeters,dimensions);
   const lambda=r.density*r.clumping*(1-r.placementRegularity)*volume;
-  if(lambda>256)throw Error('Group size and feature amount exceed the group sampling budget. Reduce group size or feature amount.');
+  if(!Number.isInteger(maxChildren)||maxChildren<1||maxChildren>20000)throw Error('Group child budget must be an integer from 1 to 20000.');
+  if(lambda>maxChildren)throw Error('Group size and feature amount exceed the group sampling budget. Reduce group size or feature amount.');
   const [a,b,d]=cell,result:MaterialPatternFeature[]=[],parents=grid?1:poisson(1,hash(a,b,d,r.seed+2003),4);
   for(let parent=0;parent<parents;parent++){
     const seed=r.seed+parent*997,center=grid?cell.map((v,i)=>i>=dimensions?0:grid.origin[i]+(v+.5+(grid.counts[i]===1?0:(hash(a,b,d,seed+2011+i*13)-.5)*.7))*grid.spacing[i]):[(a+hash(a,b,d,seed+2011))*r.groupSizeMeters,(b+hash(a,b,d,seed+2017))*r.groupSizeMeters,dimensions===2?0:(d+hash(a,b,d,seed+2027))*r.groupSizeMeters];
