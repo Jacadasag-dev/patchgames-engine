@@ -115,7 +115,7 @@ For boxes use `OBJECT_SURFACE_EXAMPLES.iron`, `.diamond`, `.gold`, or
 const layer = {
   id:'ore',
   material:{pattern:{family:'metal'},color:'#d5ac40',secondaryColor:'#76551b'},
-  coverage:{kind:'pattern',pattern:{type:'clusters',sizeMeters:.17,coverage:.36,seed:19}},
+  coverage:{pattern:{type:'clusters',sizeMeters:.17,coverage:.36,seed:19}},
   opacity:1,
   heightOffsetMeters:-.006
 };

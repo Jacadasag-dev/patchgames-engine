@@ -77,7 +77,7 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
     if(mapTab==='opacity'){const image=baked.color,data=new Uint8Array(image.data.length);for(let k=0;k<data.length;k+=4){data[k]=data[k+1]=data[k+2]=image.data[k+3];data[k+3]=255;}return{...image,data};}
     return baked[mapTab==='3d'?'color':mapTab as MapName];
   }
-  function showMap(){distributionStatus.textContent=mode==='material'?'':surfaceRecipe.layers.filter(l=>l.coverage.kind==='pattern').map(l=>{if(l.coverage.kind!=='pattern')return '';const p=l.coverage.pattern,d=inspectMaterialPatternDistribution(p,{faceMeters:boxSurfaceFrame(surfaceRecipe.sizeMeters,inspectFace).span,modelMeters:surfaceRecipe.sizeMeters});return l.id+': '+(d.solid?'solid fill':(d.complete?'':'at least ')+d.count+' generated centres / '+d.groups+' groups ('+p.concentration.space+' domain; before gates and overlap)');}).join(' · ');canvas.hidden=mapTab!=='3d';mapCanvas.hidden=mapTab==='3d';hint.textContent=mapTab==='3d'?'Drag to orbit · scroll to zoom':mapTab==='mask'?'Combined layer coverage · black base / white layer':'Texture map · export with PNG map';for(const[id,button]of tabButtons){button.setAttribute('aria-pressed',String(id===mapTab));if(id==='mask')button.disabled=mode==='material';}if(baked&&mapTab!=='3d'){const image=displayedPixels();if(image)paint(mapCanvas,image);mapCanvas.style.objectFit='contain';mapCanvas.style.imageRendering=(mode==='material'?recipe.output.style:surfaceRecipe.output.style)==='pixel'?'pixelated':'auto';}render();}
+  function showMap(){distributionStatus.textContent=mode==='material'?'':surfaceRecipe.layers.map(l=>{const p=l.coverage.pattern,d=inspectMaterialPatternDistribution(p,{faceMeters:boxSurfaceFrame(surfaceRecipe.sizeMeters,inspectFace).span,modelMeters:surfaceRecipe.sizeMeters});return l.id+': '+(d.solid?'solid fill':(d.complete?'':'at least ')+d.count+' generated centres / '+d.groups+' groups ('+p.concentration.space+' domain; before gates and overlap)');}).join(' · ');canvas.hidden=mapTab!=='3d';mapCanvas.hidden=mapTab==='3d';hint.textContent=mapTab==='3d'?'Drag to orbit · scroll to zoom':mapTab==='mask'?'Combined layer coverage · black base / white layer':'Texture map · export with PNG map';for(const[id,button]of tabButtons){button.setAttribute('aria-pressed',String(id===mapTab));if(id==='mask')button.disabled=mode==='material';}if(baked&&mapTab!=='3d'){const image=displayedPixels();if(image)paint(mapCanvas,image);mapCanvas.style.objectFit='contain';mapCanvas.style.imageRendering=(mode==='material'?recipe.output.style:surfaceRecipe.output.style)==='pixel'?'pixelated':'auto';}render();}
   function showRecipe(){if(mode!=='material'){title.textContent=surfaceRecipe.name;subtitle.textContent=(mode==='grass'?'Model +Y top / continuous side fringe':mode==='slash'?'Model front / one non-repeating slash':'Model-space patterned material blend')+' / '+surfaceRecipe.output.style;editor.value=JSON.stringify(surfaceRecipe,null,2);return;}title.textContent=recipe.name;subtitle.textContent=`${label(recipe.pattern.family)} / seed ${recipe.seed} / ${recipe.output.style}`;editor.value=JSON.stringify(recipe,null,2);}
   function schedule(){showRecipe();clearTimeout(debounce);worker?.terminate();worker=undefined;sequence++;exportMap.disabled=true;busy.hidden=false;busy.textContent='Waiting for preview…';debounce=window.setTimeout(generate,180);}
   function generate(){
@@ -185,7 +185,7 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
     field('roughness',surfaceRecipe.base.roughness,value=>{surfaceRecipe.base.roughness=Number(value);schedule();});
     field('tileMeters',surfaceRecipe.base.tileMeters,value=>{surfaceRecipe.base.tileMeters=value as [number,number];schedule();});
     field('seed',surfaceRecipe.seed,value=>{surfaceRecipe.seed=Number(value);surfaceRecipe.base.seed=Number(value);surfaceRecipe.layers.forEach(layer=>layer.material.seed=Number(value));schedule();});
-    if(mode!=='grass'&&mode!=='slash'){
+    {
       for(const layer of surfaceRecipe.layers){
         fields.append(node('h3','Blend layer / '+layer.id));
         field('family',layer.material.pattern.family,value=>{const preset=MATERIAL_GENERATOR_PRESETS.find(p=>p.recipe.pattern.family===value)!;layer.material=materialGeneratorSchema.parse(preset.recipe);buildFields();schedule();});
@@ -194,9 +194,24 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
         field('Layer tile metres',layer.material.tileMeters,value=>{layer.material.tileMeters=value as [number,number];schedule();});
         field('Layer roughness',layer.material.roughness,value=>{layer.material.roughness=Number(value);schedule();});
         if(layer.material.pattern.family==='metal')field('Layer metalness',layer.material.pattern.metalness,value=>{if(layer.material.pattern.family==='metal')layer.material.pattern.metalness=Number(value);schedule();});
+        if(layer.material.pattern.family==='grass')field('grassDensity',layer.material.pattern.density,value=>{if(layer.material.pattern.family==='grass')layer.material.pattern.density=Number(value);schedule();});
         field('opacity',layer.opacity,value=>{layer.opacity=Number(value);schedule();});
         field('heightOffsetMeters',layer.heightOffsetMeters,value=>{layer.heightOffsetMeters=Number(value);schedule();},[-.1,.1,.001]);
-        if(layer.coverage.kind==='pattern'){
+        {
+          fields.append(node('h3','Coverage / '+layer.id));
+          const coverage=layer.coverage;
+          const faces=coverage.selection;
+          const selectionSpace=node('label','','field'),spaceChoice=select(['model','geometry'],faces?.space??'model');selectionSpace.append(node('span','Face selection space'),spaceChoice);spaceChoice.onchange=()=>{coverage.selection={space:spaceChoice.value as 'model'|'geometry',faces:[...(coverage.selection?.faces??BOX_SURFACES)]};schedule();};fields.append(selectionSpace);
+          for(const face of BOX_SURFACES)field('Include '+face,faces?.faces.includes(face)??true,value=>{const chosen=new Set(coverage.selection?.faces??BOX_SURFACES);if(value)chosen.add(face);else chosen.delete(face);if(!chosen.size){announce('Select at least one coverage face.',true);buildFields();return;}coverage.selection={space:coverage.selection?.space??'model',faces:[...chosen]};schedule();});
+          if(coverage.band){
+            const band=coverage.band;
+            for(const key of ['from','space'] as const){const wrap=node('label','','field'),control=select(key==='from'?[...BOX_SURFACES]:['model','geometry'],band[key]);wrap.append(node('span','Band '+key),control);control.onchange=()=>{Object.assign(band,{[key]:control.value});schedule();};fields.append(wrap);}
+            field('Band depth (metres)',band.depthMeters,value=>{band.depthMeters=Number(value);schedule();},[0,Math.max(...surfaceRecipe.sizeMeters),.01]);
+            field('Band variation',band.variation,value=>{band.variation=Number(value);schedule();});
+            field('Band feather (metres)',band.featherMeters,value=>{band.featherMeters=Number(value);schedule();},[0,.2,.001]);
+          }
+          const bandToggle=node('button',coverage.band?'Remove edge band':'Add edge band');bandToggle.onclick=()=>{if(coverage.band)delete coverage.band;else coverage.band={from:'top',space:'model',depthMeters:surfaceRecipe.sizeMeters[1]*.24,variation:.65,featherMeters:.015};buildFields();schedule();};fields.append(bandToggle);
+          fields.append(node('p','One coverage mask: selected faces × optional edge band × boundary × pattern. Solid fill is the default; switch to Features for ore or patches. Boundary and gates compose with either.','note'));
           const pattern=layer.coverage.pattern;
           field('generationMode',pattern.mode,value=>{pattern.mode=value as 'features'|'solid';buildFields();schedule();});
           if(pattern.mode==='features'){
@@ -214,36 +229,23 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
           for(const [axis,name] of ['X','Y','Z'].entries())field('Concentration center '+name,focus.center[axis],value=>{focus.center[axis]=Number(value);schedule();},[-1,1,.01]);
           fields.append(node('p','Placement regularity: 0 scattered, 1 grid. Intermediate settings mix both at similar density. Concentration: +1 inward, 0 uniform, -1 outward. Feature density sets the number of centres per square/cubic metre; feature size sets each shape. Clumping collects scattered features around parents; larger groups are fewer and wider. These controls do not fade surviving features.','note'));
           }
-          if(pattern.boundary){
+          if(coverage.boundary){
             fields.append(node('h3','Boundary mask / explicit fade'));
-            const boundary=pattern.boundary;
+            const boundary=coverage.boundary;
             field('Boundary strength',boundary.strength,value=>{boundary.strength=Number(value);schedule();},[-1,1,.01]);
             for(const key of ['space','axes'] as const){const wrap=node('label','','field'),control=select(key==='space'?['face','model']:['x','y','z','xy','xz','yz','xyz'],boundary[key]);wrap.append(node('span','Boundary '+key),control);control.onchange=()=>{Object.assign(boundary,{[key]:control.value});schedule();};fields.append(wrap);}
             field('Boundary radius',boundary.radius,value=>{boundary.radius=Number(value);schedule();},[.01,2,.01]);
             field('Boundary falloff',boundary.softness,value=>{boundary.softness=Number(value);schedule();});
             for(const [axis,name] of ['X','Y','Z'].entries())field('Boundary center '+name,boundary.center[axis],value=>{boundary.center[axis]=Number(value);schedule();},[-1,1,.01]);
           }
-          const boundaryToggle=node('button',pattern.boundary?'Remove boundary mask':'Add boundary mask');boundaryToggle.onclick=()=>{if(pattern.boundary)delete pattern.boundary;else pattern.boundary={...pattern.concentration,strength:1,center:[...pattern.concentration.center]};buildFields();schedule();};fields.append(boundaryToggle);
+          const boundaryToggle=node('button',coverage.boundary?'Remove boundary mask':'Add boundary mask');boundaryToggle.onclick=()=>{if(coverage.boundary)delete coverage.boundary;else coverage.boundary={...pattern.concentration,strength:1,center:[...pattern.concentration.center]};buildFields();schedule();};fields.append(boundaryToggle);
           const restrict=node('button',pattern.gates.length?'Remove vein restriction':'Restrict pattern to veins');restrict.onclick=()=>{const {gates,...gate}=parseMaterialPattern({type:'veins',sizeMeters:.3,coverage:.45,seed:pattern.seed});void gates;pattern.gates=pattern.gates.length?[]:[{operation:'intersect',pattern:gate}];buildFields();schedule();};fields.append(restrict);
         }
         const remove=node('button','Remove layer '+layer.id);remove.onclick=()=>{surfaceRecipe.layers=surfaceRecipe.layers.filter(item=>item!==layer);buildFields();schedule();};fields.append(remove);
       }
       const add=node('button','Add patterned material layer');add.disabled=surfaceRecipe.layers.length>=4;add.onclick=()=>{const layer=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.iron).layers[0];layer.id='layer-'+Date.now();surfaceRecipe.layers.push(layer);buildFields();schedule();};fields.append(add,node('p','Pattern coordinates stay in model metres. Source tile repeats are independent. Blend mask shows combined layer opacity.','note'));
     }
-    if(mode==='grass'){
-      fields.append(node('h3','Grass coverage / model +Y'));
-      if(surfaceRecipe.layers[0]?.coverage.kind==='top-fringe'){
-      const fringe=()=>surfaceRecipe.layers[0].coverage as Extract<ResolvedObjectSurface['layers'][number]['coverage'],{kind:'top-fringe'}>;
-      field('grassColor',surfaceRecipe.layers[0].material.color,value=>{surfaceRecipe.layers[0].material.color=String(value);schedule();});
-      field('fringeDepthMeters',fringe().depthMeters,value=>{fringe().depthMeters=Number(value);schedule();},[0,surfaceRecipe.sizeMeters[1],0.01]);
-      field('fringeVariation',fringe().variation,value=>{fringe().variation=Number(value);schedule();});
-      field('edgeSoftnessMeters',fringe().featherMeters,value=>{fringe().featherMeters=Number(value);schedule();},[0,0.1,0.001]);
-      field('grassDensity',(surfaceRecipe.layers[0].material.pattern as {density:number}).density,value=>{(surfaceRecipe.layers[0].material.pattern as {density:number}).density=Number(value);schedule();});
-      }
-      const toggle=node('button',surfaceRecipe.layers.length?'Remove grass layer':'Add grass layer');
-      toggle.onclick=()=>{surfaceRecipe.layers=surfaceRecipe.layers.length?[]:objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.grass).layers;buildFields();schedule();};fields.append(toggle);
-      fields.append(node('p','Grass follows model +Y. All sides share one fringe field so corners connect. Rotate the preview to check.','note'));
-    }else if(mode==='slash'){
+    if(mode==='slash'){
       fields.append(node('h3','Localized slash / model front'));
       const effect=()=>surfaceRecipe.effects[0];
       if(effect()){
@@ -270,7 +272,7 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
   function buildCards(){cards.replaceChildren();const query=search.value.toLowerCase(),shown=entries.filter(item=>(filter.value==='all'||filter.value===item.recipe.pattern.family)&&(item.recipe.name+' '+item.recipe.pattern.family).toLowerCase().includes(query));count.textContent=`${shown.length} materials · 54 engine examples`;
     for(const item of shown){const button=node('button','','card');button.setAttribute('aria-pressed',String(item.id===activeId));button.setAttribute('aria-label',item.recipe.name);let thumb=thumbs.get(item.id);if(!thumb){thumb=node('canvas');thumbs.set(item.id,thumb);thumbQueue.push(item);}button.append(thumb,node('span',item.recipe.name));button.onclick=()=>{mode='material';activeId=item.id;recipe=materialGeneratorSchema.parse(structuredClone(item.recipe));shape=['leaf','needle'].includes(recipe.pattern.family)?'card':'cube';shapeChoice.value=shape;syncMode();buildCards();buildFields();schedule();};cards.append(button);}if(!shown.length)cards.append(node('p','No matching materials.','empty'));nextThumb();
   }
-  search.oninput=buildCards;filter.onchange=buildCards;shuffle.onclick=()=>{const seed=Math.floor(Math.random()*2147483647);if(mode==='material')recipe.seed=seed;else{surfaceRecipe.seed=seed;surfaceRecipe.base.seed=seed;surfaceRecipe.layers.forEach(layer=>{layer.material.seed=seed;if(layer.coverage.kind==='pattern')layer.coverage.pattern.seed=seed;});}buildFields();schedule();};
+  search.oninput=buildCards;filter.onchange=buildCards;shuffle.onclick=()=>{const seed=Math.floor(Math.random()*2147483647);if(mode==='material')recipe.seed=seed;else{surfaceRecipe.seed=seed;surfaceRecipe.base.seed=seed;surfaceRecipe.layers.forEach(layer=>{layer.material.seed=seed;layer.coverage.pattern.seed=seed;});}buildFields();schedule();};
   shapeChoice.onchange=()=>{shape=shapeChoice.value;for(const[id,mesh]of Object.entries(meshes))mesh.visible=id===shape;buildFields();updateInspection();render();};
   light.onchange=()=>{key.color.set(light.value==='warm'?0xffc57c:light.value==='cool'?0xa4caff:0xffedcc);render();};tiling.onchange=()=>{repeat=Number(tiling.value);setRepeats();};
   function animate(){if(disposed||!rotate.checked)return;group.rotation.y+=0.004;render();raf=requestAnimationFrame(animate);}rotate.onchange=()=>{cancelAnimationFrame(raf);if(rotate.checked)animate();};

@@ -4,7 +4,7 @@ import {createMaterialPatternSampler} from '../src/shared/materialPatterns.ts';
 self.onmessage=async(event)=>{
   const {id,recipe,resolution,thumbnail,surfaceRecipe}=event.data;
   try{
-    if(surfaceRecipe){const surface=await generateObjectSurface(surfaceRecipe,{resolution}),samplers=new Map(surface.recipe.layers.flatMap(layer=>layer.coverage.kind==='pattern'?[[layer,createMaterialPatternSampler(layer.coverage.pattern)] as const]:[])),masks=Object.fromEntries(BOX_SURFACES.map(face=>{
+    if(surfaceRecipe){const surface=await generateObjectSurface(surfaceRecipe,{resolution}),samplers=new Map(surface.recipe.layers.map(layer=>[layer,createMaterialPatternSampler(layer.coverage.pattern)] as const)),masks=Object.fromEntries(BOX_SURFACES.map(face=>{
       const {width,height}=surface.faces[face].color,data=new Uint8Array(width*height*4),frame=boxSurfaceFrame(surface.recipe.sizeMeters,face);
       for(let y=0;y<height;y++)for(let x=0;x<width;x++){const point=frame.point((x+.5)/width,(y+.5)/height);let uncovered=1;
         for(const layer of surface.recipe.layers)uncovered*=1-surfaceCoverage(surface.recipe,layer,face,point,samplers.get(layer))*layer.opacity;

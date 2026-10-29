@@ -57,11 +57,12 @@ function profile(r:PatternConcentration,p:Vec){
   const radius=Math.hypot(...r.axes.split('').map(axis=>{const i={x:0,y:1,z:2}[axis]!;return(p[i]-r.center[i])/r.radius;}));
   const t=r.softness===0?(radius<=1?1:0):clamp((1-radius)/r.softness),inside=t*t*(3-2*t);return r.strength>=0?inside:1-inside;
 }
-function boundaryWeight(r:PatternConcentration|undefined,frame?:MaterialPatternFrame){
+export function materialPatternBoundaryWeight(r:PatternConcentration|undefined,frame?:MaterialPatternFrame){
   if(!r||r.strength===0)return 1;const p=frame?.[r.space];
   if(!p||!p.every(Number.isFinite))throw Error('Boundary requires normalized '+r.space+' coordinates.');
   return 1-Math.abs(r.strength)+Math.abs(r.strength)*profile(r,p);
 }
+const boundaryWeight=materialPatternBoundaryWeight;
 function domain(r:MaterialPattern,frame?:MaterialPatternFrame){
   const meters=r.concentration.space==='face'?frame?.faceMeters:frame?.modelMeters;
   if(meters&&(meters.length!==(r.concentration.space==='face'?2:3)||!meters.every(v=>Number.isFinite(v)&&v>0)))throw Error('Pattern domain dimensions must match the selected space and be positive finite metres.');

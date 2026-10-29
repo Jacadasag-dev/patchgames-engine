@@ -1,7 +1,7 @@
 # Object surface recipes
 
 Object surface recipes combine a repeating base, face assignments or coverage
-fields, and localized surface effects. This first version supports boxes with
+fields, and localized surface effects. Version 2 supports boxes with
 positive dimensions in model-local metres, declared horizontal front and +Y up.
 It stores recipe data, not images. The Material Lab includes editable grass/dirt
 and brick/slash examples alongside the existing fifty material swatches.
@@ -39,17 +39,39 @@ models, curved meshes, world-up deposition, and destructive holes are outside
 this box contract. Extending it requires matching normals, tangent handedness,
 surface identity and collision policies, not guessing UV directions.
 
-## Grass coverage
+## Unified coverage
 
-The grass example has a dirt base and a `top-fringe` layer. Its top is fully
-covered, its bottom is uncovered, and its sides use a seeded XZ coverage field
-plus model-space height. The same point at a corner produces the same fringe
-boundary on both sides. Controls include depth in metres, variation, feathering,
-grass density, colors and seed. Removing the layer exposes dirt on all faces.
+Every layer uses one coverage object; there is no coverage-kind switch:
 
-For explicit face assignments use a `faces` coverage with
-`selection:{space:'model',faces:['top']}`. Base and layer materials can be inline
-generator recipes or named references such as `{ref:'texture.dry-earth'}`.
+```ts
+coverage: {
+  selection: {space:'model', faces:['top','front']}, // optional; all faces by default
+  band: {from:'top', depthMeters:.24, variation:.65, featherMeters:.015}, // optional
+  boundary: {strength:1,space:'face',axes:'xy',radius:.85}, // optional
+  pattern: {type:'clusters', density:32, sizeMeters:.18} // optional; solid by default
+}
+```
+
+The final mask is **selected faces × edge band × boundary × pattern**, then source alpha and
+layer opacity blend every PBR channel. All controls compose; for example add a
+cluster pattern to a top band for patchy grass, or veins inside a wood end mask.
+Omitting coverage (or using `{}`) fills all faces. A pattern is solid unless an
+explicit feature pattern is supplied. The optional boundary clips/fades a region; pattern gates also compose.
+
+- Grass: `coverage:{band:{from:'top',depthMeters:.24,variation:.65}}`.
+- Wood ends: selected top/bottom, a model XZ boundary mask (no feature pattern needed).
+- Gold/diamonds: a vein/cluster pattern, optionally with the same faces or band.
+
+Bands work from any of the six directions, use declared semantic orientation
+by default (or explicit geometry space), and share a continuous seeded field at
+side corners. The anchor face is fully eligible, the opposite face excluded;
+depth/variation/feather shape adjacent faces. Depth must fit the object's extent
+along the selected direction. Every layer uses the same physical face UVs, so
+band orientation never collapses texture density. Version 1 coverage variants
+are rejected; update recipes to version 2. The lab's presets use version 2.
+
+Base and layer materials can be inline generator recipes or named references
+such as `{ref:'texture.dry-earth'}`.
 Named references resolve from the shared material registry rather than a second
 material store. `createObjectSurfaceView` follows those dependencies automatically;
 await its `ready` after a registry change. Missing/invalid dependencies preserve

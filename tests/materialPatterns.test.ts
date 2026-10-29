@@ -109,7 +109,7 @@ it('combines bounded gates and rejects unbounded/ambiguous data',()=>{
   for(const bad of [{type:'missing'},{type:'patches',sizeMeters:0},{type:'patches',coverage:NaN},{type:'veins',seed:.5},{type:'cells',gates:Array(4).fill({})},{type:'cells',gates:[{operation:'intersect',pattern:{type:'veins',gates:[]}}]}])expect(()=>parseMaterialPattern(bad)).toThrow();
 });
 it('uses continuous corner coverage independently of source repeats and semantic orientation',()=>{
-  const r=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.iron),layer=r.layers[0];if(layer.coverage.kind==='pattern'){layer.coverage.pattern.concentration.space='model';layer.coverage.pattern.concentration.strength=0;}
+  const r=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.iron),layer=r.layers[0];{layer.coverage.pattern.concentration.space='model';layer.coverage.pattern.concentration.strength=0;}
   for(let v=0;v<=1;v+=.1){const a=boxSurfaceFrame(r.sizeMeters,'front').point(1,v),b=boxSurfaceFrame(r.sizeMeters,'right').point(0,v);expect(a).toEqual(b);expect(surfaceCoverage(r,layer,'front',a)).toBe(surfaceCoverage(r,layer,'right',b));}
   const point=boxSurfaceFrame(r.sizeMeters,'front').point(.37,.63),before=surfaceCoverage(r,layer,'front',point);layer.material.tileMeters=[.02,2];expect(surfaceCoverage(r,layer,'front',point)).toBe(before);
 });
@@ -117,7 +117,7 @@ it('blends physical height and material responses with the same mask, including 
   const r=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.gold);r.output.resolution=32;
   const a=await generateObjectSurface(r),clean=await generateObjectSurface({...r,layers:[]});expect(a.faces.front.color.data).not.toEqual(clean.faces.front.color.data);expect(a.faces.front.metalness.data).not.toEqual(clean.faces.front.metalness.data);expect(a.faces.front.normal.data).not.toEqual(clean.faces.front.normal.data);
   r.layers[0].opacity=0;expect((await generateObjectSurface(r)).faces.front.color.data).toEqual(clean.faces.front.color.data);
-  const full=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.iron);if(full.layers[0].coverage.kind==='pattern'){full.layers[0].coverage.pattern.mode='solid';full.layers[0].coverage.pattern.coverage=1;full.layers[0].coverage.pattern.concentration.strength=0;}
+  const full=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.iron);{full.layers[0].coverage.pattern.mode='solid';full.layers[0].coverage.pattern.coverage=1;full.layers[0].coverage.pattern.concentration.strength=0;}
   const before=sampleObjectSurface(full,'front',.2,.7);full.layers[0].heightOffsetMeters-=.02;const after=sampleObjectSurface(full,'front',.2,.7);expect(before.height-after.height).toBeCloseTo(.02);
 });
 it('supports the same pattern masks through texture recipes with data-parser parity',async()=>{

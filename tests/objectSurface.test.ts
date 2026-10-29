@@ -3,11 +3,12 @@ import {generateObjectSurface,objectSurfaceSchema,OBJECT_SURFACE_EXAMPLES,BOX_SU
 import {ObjectSurfaceView,createObjectSurfaceView} from '../src/sandbox/objectSurface.ts';
 import {replaceMaterialRecipes} from '../src/shared/materialRegistry.ts';
 import {materialGeneratorSchema} from '../src/shared/materialGenerator.ts';
+import {materialPatternBoundaryWeight} from '../src/shared/materialPatterns.ts';
 import {DataTexture} from 'three';
 
 it('samples grass in two dimensions on every vertical face instead of extruding a top-down row',()=>{
   const r=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.grass);
-  r.output.style='realistic';r.layers[0].coverage={kind:'top-fringe',space:'model',depthMeters:0.8,variation:0,featherMeters:0};
+  r.output.style='realistic';r.layers[0].coverage.band={from:'top',space:'model',depthMeters:0.8,variation:0,featherMeters:0};
   for(const face of ['front','back','left','right'] as const){
     const rows=Array.from({length:12},(_,i)=>sampleObjectSurface(r,face,0.37,0.3+i*0.05).color.join(','));
     expect(new Set(rows).size).toBeGreaterThan(1);
@@ -45,7 +46,7 @@ it('repeats the brick base while applying one bounded slash to only its selected
 it('rejects ambiguous or unsupported transforms and out-of-surface slash paths',()=>{
   for(const extra of [{scale:[1,2,1]},{mirror:'x'},{orientation:{front:'+z',up:'+z'}}])expect(()=>objectSurfaceSchema.parse({...OBJECT_SURFACE_EXAMPLES.grass,...extra})).toThrow();
   const r=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.slash);r.effects[0].pathMeters[0][0]=19;expect(()=>objectSurfaceSchema.parse(r)).toThrow();
-  expect(()=>objectSurfaceSchema.parse({...OBJECT_SURFACE_EXAMPLES.grass,layers:[{id:'grass',material:{pattern:{family:'grass'}},coverage:{kind:'top-fringe',space:'world',depthMeters:0.2}}]})).toThrow();
+  expect(()=>objectSurfaceSchema.parse({...OBJECT_SURFACE_EXAMPLES.grass,layers:[{id:'grass',material:{pattern:{family:'grass'}},coverage:{band:{from:'top',space:'world',depthMeters:0.2}}}]})).toThrow();
 });
 it('bakes deterministic six-face PBR maps and updates the same mesh during live changes',async()=>{
   const a=await generateObjectSurface(OBJECT_SURFACE_EXAMPLES.grass,{resolution:16}),b=await generateObjectSurface(OBJECT_SURFACE_EXAMPLES.grass,{resolution:16});
@@ -55,4 +56,40 @@ it('bakes deterministic six-face PBR maps and updates the same mesh during live 
   const next=structuredClone(OBJECT_SURFACE_EXAMPLES.grass);next.layers=[];view.update(await generateObjectSurface(next,{resolution:16}));
   expect(view.root).toBe(mesh);expect(mesh.geometry).toBe(geometry);expect(disposed).toBe(1);expect(mesh.material[0]).not.toBe(old);view.dispose();view.dispose();
   const controller=new AbortController();controller.abort();await expect(generateObjectSurface(OBJECT_SURFACE_EXAMPLES.slash,{signal:controller.signal})).rejects.toThrow();
+});
+
+it('uses one composable coverage schema for all examples and defaults to solid full coverage',()=>{
+ for(const recipe of Object.values(OBJECT_SURFACE_EXAMPLES))for(const layer of objectSurfaceSchema.parse(recipe).layers){expect(layer.coverage).not.toHaveProperty('kind');expect(layer.coverage.pattern).toBeDefined();}
+ const r=objectSurfaceSchema.parse({...OBJECT_SURFACE_EXAMPLES.grass,layers:[{id:'all',material:{pattern:{family:'grass'}}}]});
+ expect(r.layers[0].coverage.pattern.mode).toBe('solid');for(const face of BOX_SURFACES)expect(surfaceCoverage(r,r.layers[0],face,boxSurfaceFrame(r.sizeMeters,face).point(.5,.5))).toBe(1);
+ expect(()=>objectSurfaceSchema.parse({...r,version:1})).toThrow();expect(()=>objectSurfaceSchema.parse({...r,layers:[{...r.layers[0],coverage:{kind:'faces',selection:{faces:['top']}}}]})).toThrow();
+});
+it.each(BOX_SURFACES)('coverage bands support %s with continuous shared corner fields',from=>{
+ const r=objectSurfaceSchema.parse({...OBJECT_SURFACE_EXAMPLES.grass,layers:[{...OBJECT_SURFACE_EXAMPLES.grass.layers![0],coverage:{band:{from,space:'geometry',depthMeters:.3,variation:.8}}}]});
+ const layer=r.layers[0],anchor=boxSurfaceFrame(r.sizeMeters,from);
+ expect(surfaceCoverage(r,layer,from,anchor.point(.5,.5))).toBe(1);
+ const opposite=BOX_SURFACES.find(n=>boxSurfaceFrame(r.sizeMeters,n).normal.every((v,i)=>v===-anchor.normal[i]))!;
+ expect(surfaceCoverage(r,layer,opposite,boxSurfaceFrame(r.sizeMeters,opposite).point(.5,.5))).toBe(0);
+ const sides=BOX_SURFACES.filter(n=>n!==from&&n!==opposite);
+ for(const a of sides)for(const b of sides){if(a===b)continue;const af=boxSurfaceFrame(r.sizeMeters,a),bf=boxSurfaceFrame(r.sizeMeters,b);if(af.normal.some((v,i)=>v&&bf.normal[i]))continue;
+  for(let t=0;t<=1;t+=.1){const p=af.normal.map((v,i)=>v*r.sizeMeters[i]/2+bf.normal[i]*r.sizeMeters[i]/2+anchor.normal[i]*(t-.5)*r.sizeMeters[i]) as [number,number,number];expect(surfaceCoverage(r,layer,a,p)).toBe(surfaceCoverage(r,layer,b,p));}
+ }
+});
+it('multiplies face, band and pattern masks rather than switching coverage paths',()=>{
+ const r=objectSurfaceSchema.parse({...OBJECT_SURFACE_EXAMPLES.iron,layers:[{...OBJECT_SURFACE_EXAMPLES.iron.layers![0],coverage:{selection:{faces:['front','top']},band:{from:'top',depthMeters:.6,variation:0},pattern:{type:'clusters',density:128,sizeMeters:.3,coverage:.8}}}]});
+ const layer=r.layers[0],band=structuredClone(layer),pattern=structuredClone(layer);band.coverage.pattern=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.grass).layers[0].coverage.pattern;delete pattern.coverage.band;
+ let covered=0;for(const face of BOX_SURFACES)for(let y=0;y<12;y++)for(let x=0;x<12;x++){const p=boxSurfaceFrame(r.sizeMeters,face).point((x+.5)/12,(y+.5)/12),value=surfaceCoverage(r,layer,face,p);covered+=Number(value>0);expect(value).toBeCloseTo(surfaceCoverage(r,band,face,p)*surfaceCoverage(r,pattern,face,p),10);if(!['front','top'].includes(face))expect(value).toBe(0);}
+ expect(covered).toBeGreaterThan(5);
+});
+it('validates directional band extent and resolves semantic front',()=>{
+ const r=objectSurfaceSchema.parse({...OBJECT_SURFACE_EXAMPLES.grass,orientation:{front:'+x'},sizeMeters:[.2,1,2],layers:[{...OBJECT_SURFACE_EXAMPLES.grass.layers![0],coverage:{band:{from:'front',depthMeters:.1}}}]});
+ expect(surfaceCoverage(r,r.layers[0],'right',[.1,0,0])).toBe(1);expect(surfaceCoverage(r,r.layers[0],'left',[-.1,0,0])).toBe(0);
+ r.layers[0].coverage.band!.depthMeters=.3;expect(()=>objectSurfaceSchema.parse(r)).toThrow('Coverage band depth');
+});
+
+it('composes a coverage-level boundary without requiring a fake feature pattern',()=>{
+ const r=objectSurfaceSchema.parse({...OBJECT_SURFACE_EXAMPLES.grass,layers:[{...OBJECT_SURFACE_EXAMPLES.grass.layers![0],coverage:{selection:{faces:['front']},band:{from:'top',depthMeters:.6,variation:0},boundary:{strength:1,space:'face',axes:'xy',radius:.85,softness:.4}}}]});
+ const layer=r.layers[0],without=structuredClone(layer);delete without.coverage.boundary;expect(layer.coverage.pattern.mode).toBe('solid');
+ for(let y=0;y<15;y++)for(let x=0;x<15;x++){const u=(x+.5)/15,v=(y+.5)/15,p=boxSurfaceFrame(r.sizeMeters,'front').point(u,v);expect(surfaceCoverage(r,layer,'front',p)).toBeCloseTo(surfaceCoverage(r,without,'front',p)*materialPatternBoundaryWeight(layer.coverage.boundary,{face:[u*2-1,v*2-1,0]}),10);}
+ expect(()=>objectSurfaceSchema.parse({...r,layers:[{...layer,coverage:{boundary:{axes:'world'}}}]})).toThrow();
 });
