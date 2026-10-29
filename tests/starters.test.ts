@@ -16,3 +16,5 @@ for(const starter of listEngineStarters())it(`${starter.id} builds logic/view an
 it('runs the tactical FPS authored mechanics, map and UI tests in the sandbox',async()=>{const results=await runGameTests(project('fps'));expect(results.length).toBeGreaterThan(0);for(const file of results){expect(file.error,file.file).toBeUndefined();for(const result of file.results)expect(result.error,result.name).toBeUndefined();}},60000);
 
 it('runs voxel terrain, crafting and concurrent mining/movement checks',async()=>{const results=await runGameTests(project('voxel-survival'));for(const file of results){expect(file.error,file.file).toBeUndefined();for(const result of file.results)expect(result.error,result.name).toBeUndefined();}},60000);
+
+it('compiles feature imports from the generated host starter directory',()=>{const root=project('fps');expect(buildLogic(root,'src/gameModes/fps').length).toBeGreaterThan(100);expect(buildView(root,'src/gameModes/fps').length).toBeGreaterThan(100);},60000);

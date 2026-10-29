@@ -12,7 +12,7 @@ export function readEngineStarter(id:EngineStarterId):{starter:EngineStarter;fil
  const starter=listEngineStarters({includeBlank:true}).find(s=>s.id===id);if(!starter)throw Error(`Unknown engine starter: ${id}`);
  const root=resolve(packageRoot,'starters',id),files:Record<string,string>={};
  function visit(dir:string){for(const e of readdirSync(dir,{withFileTypes:true})){const full=resolve(dir,e.name);if(e.isSymbolicLink())throw Error('Starter symlinks are not allowed');if(e.isDirectory())visit(full);else{const path=relative(root,full).replaceAll('\\','/');if(!/^(src\/game|tests\/game)\/[\w./-]+\.(ts|json)$/.test(path))continue;files[path]=readFileSync(full,'utf8');}}}
- visit(root);if(!files['src/game/logic.ts']||!files['src/game/view.ts']||!files['src/game/tuning.json'])throw Error(`Incomplete starter: ${id}`);return{starter,files};
+ visit(root);files['src/game/starter.json']=JSON.stringify({version:1,id:starter.id,title:starter.title},null,2)+'\n';if(!files['src/game/logic.ts']||!files['src/game/view.ts']||!files['src/game/tuning.json'])throw Error(`Incomplete starter: ${id}`);return{starter,files};
 }
 export function installEngineStarter(id:EngineStarterId,root:string,options:{overwrite?:boolean}={}){
  const result=readEngineStarter(id);root=resolve(root);

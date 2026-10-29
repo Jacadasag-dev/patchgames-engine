@@ -267,7 +267,16 @@ function checkInputs(metafile: Metafile, target: BuildTarget): Violation[] {
 function sourceFeatures(root: string, gameDir: string): SourceFeature[] {
   const sources: Record<string,string> = Object.create(null);
   for (const file of listFiles(resolve(root, gameDir, 'features'), /\.(ts|json)$/)) {
-    sources[FEATURE_DIRECTORY + toPosix(relative(resolve(root, gameDir, 'features'), file))] = readFileSync(file, 'utf8');
+    const canonical=FEATURE_DIRECTORY + toPosix(relative(resolve(root, gameDir, 'features'), file));
+    let source=readFileSync(file,'utf8');
+    // Validation uses canonical feature paths even when a trusted starter lives
+    // under another directory. Preserve the same resolved engine import target.
+    if(gameDir!==GAME_DIR)source=source.replace(/(['"])((?:\.\.\/)+(?:sandbox|shared)\/[^'"\n]+)\1/g,(_all,quote,specifier)=>{
+      const target=resolve(dirname(file),specifier),relativeTarget=toPosix(relative(resolve(root),target));
+      if(!relativeTarget.startsWith('src/sandbox/')&&!relativeTarget.startsWith('src/shared/'))return quote+specifier+quote;
+      return quote+toPosix(relative(dirname(resolve(root,canonical)),target))+quote;
+    });
+    sources[canonical]=source;
   }
   const order = resolve(root, gameDir, 'feature-order.json');
   if (existsSync(order)) sources[FEATURE_ORDER_PATH] = readFileSync(order, 'utf8');
