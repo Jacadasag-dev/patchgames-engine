@@ -5,12 +5,12 @@ import {materialGeneratorSchema,MATERIAL_GENERATOR_PRESETS,type ResolvedMaterial
 import {MATERIAL_LAB_PRESETS} from '../src/shared/materialLabPresets.ts';
 import {createGeneratedMaterialFromPixels} from '../src/sandbox/materialGenerator.ts';
 import {mapBoxMaterialMeters,inspectTextureDensity,createMaterialMappingDebug} from '../src/sandbox/materialMapping.ts';
-import {MATERIAL_PATTERN_TYPES} from '../src/shared/materialPatterns.ts';
+import {MATERIAL_PATTERN_TYPES,parseMaterialPattern} from '../src/shared/materialPatterns.ts';
 import css from './material-lab.css?inline';
 
-const labels:Record<string,string>={baseColor:'Base color',type:'Pattern type',sizeMeters:'Pattern size (metres)',heightOffsetMeters:'Layer recess / raise (metres)',angleRadians:'Pattern angle (radians)',lengthMeters:'Length (metres)',widthMeters:'Width (metres)',veinSpacingMeters:'Vein spacing (metres)',ridgeMeters:'Bark ridge spacing (metres)',ringMeters:'Growth-ring spacing (metres)',edgeSerration:'Edge serration',shadowColor:'Shadow color',grassColor:'Grass color',fringeDepthMeters:'Grass fringe depth (metres)',fringeVariation:'Fringe variation',edgeSoftnessMeters:'Edge softness (metres)',grassDensity:'Grass density',showSlash:'Show slash',slashWidthMeters:'Slash width (metres)',slashDepthMeters:'Slash depth (metres)',exposedColor:'Exposed inner color',tileMeters:'Tile size (metres)',blockMeters:'Block size (metres)',mortarMeters:'Mortar width (metres)',plankMeters:'Plank width (metres)',grainMeters:'Grain size (metres)',gapMeters:'Plank gap (metres)',stoneMeters:'Stone size (metres)',bladeMeters:'Blade size (metres)',sizeVariation:'Size variation',secondaryColor:'Shadow color',reliefMeters:'Relief depth (metres)',paletteSteps:'Palette colors'};
+const labels:Record<string,string>={baseColor:'Base color',shapeVariation:'Shape variation',sizeVariation:'Size variation',concentrationSpace:'Concentration space',concentrationAxes:'Concentration axes',type:'Pattern type',sizeMeters:'Pattern size (metres)',heightOffsetMeters:'Layer recess / raise (metres)',angleRadians:'Pattern angle (radians)',lengthMeters:'Length (metres)',widthMeters:'Width (metres)',veinSpacingMeters:'Vein spacing (metres)',ridgeMeters:'Bark ridge spacing (metres)',ringMeters:'Growth-ring spacing (metres)',edgeSerration:'Edge serration',shadowColor:'Shadow color',grassColor:'Grass color',fringeDepthMeters:'Grass fringe depth (metres)',fringeVariation:'Fringe variation',edgeSoftnessMeters:'Edge softness (metres)',grassDensity:'Grass density',showSlash:'Show slash',slashWidthMeters:'Slash width (metres)',slashDepthMeters:'Slash depth (metres)',exposedColor:'Exposed inner color',tileMeters:'Tile size (metres)',blockMeters:'Block size (metres)',mortarMeters:'Mortar width (metres)',plankMeters:'Plank width (metres)',grainMeters:'Grain size (metres)',gapMeters:'Plank gap (metres)',stoneMeters:'Stone size (metres)',bladeMeters:'Blade size (metres)',secondaryColor:'Shadow color',reliefMeters:'Relief depth (metres)',paletteSteps:'Palette colors'};
 const label=(key:string)=>labels[key]??key.charAt(0).toUpperCase()+key.slice(1);
-const choice:Record<string,string[]>={family:MATERIAL_GENERATOR_PRESETS.map(p=>p.recipe.pattern.family),shape:['rectangle','square','triangle'],bond:['stack','staggered'],direction:['vertical','horizontal'],style:['realistic','stylized','pixel'],outline:['pointed','oval','lobed'],cut:['end','lengthwise'],type:[...MATERIAL_PATTERN_TYPES]};
+const choice:Record<string,string[]>={family:MATERIAL_GENERATOR_PRESETS.map(p=>p.recipe.pattern.family),shape:['rectangle','square','triangle'],bond:['stack','staggered'],direction:['vertical','horizontal'],style:['realistic','stylized','pixel'],outline:['pointed','oval','lobed'],cut:['end','lengthwise'],type:[...MATERIAL_PATTERN_TYPES],concentrationSpace:['face','model'],concentrationAxes:['x','y','z','xy','xz','yz','xyz']};
 type SurfaceExample=keyof typeof OBJECT_SURFACE_EXAMPLES;
 type Example='material'|SurfaceExample;
 type Handle=ReturnType<typeof createGeneratedMaterialFromPixels>;
@@ -32,7 +32,7 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
   for(const id of Object.keys(surfaceDrafts))try{const saved=localStorage.getItem('patchgames-object-surface-'+id);if(saved)surfaceDrafts[id as SurfaceExample]=objectSurfaceSchema.parse(JSON.parse(saved));}catch{}
   const root=node('section','','ml');root.setAttribute('aria-label','Material generator lab');const style=node('style');style.textContent=css;root.append(style);
   const header=node('header'),brand=node('div');brand.append(node('div','PATCHGAMES ENGINE / MATERIALS','eyebrow'),node('div','Material Lab','brand'));
-  header.append(brand,node('p','Make a surface. Shape its character. Keep the recipe.'),node('div','','spacer'),node('span','54 materials + 6 surface examples','badge'));
+  header.append(brand,node('p','Make a surface. Shape its character. Keep the recipe.'),node('div','','spacer'),node('span','54 materials + 7 surface examples','badge'));
   if(onClose){const close=node('button','Close lab','close');close.onclick=onClose;header.append(close);}root.append(header);
   const body=node('div','','body'),library=node('aside','','library'),workspace=node('main','','workspace'),controls=node('aside','','controls');body.append(library,workspace,controls);root.append(body);
   const examples=node('div','','surface-examples');
@@ -197,11 +197,20 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
         field('heightOffsetMeters',layer.heightOffsetMeters,value=>{layer.heightOffsetMeters=Number(value);schedule();},[-.1,.1,.001]);
         if(layer.coverage.kind==='pattern'){
           const pattern=layer.coverage.pattern;
-          for(const key of ['type','coverage','sizeMeters','irregularity','edgeSoftnessMeters','angleRadians','seed','invert'] as const){
+          for(const key of ['type','coverage','sizeMeters','irregularity','shapeVariation','sizeVariation','edgeSoftnessMeters','angleRadians','seed','invert'] as const){
             const range=key==='sizeMeters'?[.002,2,.002] as [number,number,number]:key==='edgeSoftnessMeters'?[0,.2,.001] as [number,number,number]:key==='angleRadians'?[-6.28,6.28,.01] as [number,number,number]:undefined;
             field(key==='seed'?'Pattern seed':key,pattern[key],value=>{Object.assign(pattern,{[key]:value});schedule();},range);
           }
-          const restrict=node('button',pattern.gates.length?'Remove vein restriction':'Restrict pattern to veins');restrict.onclick=()=>{pattern.gates=pattern.gates.length?[]:[{operation:'intersect',pattern:{type:'veins',sizeMeters:.3,coverage:.45,irregularity:.5,edgeSoftnessMeters:.003,angleRadians:0,seed:pattern.seed,invert:false}}];buildFields();schedule();};fields.append(restrict);
+          fields.append(node('h3','Pattern concentration'));
+          const focus=pattern.concentration;
+          field('Concentration strength',focus.strength,value=>{focus.strength=Number(value);schedule();},[-1,1,.01]);
+          field('concentrationSpace',focus.space,value=>{focus.space=value as 'face'|'model';schedule();});
+          field('concentrationAxes',focus.axes,value=>{focus.axes=value as typeof focus.axes;schedule();});
+          field('Concentration radius',focus.radius,value=>{focus.radius=Number(value);schedule();},[.01,2,.01]);
+          field('Concentration falloff',focus.softness,value=>{focus.softness=Number(value);schedule();});
+          for(const [axis,name] of ['X','Y','Z'].entries())field('Concentration center '+name,focus.center[axis],value=>{focus.center[axis]=Number(value);schedule();},[-1,1,.01]);
+          fields.append(node('p','Strength: +1 inward, 0 uniform, -1 outward. Center and radius use normalized half-spans. Face XY centers each face; model XZ centers a vertical cross-section.','note'));
+          const restrict=node('button',pattern.gates.length?'Remove vein restriction':'Restrict pattern to veins');restrict.onclick=()=>{const {gates,...gate}=parseMaterialPattern({type:'veins',sizeMeters:.3,coverage:.45,seed:pattern.seed});void gates;pattern.gates=pattern.gates.length?[]:[{operation:'intersect',pattern:gate}];buildFields();schedule();};fields.append(restrict);
         }
         const remove=node('button','Remove layer '+layer.id);remove.onclick=()=>{surfaceRecipe.layers=surfaceRecipe.layers.filter(item=>item!==layer);buildFields();schedule();};fields.append(remove);
       }

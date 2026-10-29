@@ -13,6 +13,45 @@ combine patterns. For example, intersect clusters with veins. The same seed and
 coordinates reproduce the same mask; object-wide masks do not change with source
 texture repeats or image resolution.
 
+Every pattern also accepts `shapeVariation` and `sizeVariation` (0–1). Shape
+variation applies a finer irregular warp to boundaries; size variation applies a
+slower warp to feature spacing and apparent scale. Thus clusters lose perfect
+circular outlines, veins wander, stripes become uneven and patches/cells vary.
+These controls are independent of `irregularity` (the original family-specific
+placement/bend control), source texture repeats and output resolution. Both
+default to zero; artistic coverage is still not an exact measured area fraction.
+
+All patterns and gates can use a spatial concentration envelope:
+
+```ts
+concentration: {
+  strength: 1,       // +1 inward, 0 uniform, -1 outward; intermediate strengths blend
+  space: 'face',    // 'model' for object coordinates
+  axes: 'xy',       // x/y/z, xy/xz/yz or xyz
+  center: [0,0,0],  // normalized: centre 0, negative/positive boundary -1/+1
+  radius: .85,      // fraction of each selected axis's half-span; .01–2
+  softness: .2     // feather width as a fraction of radius; 0 gives a hard edge
+}
+```
+
+Face XY centres a distribution on each face, leaving a margin around ore blocks.
+Model XZ creates a vertical cross-section envelope: a core on a top cut face, or
+an outer ring with negative strength. Model XYZ uses an ellipsoidal volume and
+can intentionally suppress all exterior faces if the radius stays inside the
+object. Move `center` to offset the focus. Non-square dimensions produce an
+ellipse in metres because the radius is normalized per axis. Concentration
+feathers mask weight; it can fade partial blends near its boundary. Root
+concentration applies after gate composition/inversion, so union gates cannot
+silently refill its excluded region. Gates can have their own concentration.
+
+`sampleMaterialPattern(pattern, physicalPoint, {face?,model?})` accepts independently
+normalized `MaterialPatternFrame` coordinates. Nonzero concentration requires its
+selected frame; missing frames throw instead of silently choosing an origin.
+Object surfaces provide both frames. Planar TextureRecipe masks provide only the
+face/tile frame, with UV 0.5 as centre; model-space concentration needs an object
+adapter. Focus coordinates are never warped with the pattern or repeated with a
+source texture. This controls a surface mask, not anatomy, geometry or collision.
+
 For boxes use `OBJECT_SURFACE_EXAMPLES.iron`, `.diamond`, `.gold`, or
 `['moss-bark']` from `shared/objectSurface`. They are editable recipes:
 
@@ -61,10 +100,13 @@ These generators do not produce a tree mesh, branching, wind, refraction, or
 subsurface light transmission. Bark and leaf detail are procedural approximations;
 resolution alone does not establish photorealism.
 
-The lab has 54 material swatches plus six object recipes. Choose an ore/moss
+The lab has 54 material swatches plus seven object recipes. Choose an ore/moss
 example to edit the pattern, source colors/repeats, opacity and recess/raise depth,
 add/remove layers, or restrict a pattern to veins. **Blend mask** shows combined
 coverage/opacity before source cutouts; **Opacity** shows final color alpha.
+All pattern types expose shape/size variation and concentration strength, space,
+axes, centre, radius and falloff. Ore presets demonstrate face concentration;
+**Wood core cross-section** demonstrates a model XZ envelope on selected end faces.
 Filter the library by bark, leaf, needle or exposed-wood to edit those generators.
 Leaves/needles select a physical-size card preview. Changes rebake in a cancellable
 worker without resetting the camera. Save/export stores recipe data, not pixels.

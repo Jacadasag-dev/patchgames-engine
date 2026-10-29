@@ -21,6 +21,37 @@ it.each(MATERIAL_PATTERN_TYPES)('%s is deterministic, bounded and responds to ph
   expect(points.map(point=>sampleMaterialPattern(parseMaterialPattern(p),point))).toEqual(values);
   expect(points.map(point=>sampleMaterialPattern(changed,point))).not.toEqual(values);
 });
+it.each(MATERIAL_PATTERN_TYPES)('%s supports independent shape/size variation and inward/outward focus',type=>{
+  const base=parseMaterialPattern({type,sizeMeters:.2,coverage:.5,irregularity:.8});
+  const points=Array.from({length:144},(_,i)=>[(i%12)*.021,Math.floor(i/12)*.021,.071] as const);
+  const original=points.map(p=>sampleMaterialPattern(base,p));
+  for(const key of ['shapeVariation','sizeVariation'] as const){const changed={...base,[key]:.9},values=points.map(p=>sampleMaterialPattern(changed,p));expect(values).not.toEqual(original);expect(values).toEqual(points.map(p=>sampleMaterialPattern(parseMaterialPattern(changed),p)));expect(values.every(v=>Number.isFinite(v)&&v>=0&&v<=1)).toBe(true);}
+  const inward=parseMaterialPattern({type,coverage:1,concentration:{strength:1,radius:.8,softness:.2}}),outward=parseMaterialPattern({...inward,concentration:{...inward.concentration,strength:-1}});
+  expect(sampleMaterialPattern(inward,[8,9,10],{face:[0,0,0]})).toBe(1);expect(sampleMaterialPattern(inward,[8,9,10],{face:[1,0,0]})).toBe(0);
+  expect(sampleMaterialPattern(outward,[8,9,10],{face:[0,0,0]})).toBe(0);expect(sampleMaterialPattern(outward,[8,9,10],{face:[1,0,0]})).toBe(1);
+});
+it('keeps model cross-sections distinct from face centres and validates missing frames',()=>{
+  const r=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES['wood-core']),layer=r.layers[0];
+  expect(surfaceCoverage(r,layer,'top',[0,r.sizeMeters[1]/2,0])).toBe(1);
+  expect(surfaceCoverage(r,layer,'top',[r.sizeMeters[0]/2,r.sizeMeters[1]/2,0])).toBe(0);
+  expect(surfaceCoverage(r,layer,'front',[0,0,r.sizeMeters[2]/2])).toBe(0); // selected end faces only
+  const p=parseMaterialPattern({type:'patches',coverage:1,concentration:{space:'model',axes:'xz',strength:1,radius:.3,softness:0,center:[.4,0,-.2]}});
+  expect(()=>sampleMaterialPattern(p,[0,0,0],{face:[0,0,0]})).toThrow('model coordinates');
+  expect(sampleMaterialPattern(p,[0,0,0],{model:[.4,1,-.2]})).toBe(1);expect(sampleMaterialPattern(p,[0,0,0],{model:[0,1,0]})).toBe(0);
+});
+it('applies root concentration after union gates and after inversion',()=>{
+  const r=parseMaterialPattern({type:'cells',coverage:1,invert:true,concentration:{strength:1},gates:[{operation:'union',pattern:{type:'patches',coverage:1}}]});
+  expect(sampleMaterialPattern(r,[0,0,0],{face:[0,0,0]})).toBe(1);expect(sampleMaterialPattern(r,[0,0,0],{face:[1,1,0]})).toBe(0);
+});
+it('rejects malformed focus/variation parameters and does not share mutable defaults',()=>{
+  for(const bad of [{shapeVariation:2},{sizeVariation:NaN},{concentration:{strength:2}},{concentration:{center:[0,0]}},{concentration:{radius:0}},{concentration:{axes:'yx'}},{concentration:{space:'world'}}])expect(()=>parseMaterialPattern({type:'patches',...bad})).toThrow();
+  const a=parseMaterialPattern({type:'patches'}),b=parseMaterialPattern({type:'patches'});a.concentration.center[0]=.5;expect(b.concentration.center[0]).toBe(0);
+});
+it('keeps focused planar masks independent of source repeats and validates parser parity',async()=>{
+  const recipe={kind:'texture' as const,version:1 as const,name:'Focused mask',resolution:32,layers:[{source:{kind:'solid' as const,color:'#000000'}},{source:{kind:'solid' as const,color:'#ffffff'},mask:{kind:'pattern' as const,pattern:{type:'patches',coverage:1,shapeVariation:.8,sizeVariation:.4,concentration:{strength:1,radius:.6}}}}]};
+  expect(parseTextureRecipeData(recipe)).toEqual(textureRecipeSchema.parse(recipe));const a=await renderMaterialRecipe(recipe),b=await renderMaterialRecipe({...recipe,layers:[recipe.layers[0],{...recipe.layers[1],repeat:[4,4]}]});expect(a.color.data).toEqual(b.color.data);
+  expect(a.color.data[(16*32+16)*4]).toBe(255);expect(a.color.data[0]).toBe(0);
+});
 it('combines bounded gates and rejects unbounded/ambiguous data',()=>{
   const p=parseMaterialPattern({type:'patches',coverage:1,gates:[{operation:'subtract',pattern:{type:'veins',coverage:1}}]});
   expect(sampleMaterialPattern(p,[.2,.3,.4])).toBe(0);
