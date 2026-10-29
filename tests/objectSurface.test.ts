@@ -5,6 +5,15 @@ import {replaceMaterialRecipes} from '../src/shared/materialRegistry.ts';
 import {materialGeneratorSchema} from '../src/shared/materialGenerator.ts';
 import {DataTexture} from 'three';
 
+it('samples grass in two dimensions on every vertical face instead of extruding a top-down row',()=>{
+  const r=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.grass);
+  r.output.style='realistic';r.layers[0].coverage={kind:'top-fringe',space:'model',depthMeters:0.8,variation:0,featherMeters:0};
+  for(const face of ['front','back','left','right'] as const){
+    const rows=Array.from({length:12},(_,i)=>sampleObjectSurface(r,face,0.37,0.3+i*0.05).color.join(','));
+    expect(new Set(rows).size).toBeGreaterThan(1);
+  }
+});
+
 it('assigns grass to the top, dirt to the bottom and continuous fringe coverage at side corners',()=>{
   const r=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.grass),layer=r.layers[0];
   expect(surfaceCoverage(r,layer,'top',[0,0.5,0])).toBe(1);expect(surfaceCoverage(r,layer,'bottom',[0,-0.5,0])).toBe(0);

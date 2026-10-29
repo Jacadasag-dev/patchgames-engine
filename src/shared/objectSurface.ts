@@ -94,8 +94,9 @@ function materialSample(m:ResolvedMaterialGenerator,u:number,v:number,output:Res
 export function sampleObjectSurface(r:ResolvedObjectSurface,name:BoxSurface,u:number,v:number){
   const frame=boxSurfaceFrame(r.sizeMeters,name),point=frame.point(u,v),result=materialSample(r.base,u*frame.span[0]/r.base.tileMeters[0],v*frame.span[1]/r.base.tileMeters[1],r.output);
   for(const layer of r.layers){const weight=surfaceCoverage(r,layer,name,point);if(!weight)continue;const m=layer.material;
-    // Project grass in XZ for every face: a corner has the same field and colour on both sides.
-    const top=layer.coverage.kind==='top-fringe',sample=materialSample(m,top?(point[0]+r.sizeMeters[0]/2)/m.tileMeters[0]:u*frame.span[0]/m.tileMeters[0],top?(point[2]+r.sizeMeters[2]/2)/m.tileMeters[1]:v*frame.span[1]/m.tileMeters[1],r.output);
+    // Coverage shares one model-space field, but texture projection must span the
+    // actual face. Top-down projection on vertical faces collapses one axis.
+    const top=layer.coverage.kind==='top-fringe'&&name==='top',sample=materialSample(m,top?(point[0]+r.sizeMeters[0]/2)/m.tileMeters[0]:u*frame.span[0]/m.tileMeters[0],top?(point[2]+r.sizeMeters[2]/2)/m.tileMeters[1]:v*frame.span[1]/m.tileMeters[1],r.output);
     result.color=result.color.map((c,i)=>mix(c,sample.color[i],weight));for(const key of ['height','roughness','metalness','ao'] as const)result[key]=mix(result[key],sample[key],weight);
   }
   for(const effect of r.effects){const weight=slashCoverage(r,effect,name,u,v);if(!weight)continue;const inner=rgb(effect.exposedColor);result.color=result.color.map((c,i)=>mix(c,inner[i]*0.65,weight));result.height-=effect.depthMeters*weight;result.roughness=mix(result.roughness,0.95,weight);result.metalness*=1-weight;result.ao=mix(result.ao,0.3,weight);}
