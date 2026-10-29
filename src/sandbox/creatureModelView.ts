@@ -5,7 +5,6 @@ import { CREATURE_MODEL_DATA } from './creatureModelData.ts';
 
 export interface PackedCreatureModel {
   readonly version: 'packed-creature-model-v1'; readonly id: string; readonly rigId: string;
-  readonly source: { readonly library: string; readonly url: string; readonly license: 'CC0-1.0'; readonly sourceSha256: string };
   readonly skins: readonly string[];
   readonly primitives: readonly {
     readonly name: string; readonly vertices: number; readonly min: readonly number[]; readonly span: readonly number[];
@@ -31,11 +30,10 @@ const linear = (n: number) => n <= .04045 ? n / 12.92 : ((n + .055) / 1.055) ** 
 
 export type CreatureModelView = ReturnType<typeof createCreatureSkeleton> & {
   readonly meshes: readonly SkinnedMesh<BufferGeometry, MeshStandardMaterial>[];
-  readonly provenance: PackedCreatureModel['source'];
   dispose(): void;
 };
 
-/** Create a complete CC0 source body bound to the same authentic creature rig
+/** Create a complete creature body bound to the same authentic creature rig
  * used by shared clips, motion matching, and terrain feet. Apply poses through
  * animationRig; parent root under an authoritative gameplay actor. Atlas colors
  * are baked into vertices offline; no URLs, loaders, or separate mixers run here.
@@ -97,7 +95,7 @@ export function createCreatureModel(bankOrId: string | SharedCreatureBank, optio
   }
   actor.root.updateMatrixWorld(true); actor.skeleton.update();
   let disposed = false;
-  return { ...actor, meshes: Object.freeze(meshes), provenance: Object.freeze({ ...model.source }), dispose() {
+  return { ...actor, meshes: Object.freeze(meshes), dispose() {
     if (disposed) return; disposed = true;
     for (const mesh of meshes) { mesh.removeFromParent(); mesh.geometry.dispose(); mesh.material.dispose(); }
     for (const skeleton of skins) skeleton.dispose(); actor.skeleton.dispose(); actor.root.removeFromParent();

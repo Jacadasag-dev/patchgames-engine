@@ -1,7 +1,7 @@
 # Third-party licensing inventory
 
 The engine's own code is Apache-2.0. That license does not replace the licenses
-of dependencies or imported assets. This inventory covers engine 0.2.2's locked
+of dependencies or imported assets. This inventory covers engine 0.3.0's locked
 packages, not the private PatchGames platform.
 
 ## Direct runtime and build dependencies
@@ -42,8 +42,9 @@ requirement to display credits on a game's HUD or title screen.
 ## Asset records
 
 Voluntary asset credits and separate CC0 notice files are not distributed.
-Machine-readable import records retain license identifiers, source locations and
-hashes for verification and reproducible builds. They are not attribution notices.
+Optional import-verification records and runtime asset provenance fields have
+also been removed. Import tools accept caller-supplied local files or explicit
+download URLs; the package contains no supplier download registry.
 
 ## Can notices be removed?
 

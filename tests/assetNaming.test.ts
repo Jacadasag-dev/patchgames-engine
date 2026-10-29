@@ -1,4 +1,3 @@
-import {readFileSync} from 'node:fs';
 import {expect,it} from 'vitest';
 import {sharedCreatureCatalog,sharedCreatureAnimations,CreatureAnimationController} from '../src/sandbox/creatureAnimationLibrary.ts';
 import {createCreatureModel} from '../src/sandbox/creatureModelView.ts';
@@ -31,8 +30,10 @@ it('provides neutral starter source without compatibility lookups',()=>{
  expect(()=>sharedCreatureAnimations('quaternius-fox')).toThrow('unknown bank');
 });
 
-it('keeps reproducible source manifests aligned with the runtime catalog',()=>{
- const manifest=JSON.parse(readFileSync(new URL('../third-party/creature-animations/sources.json',import.meta.url),'utf8'));
- const sources=manifest.sources.map((source:{id:string;label:string})=>({id:source.id,label:source.label}));
- expect(sources).toEqual(sharedCreatureCatalog().map(({id,label})=>({id,label})));
+it('exposes no optional source provenance in creature catalogs or models',()=>{
+ for(const entry of sharedCreatureCatalog()){
+  expect(entry).not.toHaveProperty('provenance');
+  const model=createCreatureModel(entry.id);
+  expect(model).not.toHaveProperty('provenance');model.dispose();
+ }
 });

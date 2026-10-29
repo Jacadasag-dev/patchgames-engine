@@ -21,8 +21,9 @@ Version 0.2.0 removes the old supplier-prefixed identifiers and host exports.
 There are no aliases or automatic translations. Update authored games and
 saved asset selections to IDs returned by the current catalog before rebuilding.
 
-Names are presentation and API identifiers, not authorship claims. Source names, hashes, URLs and license identifiers remain in import provenance;
-renaming an asset does not change its origin or license.
+Version 0.3.0 removes creature provenance fields and the supplier filter.
+Use canonical IDs, family, tags and actions for discovery. No provenance aliases
+or bundled source-verification records are provided.
 
 Host-authored humanoid banks use semantic clip IDs and packed-content hashes.
 Importer file names, exporter versions and original file hashes belong in offline

@@ -14,7 +14,6 @@ export interface PackedCreatureBank {
   family: string;
   tags: readonly string[];
   rig: CreatureRig;
-  source: { library: string; url: string; license: 'CC0-1.0'; sourceSha256: string };
   positionScale: number;
   rotationScale: number;
   scaleScale: number;
@@ -24,9 +23,6 @@ export interface PackedCreatureBank {
     /** Optional measured source displacement, extracted out of pose tracks. */
     rootMotion?: { joint: string; positions: readonly number[] };
   }[];
-}
-export interface CreatureAnimationProvenance {
-  readonly library: string; readonly url: string; readonly license: 'CC0-1.0'; readonly sourceSha256: string;
 }
 export interface CreatureClipMetadata {
   readonly id: string; readonly sourceName: string; readonly durationMs: number; readonly loop: boolean; readonly tags: readonly string[];
@@ -41,13 +37,13 @@ export interface SharedCreatureClip extends CreatureClipMetadata {
 export interface CreatureAnimationCatalogEntry {
   readonly id: string; readonly label: string; readonly family: string; readonly tags: readonly string[];
   readonly rigId: string; readonly actions: readonly string[]; readonly clipCount: number;
-  readonly clips: readonly CreatureClipMetadata[]; readonly provenance: CreatureAnimationProvenance;
+  readonly clips: readonly CreatureClipMetadata[];
   readonly coverage: Readonly<{ contacts: 'unknown'; trajectory: 'unavailable' }>;
 }
 export interface SharedCreatureBank extends Omit<CreatureAnimationCatalogEntry, 'clips'> {
   readonly rig: CreatureRig; readonly clips: readonly SharedCreatureClip[];
 }
-export interface CreatureAnimationFilter { family?: string; tag?: string; action?: string; library?: string }
+export interface CreatureAnimationFilter { family?: string; tag?: string; action?: string }
 const coverage = Object.freeze({ contacts: 'unknown', trajectory: 'unavailable' } as const);
 const fail = (message: string): never => { throw new Error(`Creature animation: ${message}.`); };
 function finite(value: number, min: number, max: number, label: string): number {
@@ -129,7 +125,6 @@ function unpackChannel(values: PackedCreatureChannel, width: number, count: numb
 }
 function metadata(data: PackedCreatureBank): CreatureAnimationCatalogEntry {
   if (!data || data.version !== 'packed-creature-v1') fail('unsupported format');
-  if (!data.source || data.source.license !== 'CC0-1.0' || !/^[a-f0-9]{64}$/i.test(data.source.sourceSha256)) fail('missing source provenance');
   if (!Array.isArray(data.clips) || !data.clips.length || data.clips.length > 512) fail('expected 1..512 clips');
   const ids = new Set<string>();
   const clips = data.clips.map(value => {
@@ -144,8 +139,7 @@ function metadata(data: PackedCreatureBank): CreatureAnimationCatalogEntry {
   return Object.freeze({ id: name(data.id), label: text(data.label, 'label'), family: name(data.family), tags: tags(data.tags),
     rigId: name(data.rig?.id), clips: Object.freeze(clips), clipCount: clips.length,
     actions: Object.freeze([...new Set(clips.flatMap(clip => clip.tags))].sort()),
-    provenance: Object.freeze({ library: text(data.source.library, 'source library'), url: text(data.source.url, 'source URL'),
-      license: data.source.license, sourceSha256: data.source.sourceSha256 }), coverage });
+    coverage });
 }
 
 /** Decode and validate only the requested bank. Packed channels are copied once;
@@ -238,7 +232,7 @@ export function sharedCreatureCatalog(filter: CreatureAnimationFilter = {}): rea
   if (Object.keys(filter).length === 0) return catalog;
   return Object.freeze(catalog.filter(entry => (!filter.family || entry.family === filter.family)
     && (!filter.tag || entry.tags.includes(filter.tag)) && (!filter.action || entry.actions.includes(filter.action))
-    && (!filter.library || entry.provenance.library === filter.library)));
+   ));
 }
 /** Cached shared data, with a separate controller/skeleton per visible actor. */
 export function sharedCreatureAnimations(bankId: string): SharedCreatureBank {
