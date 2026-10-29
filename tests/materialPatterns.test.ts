@@ -1,6 +1,6 @@
 import {it,expect} from 'vitest';
 import {DoubleSide} from 'three';
-import {MATERIAL_PATTERN_TYPES,parseMaterialPattern,sampleMaterialPattern,materialPatternFeatureAtCell} from '../src/shared/materialPatterns.ts';
+import {MATERIAL_PATTERN_TYPES,parseMaterialPattern,sampleMaterialPattern,materialPatternFeatureAtCell,materialPatternFeaturesAtCell,createMaterialPatternSampler} from '../src/shared/materialPatterns.ts';
 import {materialGeneratorSchema,MATERIAL_GENERATOR_PRESETS,generateMaterial} from '../src/shared/materialGenerator.ts';
 import {parseMaterialGeneratorData} from '../src/shared/materialGeneratorData.ts';
 import {objectSurfaceSchema,OBJECT_SURFACE_EXAMPLES,boxSurfaceFrame,surfaceCoverage,sampleObjectSurface,generateObjectSurface} from '../src/shared/objectSurface.ts';
@@ -13,16 +13,44 @@ import {createRecipeMaterial} from '../src/sandbox/materialRecipes.ts';
 import {SurfaceMaterialCache} from '../src/sandbox/surfaceMaterialView.ts';
 import {resolveSurfaceMaterial} from '../src/sandbox/surfaceMaterials.ts';
 
+it.each(MATERIAL_PATTERN_TYPES)('%s supports ordered, mixed and genuinely scattered placement',type=>{
+  function measure(placementRegularity:number){const r=parseMaterialPattern({type,placementRegularity,irregularity:1,sizeMeters:.1});let count=0,empty=0,multiple=0,cx=0,sx=0,cy=0,sy=0;
+    for(let y=-16;y<16;y++)for(let x=-16;x<16;x++){const features=materialPatternFeaturesAtCell(r,[x,y,0],{faceMeters:[4,4]});empty+=Number(features.length===0);multiple+=Number(features.length>1);
+      for(const f of features){count++;cx+=Math.cos(f.center[0]/r.sizeMeters*2*Math.PI);sx+=Math.sin(f.center[0]/r.sizeMeters*2*Math.PI);cy+=Math.cos(f.center[1]/r.sizeMeters*2*Math.PI);sy+=Math.sin(f.center[1]/r.sizeMeters*2*Math.PI);}
+    }return{count,empty,multiple,alignment:(Math.hypot(cx,sx)+Math.hypot(cy,sy))/(2*count)};
+  }
+  const grid=measure(1),mixed=measure(.5),scatter=measure(0);
+  expect(grid.alignment).toBeCloseTo(1,8);expect(scatter.alignment).toBeLessThan(.08);expect(mixed.alignment).toBeGreaterThan(scatter.alignment+.2);expect(mixed.alignment).toBeLessThan(grid.alignment-.2);
+  expect(scatter.empty).toBeGreaterThan(200);expect(scatter.multiple).toBeGreaterThan(150);
+  for(const result of [grid,mixed,scatter])expect(result.count/1024).toBeGreaterThan(.9);
+  for(const result of [grid,mixed,scatter])expect(result.count/1024).toBeLessThan(1.1);
+});
+it('keeps scatter distribution, grouping, individual sizes and opacity independent',()=>{
+  const r=parseMaterialPattern({type:'clusters',sizeMeters:.1,placementRegularity:0}),focused=parseMaterialPattern({...r,clumping:.8,concentration:{strength:1,radius:.8}}),frame={faceMeters:[2,2] as const};let inner=0,outer=0,innerTotal=0,outerTotal=0;
+  for(let y=-10;y<10;y++)for(let x=-10;x<10;x++){
+    const a=materialPatternFeaturesAtCell(r,[x,y,0],frame),b=materialPatternFeaturesAtCell(focused,[x,y,0],frame);expect(a.map(f=>[f.id,f.center,f.sizeScale])).toEqual(b.map(f=>[f.id,f.center,f.sizeScale]));
+    for(const f of b){const distance=Math.hypot(f.center[0],f.center[1]);if(distance<.45){innerTotal++;inner+=Number(f.accepted);}if(distance>.9){outerTotal++;outer+=Number(f.accepted);}}
+  }expect(inner/innerTotal).toBeGreaterThan(outer/outerTotal+.3);
+  for(const placementRegularity of [-1,2,NaN])expect(()=>parseMaterialPattern({type:'clusters',placementRegularity})).toThrow();
+});
+it('cached scatter samplers match stateless output across domains and retain immutable snapshots',()=>{
+  const r=parseMaterialPattern({type:'clusters',placementRegularity:0,clumping:.8,shapeVariation:.6,sizeVariation:.4,concentration:{strength:.8}}),sampler=createMaterialPatternSampler(r);
+  const samples=Array.from({length:40},(_,i)=>({point:[i*.013,i*.007,0] as const,frame:{face:[i*.026-1,i*.014-1,0] as const,faceMeters:[1,2] as const}}));
+  const values=samples.map(s=>sampler(s.point,s.frame));expect(values).toEqual(samples.map(s=>sampleMaterialPattern(r,s.point,s.frame)));
+  const other={face:[.4,.2,0] as const,faceMeters:[2,1] as const};expect(sampler([.4,.1,0],other)).toBe(sampleMaterialPattern(r,[.4,.1,0],other));
+  r.seed=900;r.placementRegularity=1;expect(samples.map(s=>sampler(s.point,s.frame))).toEqual(values);
+});
+
 it.each(MATERIAL_PATTERN_TYPES)('%s is deterministic, bounded and responds to physical size',type=>{
   const p=parseMaterialPattern({type,sizeMeters:.2,coverage:.55,irregularity:.8}),changed={...p,sizeMeters:.31};
-  const points=Array.from({length:60},(_,i)=>[i*.017,.037+i*.011,.051] as const);
+  const points=Array.from({length:512},(_,i)=>[(i*.754877666)%1,(i*.569840291)%1,(i*.43828911)%1] as const);
   const values=points.map(point=>sampleMaterialPattern(p,point));
   expect(values.every(v=>Number.isFinite(v)&&v>=0&&v<=1)).toBe(true);expect(new Set(values).size).toBeGreaterThan(1);
   expect(points.map(point=>sampleMaterialPattern(parseMaterialPattern(p),point))).toEqual(values);
   expect(points.map(point=>sampleMaterialPattern(changed,point))).not.toEqual(values);
 });
 it.each(MATERIAL_PATTERN_TYPES)('%s supports independent shape/size variation and inward/outward focus',type=>{
-  const base=parseMaterialPattern({type,sizeMeters:.2,coverage:.5,irregularity:.8});
+  const base=parseMaterialPattern({type,sizeMeters:.2,coverage:.5,irregularity:.8,placementRegularity:1});
   const points=Array.from({length:144},(_,i)=>[(i%12)*.021,Math.floor(i/12)*.021,.071] as const);
   const original=points.map(p=>sampleMaterialPattern(base,p));
   for(const key of ['shapeVariation','sizeVariation'] as const){const changed={...base,[key]:.9},values=points.map(p=>sampleMaterialPattern(changed,p));expect(values).not.toEqual(original);expect(values).toEqual(points.map(p=>sampleMaterialPattern(parseMaterialPattern(changed),p)));expect(values.every(v=>Number.isFinite(v)&&v>=0&&v<=1)).toBe(true);}
@@ -51,7 +79,7 @@ it('rejects malformed focus/variation parameters and does not share mutable defa
   const a=parseMaterialPattern({type:'patches'}),b=parseMaterialPattern({type:'patches'});a.concentration.center[0]=.5;expect(b.concentration.center[0]).toBe(0);
 });
 it.each(MATERIAL_PATTERN_TYPES)('%s distribution uses whole-feature decisions without fading surviving interiors',type=>{
-  const plain=parseMaterialPattern({type,sizeMeters:.1,coverage:.5,irregularity:0,edgeSoftnessMeters:0}),focused=parseMaterialPattern({...plain,concentration:{strength:1,radius:.8}}),bounds={faceMeters:[2,2] as const};let survivors=0;
+  const plain=parseMaterialPattern({type,sizeMeters:.1,coverage:.5,irregularity:0,placementRegularity:1,edgeSoftnessMeters:0}),focused=parseMaterialPattern({...plain,concentration:{strength:1,radius:.8}}),bounds={faceMeters:[2,2] as const};let survivors=0;
   for(let y=-5;y<5;y++)for(let x=-5;x<5;x++){
     const a=materialPatternFeatureAtCell(plain,[x,y,0],bounds),b=materialPatternFeatureAtCell(focused,[x,y,0],bounds);expect(b.center).toEqual(a.center);expect(b.sizeScale).toBe(a.sizeScale);
     if(!a.accepted||!b.accepted)continue;survivors++;const frame={...bounds,face:a.center};
@@ -59,7 +87,7 @@ it.each(MATERIAL_PATTERN_TYPES)('%s distribution uses whole-feature decisions wi
   }expect(survivors).toBeGreaterThan(10);
 });
 it('clumping correlates nearby feature presence without changing their individual shape/size',()=>{
-  const base=parseMaterialPattern({type:'clusters',sizeMeters:.05}),grouped=parseMaterialPattern({...base,clumping:1,groupSizeMeters:.5});
+  const base=parseMaterialPattern({type:'clusters',sizeMeters:.05,placementRegularity:1}),grouped=parseMaterialPattern({...base,clumping:1,groupSizeMeters:.5});
   function correlation(r:typeof base){const present=new Set<string>();let pairs=0,occupied=0;
     for(let y=-20;y<20;y++)for(let x=-20;x<20;x++)if(materialPatternFeatureAtCell(r,[x,y,0]).accepted)present.add(x+','+y);
     for(let y=-20;y<19;y++)for(let x=-20;x<19;x++)if(present.has(x+','+y)){occupied++;if(present.has((x+1)+','+y))pairs++;}

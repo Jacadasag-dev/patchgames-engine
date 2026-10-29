@@ -13,6 +13,21 @@ combine patterns. For example, intersect clusters with veins. The same seed and
 coordinates reproduce the same mask; object-wide masks do not change with source
 texture repeats or image resolution.
 
+`placementRegularity:0..1` is shared by every pattern and defaults to **0**:
+
+- **0:** scattered positions, with zero to four proposals per spatial region.
+- **0.5:** a mixture of scattered and ordered positions at similar mean density.
+- **1:** one ordered proposal at each lattice centre, without positional jitter.
+
+The scatter process draws a seeded bounded Poisson count and independent uniform
+positions within implementation regions. It does not put one shaken point in
+every cell. The mixed process uses ordered-point probability `regularity` and
+scatter rate `1-regularity`; the four-scatter-proposal cap slightly truncates rare
+tails. Small surfaces naturally vary in count. Clumping and concentration decide
+which of these proposals generate; shape, size and source opacity remain separate.
+`irregularity` can bend strands and loosen the ordered component at intermediate
+regularity, but does not reintroduce a grid at the scattered endpoint.
+
 Every pattern also accepts `shapeVariation` and `sizeVariation` (0–1). Shape
 variation applies a finer irregular warp to boundaries; size variation applies a
 seeded per-feature size multiplier. Thus clusters lose perfect
@@ -52,10 +67,20 @@ proposal system: blobs, speckles and patches; finite stripe/vein strands; and
 cell regions. Strands can join where they overlap. Distribution edits can add or
 remove a whole strand/cell; they do not shorten it with an alpha gradient.
 
-`materialPatternFeatureAtCell(pattern,[cellX,cellY,cellZ],frame)` exposes each
-proposal's physical center, generation probability, accepted flag and size scale
-for diagnostics. Accepted flags are deterministic. Changing concentration or
-clumping leaves a proposal's center/size intact. Shape/size controls are separate.
+`materialPatternFeaturesAtCell(pattern,[cellX,cellY,cellZ],frame)` exposes the full
+proposal set, including stable IDs, physical centres, generation probabilities,
+accepted flags and size scales. The singular `materialPatternFeatureAtCell`
+inspects only the ordered proposal, whose accepted flag is false when it is not
+selected by regularity. Use the plural API for distribution statistics. Accepted
+flags are deterministic. Changing concentration or clumping leaves the proposal
+set and its individual sizes intact; placement regularity changes that set.
+
+For a bake, prefer `createMaterialPatternSampler(recipe)`. It validates a snapshot
+and caches up to 8192 regions per root/gate sampler across physical domains.
+Recreate it after recipe edits and release the closure after use. Stateless
+`sampleMaterialPattern` remains useful for individual probes. Object-surface,
+texture-composition and lab-worker bakes use the cached sampler, with identical
+pixels. The cache never stores a mutable external recipe.
 
 `sampleMaterialPattern(pattern, physicalPoint, frame)` accepts `MaterialPatternFrame`
 with normalized `face`/`model` points and `faceMeters:[width,height]` or
@@ -126,7 +151,7 @@ The lab has 54 material swatches plus seven object recipes. Choose an ore/moss
 example to edit the pattern, source colors/repeats, opacity and recess/raise depth,
 add/remove layers, or restrict a pattern to veins. **Blend mask** shows combined
 coverage/opacity before source cutouts; **Opacity** shows final color alpha.
-All pattern types expose shape/size variation and concentration strength, space,
+All pattern types expose placement regularity, shape/size variation and concentration strength, space,
 axes, centre, radius and density falloff, plus clumping and group size. Ore presets demonstrate face distribution;
 **Wood core cross-section** demonstrates an explicit model XZ boundary mask on end faces.
 Filter the library by bark, leaf, needle or exposed-wood to edit those generators.

@@ -2,7 +2,7 @@ import {z} from 'zod';
 import {materialGeneratorSchema,sampleMaterialGenerator,sampleMaterialOpacity,type ResolvedMaterialGenerator,type GeneratedMaterialPixels} from './materialGenerator.ts';
 import {materialRecipe} from './materialRegistry.ts';
 import {materialPatternSchema} from './materialPatternSchema.ts';
-import {sampleMaterialPattern} from './materialPatterns.ts';
+import {sampleMaterialPattern,createMaterialPatternSampler,type MaterialPatternSampler} from './materialPatterns.ts';
 
 export const BOX_SURFACES=['right','left','top','bottom','front','back'] as const;
 export type BoxSurface=typeof BOX_SURFACES[number];
@@ -69,17 +69,17 @@ export function boxSurfaceFrame(size:Vec,name:BoxSurface){
 function hash(x:number,y:number,seed:number){let n=Math.imul(x^seed,374761393)^Math.imul(y+seed,668265263);n=Math.imul(n^(n>>>13),1274126177);return((n^(n>>>16))>>>0)/4294967295;}
 function field(x:number,z:number,seed:number){const ix=Math.floor(x),iz=Math.floor(z),a=x-ix,b=z-iz,s=a*a*(3-2*a),t=b*b*(3-2*b);return mix(mix(hash(ix,iz,seed),hash(ix+1,iz,seed),s),mix(hash(ix,iz+1,seed),hash(ix+1,iz+1,seed),s),t);}
 /** One continuous model-space field is shared by all side faces, including corners. */
-export function surfaceCoverage(r:ResolvedObjectSurface,layer:ResolvedObjectSurface['layers'][number],faceName:BoxSurface,point:Vec):number{
+export function surfaceCoverage(r:ResolvedObjectSurface,layer:ResolvedObjectSurface['layers'][number],faceName:BoxSurface,point:Vec,sampler?:MaterialPatternSampler):number{
   const c=layer.coverage;
   if(c.kind==='faces')return c.selection.faces.some(f=>resolveSurfaceName(r.orientation.front,f,c.selection.space)===faceName)?1:0;
   if(c.kind==='pattern'){
     if(c.selection&&!c.selection.faces.some(f=>resolveSurfaceName(r.orientation.front,f,c.selection!.space)===faceName))return 0;
     const frame=boxSurfaceFrame(r.sizeMeters,faceName);
-    return sampleMaterialPattern(c.pattern,point,{
-      face:[point.reduce((sum,p,i)=>sum+p*frame.u[i],0)*2/frame.span[0],point.reduce((sum,p,i)=>sum+p*frame.v[i],0)*2/frame.span[1],0],
+    const frameData={
+      face:[point.reduce((sum,p,i)=>sum+p*frame.u[i],0)*2/frame.span[0],point.reduce((sum,p,i)=>sum+p*frame.v[i],0)*2/frame.span[1],0] as Vec,
       model:point.map((p,i)=>p*2/r.sizeMeters[i]) as Vec,
       faceMeters:frame.span,modelMeters:r.sizeMeters,
-    });
+    };return sampler?sampler(point,frameData):sampleMaterialPattern(c.pattern,point,frameData);
   }
   if(faceName==='top')return 1;if(faceName==='bottom')return 0;
   const n=field(point[0]*7,point[2]*7,r.seed)*0.7+field(point[0]*23,point[2]*23,r.seed+11)*0.3;
@@ -103,9 +103,9 @@ function materialSample(m:ResolvedMaterialGenerator,u:number,v:number,output:Res
   return{color:low.map((n,i)=>mix(n,high[i],t)),height:h*m.reliefMeters,roughness,metalness,ao,opacity:sampleMaterialOpacity(m,u,v)};
 }
 /** Base UVs repeat in metres. Slash coordinates remain bounded to one face and never use those UVs. */
-export function sampleObjectSurface(r:ResolvedObjectSurface,name:BoxSurface,u:number,v:number){
+export function sampleObjectSurface(r:ResolvedObjectSurface,name:BoxSurface,u:number,v:number,samplers?:ReadonlyMap<ResolvedObjectSurface['layers'][number],MaterialPatternSampler>){
   const frame=boxSurfaceFrame(r.sizeMeters,name),point=frame.point(u,v),result=materialSample(r.base,u*frame.span[0]/r.base.tileMeters[0],v*frame.span[1]/r.base.tileMeters[1],r.output);
-  for(const layer of r.layers){let weight=surfaceCoverage(r,layer,name,point)*layer.opacity;if(!weight)continue;const m=layer.material;
+  for(const layer of r.layers){let weight=surfaceCoverage(r,layer,name,point,samplers?.get(layer))*layer.opacity;if(!weight)continue;const m=layer.material;
     // Coverage shares one model-space field, but texture projection must span the
     // actual face. Top-down projection on vertical faces collapses one axis.
     const top=layer.coverage.kind==='top-fringe'&&name==='top',sample=materialSample(m,top?(point[0]+r.sizeMeters[0]/2)/m.tileMeters[0]:u*frame.span[0]/m.tileMeters[0],top?(point[2]+r.sizeMeters[2]/2)/m.tileMeters[1]:v*frame.span[1]/m.tileMeters[1],r.output);
@@ -124,12 +124,13 @@ export async function generateObjectSurface(input:ObjectSurfaceDocument,options:
   const recipe=resolveObjectSurfaceDocument(input),size=options.resolution??recipe.output.resolution;
   if(!Number.isInteger(size)||size<16||size>512)throw Error('Object surfaces support 16–512 pixels per face.');
   const faces={} as ObjectSurfaceBake['faces'];let bytes=0;const pixelsPerMeter=size/Math.max(...recipe.sizeMeters);
+  const samplers=new Map(recipe.layers.flatMap(layer=>layer.coverage.kind==='pattern'?[[layer,createMaterialPatternSampler(layer.coverage.pattern)] as const]:[]));
   for(const name of BOX_SURFACES){
     const span=boxSurfaceFrame(recipe.sizeMeters,name).span,width=Math.max(1,Math.round(span[0]*pixelsPerMeter)),rows=Math.max(1,Math.round(span[1]*pixelsPerMeter));
     const image=()=>({width,height:rows,data:new Uint8Array(width*rows*4)}),color=image(),normal=image(),height=image(),roughness=image(),metalness=image(),ao=image(),heights=new Float32Array(width*rows);
     for(let y=0;y<rows;y++){
       if(y%16===0){options.signal?.throwIfAborted();await(options.yieldControl?.()??Promise.resolve());}
-      for(let x=0;x<width;x++){const index=y*width+x,k=index*4,sample=sampleObjectSurface(recipe,name,(x+0.5)/width,(y+0.5)/rows);heights[index]=sample.height;
+      for(let x=0;x<width;x++){const index=y*width+x,k=index*4,sample=sampleObjectSurface(recipe,name,(x+0.5)/width,(y+0.5)/rows,samplers);heights[index]=sample.height;
         for(let c=0;c<3;c++)color.data[k+c]=Math.round(sample.color[c]);color.data[k+3]=Math.round(sample.opacity*255);
         for(const[map,value]of[[height,clamp(0.5+sample.height/0.4)],[roughness,sample.roughness],[metalness,sample.metalness],[ao,sample.ao]]as const){map.data[k]=map.data[k+1]=map.data[k+2]=Math.round(value*255);map.data[k+3]=255;}
       }

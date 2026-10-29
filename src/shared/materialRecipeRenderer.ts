@@ -1,6 +1,6 @@
 import {materialRecipe} from './materialRegistry.ts';
 import { generateMaterial } from './materialGenerator.ts';
-import {sampleMaterialPattern} from './materialPatterns.ts';
+import {createMaterialPatternSampler} from './materialPatterns.ts';
 import { textureRecipeSchema, type ResolvedTextureRecipe, type TextureRecipe } from './mediaRecipes.ts';
 
 /** Color images use sRGB RGBA8. Height/roughness/metalness use linear grayscale RGBA8. */
@@ -146,6 +146,7 @@ export async function renderMaterialRecipe(input: TextureRecipe, options: Materi
     const low = source.kind === 'noise' ? rgb(source.colors[0]) : undefined;
     const high = source.kind === 'noise' ? rgb(source.colors[1]) : undefined;
     const mask = layer.mask;
+    const patternSampler=mask?.kind==='pattern'?createMaterialPatternSampler(mask.pattern):undefined;
     const previousHeights = mask?.kind === 'slope' && mask.field === 'material' ? heights.slice() : heights;
     let surfaceField: ArrayLike<number> | undefined;
     if (mask&&mask.kind!=='pattern'&&mask.field === 'surface' && mask.kind !== 'noise') {
@@ -160,7 +161,7 @@ export async function renderMaterialRecipe(input: TextureRecipe, options: Materi
       const g = maps ? linear(sample(maps.color, su, sv, 1)) : solid?.[1] ?? mix(low![1], high![1], n);
       const b = maps ? linear(sample(maps.color, su, sv, 2)) : solid?.[2] ?? mix(low![2], high![2], n);
       let weight = layer.opacity * (maps ? sample(maps.color, su, sv, 3) : 1);
-      if(mask?.kind==='pattern')weight*=sampleMaterialPattern(mask.pattern,[tu*mask.tileMeters[0],tv*mask.tileMeters[1],0],{face:[tu*2-1,tv*2-1,0],faceMeters:mask.tileMeters});
+      if(mask?.kind==='pattern')weight*=patternSampler!([tu*mask.tileMeters[0],tv*mask.tileMeters[1],0],{face:[tu*2-1,tv*2-1,0],faceMeters:mask.tileMeters});
       else if (mask) {
         let value: number;
         if (mask.kind === 'noise') value = noise(tu, tv, mask.scale, mask.seed ?? recipe.seed + layerIndex + 101);

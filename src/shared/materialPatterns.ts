@@ -13,13 +13,13 @@ export interface MaterialPatternFrame {face?:readonly[number,number,number];mode
 export interface MaterialPattern {
   type:typeof MATERIAL_PATTERN_TYPES[number];sizeMeters:number;coverage:number;irregularity:number;
   shapeVariation:number;sizeVariation:number;concentration:PatternConcentration;
-  clumping:number;groupSizeMeters:number;boundary?:PatternConcentration;
+  clumping:number;groupSizeMeters:number;placementRegularity:number;boundary?:PatternConcentration;
   edgeSoftnessMeters:number;angleRadians:number;seed:number;invert:boolean;
 }
 export interface MaterialPatternMask extends MaterialPattern {
   gates:{operation:'intersect'|'union'|'subtract';pattern:MaterialPattern}[];
 }
-const defaults={sizeMeters:.12,coverage:.2,irregularity:.5,shapeVariation:0,sizeVariation:0,clumping:0,groupSizeMeters:.6,edgeSoftnessMeters:.003,angleRadians:0,seed:1,invert:false};
+const defaults={sizeMeters:.12,coverage:.2,irregularity:.5,shapeVariation:0,sizeVariation:0,clumping:0,groupSizeMeters:.6,placementRegularity:0,edgeSoftnessMeters:.003,angleRadians:0,seed:1,invert:false};
 function plain(input:unknown,keys:string[]){if(!input||typeof input!=='object'||Array.isArray(input)||![Object.prototype,null].includes(Object.getPrototypeOf(input))||Object.keys(input).some(k=>!keys.includes(k)))throw Error('Pattern must contain only supported plain-data fields.');return input as Record<string,unknown>;}
 function number(v:unknown,min:number,max:number){if(typeof v!=='number'||!Number.isFinite(v)||v<min||v>max)throw Error('Pattern parameter outside finite bounds.');return v;}
 function concentration(input:unknown):PatternConcentration{
@@ -36,6 +36,7 @@ function parseSingle(input:unknown):MaterialPattern{
   number(r.sizeMeters,.002,20);number(r.coverage,0,1);number(r.irregularity,0,1);number(r.edgeSoftnessMeters,0,.2);number(r.angleRadians,-Math.PI*2,Math.PI*2);number(r.seed,-2147483648,2147483647);
   number(r.shapeVariation,0,1);number(r.sizeVariation,0,1);
   number(r.clumping,0,1);number(r.groupSizeMeters,.004,20);
+  number(r.placementRegularity,0,1);
   if(!Number.isInteger(r.seed)||typeof r.invert!=='boolean')throw Error('Pattern seed must be integer and invert boolean.');return r as unknown as MaterialPattern;
 }
 export function parseMaterialPattern(input:unknown):MaterialPatternMask{
@@ -65,28 +66,49 @@ function domain(r:MaterialPattern,frame?:MaterialPatternFrame){
   if(r.concentration.strength!==0&&!meters)throw Error('Distribution requires '+r.concentration.space+' dimensions in MaterialPatternFrame.');
   return{meters,dimensions:meters?.length===2?2:3};
 }
-export interface MaterialPatternFeature {center:[number,number,number];probability:number;accepted:boolean;sizeScale:number}
+export interface MaterialPatternFeature {id:string;proposal:'grid'|'scatter';center:[number,number,number];probability:number;accepted:boolean;sizeScale:number}
 /** Deterministic feature proposal and binary generation decision. Useful for authoring
  * diagnostics: changing distribution never scales a surviving feature's opacity/size.
  * Cell coordinates are integers in the pattern's physical generation domain.
  */
 export function materialPatternFeatureAtCell(r:MaterialPattern,cell:Vec,frame?:MaterialPatternFrame):MaterialPatternFeature{
   if(!cell.every(Number.isSafeInteger))throw Error('Feature cell coordinates must be safe integers.');
-  const {meters,dimensions}=domain(r,frame),[a,b,d]=cell,j=r.irregularity*.6;
+  const {dimensions}=domain(r,frame),[a,b,d]=cell,j=r.irregularity*.6*(1-r.placementRegularity);
   const center:[number,number,number]=[
     (a+.5+(hash(a,b,d,r.seed)-.5)*j)*r.sizeMeters,
     (b+.5+(hash(a,b,d,r.seed+1)-.5)*j)*r.sizeMeters,
     dimensions===2?0:(d+.5+(hash(a,b,d,r.seed+2)-.5)*j)*r.sizeMeters,
   ];
+  return feature(r,cell,center,frame,-1,hash(a,b,d,r.seed+1003)<r.placementRegularity);
+}
+function feature(r:MaterialPattern,cell:Vec,center:[number,number,number],frame:MaterialPatternFrame|undefined,slot:number,selected=true):MaterialPatternFeature{
+  const {meters}=domain(r,frame),[a,b,d]=cell,offset=slot<0?0:(slot+1)*43;
   const normalized=center.map((v,i)=>meters?.[i]?v*2/meters[i]!:0) as [number,number,number];
   let probability=.7;
   if(r.concentration.strength)probability=(1-Math.abs(r.concentration.strength))*.7+Math.abs(r.concentration.strength)*profile(r.concentration,normalized);
   if(r.clumping){const g=field(center[0]/r.groupSizeMeters,center[1]/r.groupSizeMeters,center[2]/r.groupSizeMeters,r.seed+941);probability=clamp(probability*((1-r.clumping)+r.clumping*clamp(.7+(g-.5)*5)/.7));}
   // A finite face/object cannot generate feature centres outside its bounds.
-  if(meters&&normalized.some(v=>Math.abs(v)>1))probability=0;
-  return{center,probability,accepted:hash(a,b,d,r.seed+977)<probability,sizeScale:1+r.sizeVariation*.35*(hash(a,b,d,r.seed+983)*2-1)};
+  if(!selected||meters&&normalized.some(v=>Math.abs(v)>1))probability=0;
+  return{id:cell.join(':')+':'+slot,proposal:slot<0?'grid':'scatter',center,probability,accepted:hash(a,b,d,r.seed+977+offset)<probability,sizeScale:1+r.sizeVariation*.35*(hash(a,b,d,r.seed+983+offset)*2-1)};
 }
-function single(r:MaterialPattern,point:Vec,frame?:MaterialPatternFrame,applyBoundary=true){
+/** Full proposal set: a density-preserving mixture of ordered points and a
+ * bounded Poisson process. Random regions may contain zero or several points;
+ * this is not one jittered feature per cell. Cell boundaries are implementation
+ * partitions, not visible placement rows. At most four scatter proposals/region.
+ */
+export function materialPatternFeaturesAtCell(r:MaterialPattern,cell:Vec,frame?:MaterialPatternFrame):MaterialPatternFeature[]{
+  if(!cell.every(Number.isSafeInteger))throw Error('Feature cell coordinates must be safe integers.');
+  const {dimensions}=domain(r,frame),[a,b,d]=cell,result:MaterialPatternFeature[]=[];
+  if(hash(a,b,d,r.seed+1003)<r.placementRegularity)result.push(materialPatternFeatureAtCell(r,cell,frame));
+  const lambda=1-r.placementRegularity,u=hash(a,b,d,r.seed+1013);let count=0,mass=Math.exp(-lambda),cdf=mass;
+  while(u>cdf&&count<4){count++;mass*=lambda/count;cdf+=mass;}
+  for(let slot=0;slot<count;slot++){const offset=slot*53;
+    const center:[number,number,number]=[(a+hash(a,b,d,r.seed+1103+offset))*r.sizeMeters,(b+hash(a,b,d,r.seed+1117+offset))*r.sizeMeters,dimensions===2?0:(d+hash(a,b,d,r.seed+1123+offset))*r.sizeMeters];
+    result.push(feature(r,cell,center,frame,slot));
+  }return result;
+}
+type Proposals=(cell:Vec,frame?:MaterialPatternFrame)=>readonly MaterialPatternFeature[];
+function single(r:MaterialPattern,point:Vec,frame?:MaterialPatternFrame,applyBoundary=true,proposals:Proposals=(cell,frame)=>materialPatternFeaturesAtCell(r,cell,frame)){
   const finish=(w:number)=>(r.invert?1-w:w)*(applyBoundary?boundaryWeight(r.boundary,frame):1);
   if(r.coverage===0)return finish(0);
   if(r.coverage===1&&r.concentration.strength===0&&r.clumping===0)return finish(1);
@@ -97,8 +119,12 @@ function single(r:MaterialPattern,point:Vec,frame?:MaterialPatternFrame,applyBou
   const raw=p.map(v=>v/r.sizeMeters),warped=raw.map((v,i)=>v+r.shapeVariation*.25*(field(raw[0]*3,raw[1]*3,raw[2]*3,r.seed+701+i*11)*2-1));
   const c=Math.cos(r.angleRadians),s=Math.sin(r.angleRadians),radius=.5*Math.sqrt(r.coverage),softness=Math.max(.000001,r.edgeSoftnessMeters/r.sizeMeters);
   let weight=0,first=Infinity,second=Infinity,winner:MaterialPatternFeature|undefined;
-  for(let dz=dimensions===2?0:-1;dz<= (dimensions===2?0:1);dz++)for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
-    const cell:Vec=[Math.floor(raw[0])+dx,Math.floor(raw[1])+dy,dimensions===2?0:Math.floor(raw[2])+dz],feature=materialPatternFeatureAtCell(r,cell,frame);
+  const reach=r.placementRegularity===1?1:2;
+  for(let dz=dimensions===2?0:-reach;dz<= (dimensions===2?0:reach);dz++)for(let dy=-reach;dy<=reach;dy++)for(let dx=-reach;dx<=reach;dx++){
+    const cell:Vec=[Math.floor(raw[0])+dx,Math.floor(raw[1])+dy,dimensions===2?0:Math.floor(raw[2])+dz];
+    const support=r.type==='cells'?1.5:.9+softness*.675;
+    if(Math.hypot(...cell.slice(0,dimensions).map((v,i)=>Math.max(v-warped[i],warped[i]-v-1,0)))>support)continue;
+    for(const feature of proposals(cell,frame)){
     const x=(warped[0]-feature.center[0]/r.sizeMeters)/feature.sizeScale,y=(warped[1]-feature.center[1]/r.sizeMeters)/feature.sizeScale,z=dimensions===2?0:(warped[2]-feature.center[2]/r.sizeMeters)/feature.sizeScale;
     const u=x*c-y*s,v=x*s+y*c,dist=Math.hypot(u,v,z);
     if(dist<first){second=first;first=dist;winner=feature;}else second=Math.min(second,dist);
@@ -112,9 +138,27 @@ function single(r:MaterialPattern,point:Vec,frame?:MaterialPatternFrame,applyBou
       signed=dist-radius*scale;
     }
     const t=clamp(.5-signed/softness);weight=Math.max(weight,t*t*(3-2*t));
+    }
   }
-  if(r.type==='cells'&&winner?.accepted){const t=clamp((Math.pow(r.coverage,.3)-first/Math.max(second,.000001))/softness+.5);weight=t*t*(3-2*t);}
+  if(r.type==='cells'&&winner?.accepted){const t=clamp((Math.pow(r.coverage,.3)-first/Math.max(Math.min(second,1.5),.000001))/softness+.5),cap=clamp(.5-(first-.85)/softness);weight=t*t*(3-2*t)*cap*cap*(3-2*cap);}
   return finish(weight);
+}
+export type MaterialPatternSampler=(point:Vec,frame?:MaterialPatternFrame)=>number;
+/** Compile a validated snapshot for a bake. The bounded per-domain proposal cache
+ * avoids regenerating random points for every pixel. External recipe edits require
+ * a new sampler; old sampler snapshots remain deterministic and independent.
+ */
+export function createMaterialPatternSampler(input:unknown):MaterialPatternSampler{
+  const pattern=parseMaterialPattern(input);
+  function cached(r:MaterialPattern):Proposals{
+    const domains=new Map<string,Map<string,readonly MaterialPatternFeature[]>>();let entries=0;
+    return(cell,frame)=>{const {meters,dimensions}=domain(r,frame),key=dimensions+':'+(meters?.join(',')??'unbounded');
+      if(entries>=8192){domains.clear();entries=0;}let cache=domains.get(key);if(!cache){cache=new Map();domains.set(key,cache);}
+      const id=cell.join(',');let value=cache.get(id);if(!value){value=materialPatternFeaturesAtCell(r,cell,frame);cache.set(id,value);entries++;}return value;
+    };
+  }
+  const root=cached(pattern),gates=pattern.gates.map(gate=>({...gate,proposals:cached(gate.pattern)}));
+  return(point,frame)=>{let weight=single(pattern,point,frame,false,root);for(const gate of gates){const v=single(gate.pattern,point,frame,true,gate.proposals);weight=gate.operation==='intersect'?weight*v:gate.operation==='union'?1-(1-weight)*(1-v):weight*(1-v);}return weight*boundaryWeight(pattern.boundary,frame);};
 }
 export function sampleMaterialPattern(pattern:MaterialPatternMask,point:Vec,frame?:MaterialPatternFrame):number{
   let weight=single(pattern,point,frame,false);for(const gate of pattern.gates){const v=single(gate.pattern,point,frame);weight=gate.operation==='intersect'?weight*v:gate.operation==='union'?1-(1-weight)*(1-v):weight*(1-v);}return weight*boundaryWeight(pattern.boundary,frame);
