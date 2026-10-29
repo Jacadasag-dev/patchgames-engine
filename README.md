@@ -67,14 +67,13 @@ here. `extraction-manifest.json` retains the historical extraction audit.
 
 Its default humanoid idle/walk/run bank is an original,
 procedural starter. It does not provide the same motion-capture quality as the
-hosted installation's separately licensed animation bank.
+hosted installation's authored animation bank.
 
 To use a bank you have rights to distribute, call
 `configureSharedHumanoidLocomotion(packedBank)` before building motion databases.
 The importer, retargeting, and playback code are available independently.
 
-Included creature data uses CC0-1.0. Media catalog entries retain
-source metadata; hosted texture/audio binaries are not bundled. Applications
+Media catalog entries retain source metadata; hosted texture/audio binaries are not bundled. Applications
 must supply their own media resolver and assets. See
 [third-party notices](THIRD_PARTY_NOTICES.md).
 

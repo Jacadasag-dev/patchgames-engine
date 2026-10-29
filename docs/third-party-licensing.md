@@ -1,7 +1,7 @@
 # Third-party licensing inventory
 
 The engine's own code is Apache-2.0. That license does not replace the licenses
-of dependencies or imported assets. This inventory covers engine 0.2.1's locked
+of dependencies or imported assets. This inventory covers engine 0.2.2's locked
 packages, not the private PatchGames platform.
 
 ## Direct runtime and build dependencies
@@ -39,20 +39,17 @@ notices, and identifies additional obligations for modified covered files.
 0BSD has no attribution condition. These are redistribution obligations, not a
 requirement to display credits on a game's HUD or title screen.
 
-## Assets
+## Asset records
 
-The 20 creature banks/models contain Mesh2Motion and Quaternius CC0 assets.
-CC0 does not require attribution; the source manifest and credits are retained
-voluntarily to document origin, verify downloads and reproduce conversion.
-They are separate from the authored humanoid bank and are not claimed as ours.
-The standalone engine's default humanoid motions are original procedural data.
+Voluntary asset credits and separate CC0 notice files are not distributed.
+Machine-readable import records retain license identifiers, source locations and
+hashes for verification and reproducible builds. They are not attribution notices.
 
 ## Can notices be removed?
 
 - The authored humanoid motions need no UE attribution; incorrect UE metadata
   has been removed from the host bank and its current documentation.
-- Creature credits are optional under CC0. Keeping their provenance is useful
-  but is not a license condition.
+- Voluntary creature credits and the optional project NOTICE file have been removed.
 - Required code-dependency notices should stay while we distribute that code.
   Removing a dependency from distributions can remove its corresponding notice
   requirement; renaming it cannot.
