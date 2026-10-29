@@ -143,3 +143,22 @@ tierSpacingBias (-1–1, default 0) redistributes existing trunk tiers: positive
 tierHeightVariation (0–1, default 0) gives individual trunk limbs deterministic height offsets within their local tier gap, breaking flat whorls without crossing neighboring tiers. tipDensity (0–1, default 1) progressively reduces whole leaf proposals toward the crown tip (quadratic height falloff); it changes placement counts rather than opacity or leaf size and does not affect flowers. The evergreen uses .85 height variation and .3 tip density. Both are live lab controls.
 
 branchPitchVariation (0–1, default 0) adds a deterministic signed elevation change of up to 60 degrees to each outgoing branch, including subbranches, clamped away from vertical reversal. It preserves azimuth, attachment and segment length before crown fitting; branchDroop still controls subsequent bending. The evergreen uses .5 for mixed upward/downward departures.
+
+## Procedural worlds and wind
+
+Use prepareFoliageTerrain during loading (or createFoliageTerrainLibrary with worker bakes). It prepares up to 16 named species once, measures conservative placement footprints, and supplies editable wind profiles. Terrain factories clone prepared plain meshes; they never bake materials or grow branches. Every chunk owns its returned geometry, materials and textures, so unloading a neighbor cannot invalidate resident plants. Dispose views and then the library when no longer needed. Missing IDs fall through to other terrain assets.
+
+```ts
+const forest = await prepareFoliageTerrain([{id:'spruce',recipe:FOLIAGE_PRESETS.find(p=>p.id==='evergreen')!.recipe}]);
+const recipe = {version:1, seed:42, bounds:{width:128,depth:128,cells:16},
+  assets:forest.assets, environment:{wind:{strength:.7,gustStrength:.25}},
+  regions:[{id:'forest',mask:{kind:'box',width:128,depth:128,center:{x:0,z:0}},
+    color:'#37553b',layers:[{id:'trees',assets:['spruce'],spacing:12,density:.75,scale:[.8,1.2]}]}]};
+const view = new TerrainView(compileTerrain(recipe),{assetFactory:forest.assetFactory});
+scene.add(view.root);
+// Normally the engine environment frame scheduler calls wind for registered views.
+// In a standalone preview: view.stepWind(timeSeconds,listener,512).
+// On removal: scene.remove(view.root); view.dispose(); forest.dispose();
+```
+
+The same assetFactory works with TerrainWorldView for streamed worlds and biome scatter. Override each entry.environment for different wind responses; pass {} to opt out. Terrain uses world-space time/positions for continuous wind across chunk reloads, measured height for size response, distance-prioritized updates, and anchored root sway shared by wood/leaves/flowers. Authoritative colliders stay static; add foliageColliders explicitly if needed. This integration does not add branch physics, leaf flutter deformation or automatic geometry LOD. Choose bounded species quality before preparing the library. The lab grove is a small procedural heightfield and scatter scene using these exact helpers.

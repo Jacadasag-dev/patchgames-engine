@@ -1,3 +1,5 @@
+import type {TerrainAsset} from './terrain.ts';
+import type {TerrainAssetEnvironment} from './terrainEnvironment.ts';
 import * as THREE from 'three';
 import {compileFoliage,type FoliageRecipe,type FoliageModel} from '../shared/foliageGenerator.ts';
 import {materialRecipe,onMaterialRecipesChanged} from '../shared/materialRegistry.ts';
@@ -88,4 +90,24 @@ export async function createFoliage(input:FoliageRecipe,options:Parameters<typeo
   const initial=await generateFoliage(input,options),view=new FoliageView(initial),ids=Object.values(initial.model.recipe.materials).flatMap(slot=>'ref'in slot?[slot.ref]:[]);let disposed=false,generation=0,ready=Promise.resolve(),currentModel=initial.model;
   const off=onMaterialRecipesChanged(changed=>{if(!ids.some(id=>changed.has(id)))return;const current=++generation;ready=bakeFoliageModel(currentModel,options).then(bake=>{if(!disposed&&current===generation){view.update(bake);delete view.root.userData.foliageError;}},error=>{if(!disposed&&current===generation)view.root.userData.foliageError=String(error);throw error;});void ready.catch(()=>{});});
   return{root:view.root,get ready(){return ready;},update:(bake:FoliageBake)=>{generation++;currentModel=bake.model;view.update(bake);},dispose(){if(disposed)return;disposed=true;generation++;off();view.dispose();}};
+}
+
+export interface FoliageTerrainEntry {id:string;recipe:FoliageRecipe;environment?:TerrainAssetEnvironment}
+/** Prepare bounded species once during loading; chunk views only clone prepared
+ * resources. Each returned prototype owns its geometry/materials/textures. */
+export async function prepareFoliageTerrain(entries:readonly FoliageTerrainEntry[],options:Parameters<typeof generateFoliage>[1]={}){
+  validateFoliageEntries(entries);const bakes:{id:string;bake:FoliageBake;environment?:TerrainAssetEnvironment}[]=[];
+  for(const entry of entries){options.signal?.throwIfAborted();bakes.push({id:entry.id,bake:await generateFoliage(entry.recipe,options),environment:entry.environment});}
+  return createFoliageTerrainLibrary(bakes);
+}
+function validateFoliageEntries(entries:readonly {id:string}[]){if(!entries.length||entries.length>16||entries.some(e=>!/^[-a-z0-9._]{1,80}$/i.test(e.id))||new Set(entries.map(e=>e.id)).size!==entries.length)throw Error('Foliage terrain needs 1–16 unique valid species IDs.');}
+/** Worker-bake counterpart of prepareFoliageTerrain. No texture baking or branch
+ * generation occurs in the terrain asset factory or the wind update loop. */
+export function createFoliageTerrainLibrary(entries:readonly {id:string;bake:FoliageBake;environment?:TerrainAssetEnvironment}[]){
+  validateFoliageEntries(entries);const templates=new Map<string,FoliageView>(),assets:TerrainAsset[]=[];let disposed=false;
+  try{for(const e of entries){const m=e.bake.model,r=m.recipe;templates.set(e.id,new FoliageView(e.bake,{leafMode:'merged'}));let hash=2166136261;for(const c of JSON.stringify([r,e.environment]))hash=Math.imul(hash^c.charCodeAt(0),16777619);
+    const radius=Math.hypot(Math.max(Math.abs(m.bounds.min[0]),Math.abs(m.bounds.max[0])),Math.max(Math.abs(m.bounds.min[2]),Math.abs(m.bounds.max[2])));
+    assets.push({id:e.id,version:'foliage-'+(hash>>>0).toString(16),footprint:{kind:'circle',radius},appearance:{kind:'foliage',height:m.bounds.max[1]},environment:e.environment??{wind:{bendRadians:r.type==='bush'?.055:.025,swayHz:r.type==='bush'?.8:.3,flutter:.12,referenceHeight:r.heightMeters,sizeExponent:.5}}});
+  }}catch(error){templates.forEach(v=>v.dispose());throw error;}
+  return{assets,assetFactory(asset:Readonly<TerrainAsset>){if(disposed)throw Error('Foliage terrain library disposed.');const source=templates.get(asset.id);if(!source)return undefined;const root=source.root.clone(true);root.traverse(object=>{if(!(object instanceof THREE.Mesh))return;object.geometry=object.geometry.clone();const copies=new Map<THREE.Texture,THREE.Texture>();const clone=(source:THREE.Material)=>{const material=source.clone();for(const [key,value]of Object.entries(material))if(value instanceof THREE.Texture){let texture=copies.get(value);if(!texture){texture=value.clone();copies.set(value,texture);}Object.assign(material,{[key]:texture});}return material;};object.material=Array.isArray(object.material)?object.material.map(clone):clone(object.material);});return root;},dispose(){if(disposed)return;disposed=true;templates.forEach(v=>v.dispose());templates.clear();}};
 }
