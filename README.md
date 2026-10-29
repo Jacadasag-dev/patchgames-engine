@@ -13,6 +13,8 @@ The engine provides:
   water, destruction, firearms, character rigs, animation, and equipment helpers.
 - HTML/CSS game UI with layout validation, moddable themes, inventory presets,
   scene transitions, and round lifecycle contracts.
+- [Material generators](docs/material-generator.md) with eight editable families,
+  repeatable PBR maps, physical scale and pixel-art through 2048-pixel output.
 
 ## Complete starter games
 

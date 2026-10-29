@@ -1,4 +1,4 @@
-import {beforeAll,afterAll,expect,it} from 'vitest';import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';
+import {beforeAll,afterAll,expect,it} from 'vitest';import {mkdtempSync,writeFileSync,readFileSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';
 import {listEngineStarters,readEngineStarter,installEngineStarter} from '../tools/starters.ts';import {materializeEngine} from '../tools/materialize-engine.ts';
 import {buildLogic,buildView} from '../src/sandbox/host/build.ts';import {initSandbox,describeGame,withGameRules} from '../src/sandbox/host/game.ts';import {MatchSandbox} from '../src/sandbox/host/match.ts';import type {GameTagId} from '../src/shared/gameTags.ts';import {runGameTests} from '../src/sandbox/host/gameTests.ts';
 const engine=resolve(import.meta.dirname,'..'),roots:string[]=[];
@@ -18,3 +18,8 @@ it('runs the tactical FPS authored mechanics, map and UI tests in the sandbox',a
 it('runs voxel terrain, crafting and concurrent mining/movement checks',async()=>{const results=await runGameTests(project('voxel-survival'));for(const file of results){expect(file.error,file.file).toBeUndefined();for(const result of file.results)expect(result.error,result.name).toBeUndefined();}},60000);
 
 it('compiles feature imports from the generated host starter directory',()=>{const root=project('fps');expect(buildLogic(root,'src/gameModes/fps').length).toBeGreaterThan(100);expect(buildView(root,'src/gameModes/fps').length).toBeGreaterThan(100);},60000);
+it('makes material generators importable through the real game compiler boundary',()=>{
+ const root=project('blank'),file=join(root,'src/game/view.ts');
+ writeFileSync(file,readFileSync(file,'utf8')+"\nexport {createGeneratedMaterial} from '../sandbox/materialGenerator.ts';\n");
+ expect(buildView(root).length).toBeGreaterThan(100);
+});

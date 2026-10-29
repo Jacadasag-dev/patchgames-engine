@@ -1,3 +1,4 @@
+import { generateMaterial } from './materialGenerator.ts';
 import { textureRecipeSchema, type ResolvedTextureRecipe, type TextureRecipe } from './mediaRecipes.ts';
 
 /** Color images use sRGB RGBA8. Height/roughness/metalness use linear grayscale RGBA8. */
@@ -137,7 +138,7 @@ export async function renderMaterialRecipe(input: TextureRecipe, options: Materi
   const neighbour = (n: number) => coordinates ? Math.max(0, Math.min(size - 1, n)) : wrap(n, size);
   for (let layerIndex = 0; layerIndex < recipe.layers.length; layerIndex++) {
     const layer = recipe.layers[layerIndex], source = layer.source, tint = rgb(layer.tint);
-    const maps = source.kind === 'asset' ? sources.get(source.id)! : undefined;
+    const maps = source.kind === 'asset' ? sources.get(source.id)! : source.kind === 'generator' ? await generateMaterial(source.recipe,{resolution:size}) : undefined;
     const solid = source.kind === 'solid' ? rgb(source.color) : undefined;
     const low = source.kind === 'noise' ? rgb(source.colors[0]) : undefined;
     const high = source.kind === 'noise' ? rgb(source.colors[1]) : undefined;

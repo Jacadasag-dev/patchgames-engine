@@ -1,3 +1,4 @@
+import { materialGeneratorSchema } from './materialGenerator.ts';
 import { z } from 'zod';
 
 export const MATERIAL_RECIPE_VERSION = 1;
@@ -8,6 +9,7 @@ const color = z.string().regex(/^#[\da-f]{6}$/i, 'Use a six-digit hexadecimal co
 const assetId = z.string().min(1).max(120).regex(/^[a-z\d][a-z\d._:/-]*$/i);
 
 export const textureSourceSchema = z.discriminatedUnion('kind', [
+  z.object({kind:z.literal('generator'),recipe:materialGeneratorSchema}).strict(),
   z.object({ kind: z.literal('asset'), id: assetId }).strict(),
   z.object({ kind: z.literal('solid'), color }).strict(),
   z.object({ kind: z.literal('noise'), colors: z.tuple([color, color]),
