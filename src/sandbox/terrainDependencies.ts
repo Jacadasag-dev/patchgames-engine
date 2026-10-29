@@ -1,6 +1,6 @@
 /** Conservative terrain-v1 edit dependencies. Only local reservation/override
  * edits are eligible; an unrecognized dependency always regenerates geometry. */
-import type { TerrainFootprint, TerrainPlacement, TerrainRecipe, TerrainRoute } from './terrain.ts';
+import { terrainMapDependencyRecipe, type TerrainFootprint, type TerrainPlacement, type TerrainRecipe, type TerrainRoute } from './terrain.ts';
 
 export interface TerrainDependencyBounds { minX: number; maxX: number; minZ: number; maxZ: number }
 export interface TerrainEditDependencies { fullRebuild: boolean; bounds: TerrainDependencyBounds[] }
@@ -9,7 +9,7 @@ const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.m
     .map(([key, v]) => `${JSON.stringify(key)}:${canonical(v)}`).join(',')}}` : JSON.stringify(value) ?? 'null';
 const radius = (shape: TerrainFootprint) => shape.kind === 'circle' ? shape.radius : Math.hypot(shape.width, shape.depth) / 2;
 const known = (value: object, keys: string[]) => Object.keys(value).every(key => keys.includes(key));
-const globalPart = ({ routes: _routes, placements: _placements, overrides: _overrides, reservations: _reservations, ...rest }: TerrainRecipe) => rest;
+const globalPart = (recipe: TerrainRecipe) => { const { routes: _routes, placements: _placements, overrides: _overrides, reservations: _reservations, ...rest } = terrainMapDependencyRecipe(recipe); return rest; };
 
 // This decoder accepts only this compiler version's stable candidate IDs.
 // Encoded labels and their hashes must match an actual region/layer pair.

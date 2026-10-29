@@ -5,6 +5,8 @@ import {compileFoliage,type FoliageRecipe,type FoliageModel} from '../shared/fol
 import {materialRecipe,onMaterialRecipesChanged} from '../shared/materialRegistry.ts';
 import {generateMaterial,type GeneratedMaterialPixels} from '../shared/materialGenerator.ts';
 import {createGeneratedMaterialFromPixels} from './materialGenerator.ts';
+import {compileFoliageGeneration} from '../shared/generationFoliage.ts';
+export {compileFoliageGeneration,FOLIAGE_GENERATION_TARGETS} from '../shared/generationFoliage.ts';
 export {compileFoliage,parseFoliageRecipe,foliageColliders} from '../shared/foliageGenerator.ts';
 export type {FoliageRecipe,FoliageModel} from '../shared/foliageGenerator.ts';
 export {FOLIAGE_PRESETS} from '../shared/foliagePresets.ts';
@@ -101,6 +103,13 @@ export async function prepareFoliageTerrain(entries:readonly FoliageTerrainEntry
   return createFoliageTerrainLibrary(bakes);
 }
 function validateFoliageEntries(entries:readonly {id:string}[]){if(!entries.length||entries.length>16||entries.some(e=>!/^[-a-z0-9._]{1,80}$/i.test(e.id))||new Set(entries.map(e=>e.id)).size!==entries.length)throw Error('Foliage terrain needs 1–16 unique valid species IDs.');}
+/** Prepare stable object variants during loading. The returned asset IDs can be
+ * used by terrain placement without any per-frame branch or material generation. */
+export async function prepareFoliageGeneration(input:Parameters<typeof compileFoliageGeneration>[0],options:Parameters<typeof generateFoliage>[1]={}){
+  options.signal?.throwIfAborted();const plan=compileFoliageGeneration(input);
+  const library=await prepareFoliageTerrain(plan.variants.map(v=>({id:v.assetId,recipe:v.recipe})),options);
+  return{...library,variants:plan.variants,revision:plan.revision,diagnostics:plan.diagnostics,inspect:plan.inspect};
+}
 /** Worker-bake counterpart of prepareFoliageTerrain. No texture baking or branch
  * generation occurs in the terrain asset factory or the wind update loop. */
 export function createFoliageTerrainLibrary(entries:readonly {id:string;bake:FoliageBake;environment?:TerrainAssetEnvironment}[]){

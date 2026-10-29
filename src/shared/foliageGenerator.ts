@@ -1,3 +1,4 @@
+import {generationIdentitySeed} from './generationMaps.ts';
 import {parseMaterialGeneratorData} from './materialGeneratorData.ts';
 import type {MaterialGeneratorRecipe,ResolvedMaterialGenerator} from './materialGenerator.ts';
 import {parseMaterialPattern,materialPatternFeaturesAtCell,materialPatternGroupedFeaturesAtCell,type MaterialPatternFeature,type PatternConcentration} from './materialPatterns.ts';
@@ -35,12 +36,12 @@ function random(a:number,b:number,seed:number){let n=Math.imul(a^seed,374761393)
  * shared distribution proposals are projected onto terminal twigs, never floated. */
 export function compileFoliage(input:FoliageRecipe):FoliageModel{
   const r=parseFoliageRecipe(input),branches:FoliageBranch[]=[],leaves:FoliageLeaf[]=[],flowers:FoliageFlower[]=[];let pathId=0;
-  function grow(start:Vec,direction:Vec,length:number,radius:number,level:number,parent:number){
-    const id=pathId++,steps=r.branchSegments;let a=start,last=parent,dir=normalize(direction);
+  function grow(start:Vec,direction:Vec,length:number,radius:number,level:number,parent:number,pathKey:string){
+    const path=pathId++,id=generationIdentitySeed(r.seed,pathKey,'growth'),steps=r.branchSegments;let a=start,last=parent,dir=normalize(direction);
     for(let i=0;i<steps;i++){
-      const phase=id*2.399963+i/steps*Math.PI*2*(1+r.winding*2),curl=r.winding*(level===0?.09:.24);
+      const phase=random(id,501,r.seed)*Math.PI*2+i/steps*Math.PI*2*(1+r.winding*2),curl=r.winding*(level===0?.09:.24);
       dir=normalize(add(dir,[(random(id,i*3,r.seed)-.5)*r.irregularity*.22+Math.sin(phase)*curl+(level===0?Math.cos(r.seed*1.719)*r.trunkCurve*.09:0),.025-(level===0?0:(r.branchDroop*.5+(level===r.branchLevels?r.terminalDroop*.8:0))*(i/steps)),(random(id,i*3+1,r.seed)-.5)*r.irregularity*.22+Math.cos(phase)*curl+(level===0?Math.sin(r.seed*1.719)*r.trunkCurve*.09:0)]));
-      const end=add(a,scale(dir,length/steps)),index=branches.length;if(index>=8192)throw Error('Foliage branch budget exceeded. Reduce levels or branches.');branches.push({id:index,parent:last,start:a,end,radiusStart:radius*(1+(level===0?r.rootFlare*Math.pow(1-i/steps,3):0))*(1-i/steps*(1-(level===0?r.trunkTaper:r.taper))),radiusEnd:radius*(1+(level===0?r.rootFlare*Math.pow(1-(i+1)/steps,3):0))*(1-(i+1)/steps*(1-(level===0?r.trunkTaper:r.taper))),level,path:id,step:i});a=end;last=index;
+      const end=add(a,scale(dir,length/steps)),index=branches.length;if(index>=8192)throw Error('Foliage branch budget exceeded. Reduce levels or branches.');branches.push({id:index,parent:last,start:a,end,radiusStart:radius*(1+(level===0?r.rootFlare*Math.pow(1-i/steps,3):0))*(1-i/steps*(1-(level===0?r.trunkTaper:r.taper))),radiusEnd:radius*(1+(level===0?r.rootFlare*Math.pow(1-(i+1)/steps,3):0))*(1-(i+1)/steps*(1-(level===0?r.trunkTaper:r.taper))),level,path,step:i});a=end;last=index;
     }
     if(level>=r.branchLevels)return;
     const count=level===0?(r.branches+2)*r.branchWhorls:r.branches;
@@ -54,11 +55,11 @@ export function compileFoliage(input:FoliageRecipe):FoliageModel{
       const reach=level===0?r.crownRadiusMeters*(.48+random(id,i,r.seed+23)*.2)*conical:length*(.48+random(id,i,r.seed+29)*.18);
       const parentDirection=normalize(sub(segment.end,segment.start)),radial:Vec=[Math.cos(angle),.12,Math.sin(angle)],growth=normalize(add(scale(parentDirection,Math.cos(spread)),scale(radial,Math.sin(spread))));
       const pitch=Math.max(-1.45,Math.min(1.45,Math.asin(growth[1])+(random(id,i,r.seed+1123)*2-1)*r.branchPitchVariation*Math.PI/3)),azimuth=Math.atan2(growth[2],growth[0]),pitched:Vec=[Math.cos(azimuth)*Math.cos(pitch),Math.sin(pitch),Math.sin(azimuth)*Math.cos(pitch)];
-      grow(start,r.branchPitchVariation?pitched:growth,reach*(level+1===r.branchLevels?r.terminalLength:1),(segment.radiusStart*(1-t)+segment.radiusEnd*t)*r.branchRadiusRatio*(level===0?1:.8),level+1,segment.id);
+      grow(start,r.branchPitchVariation?pitched:growth,reach*(level+1===r.branchLevels?r.terminalLength:1),(segment.radiusStart*(1-t)+segment.radiusEnd*t)*r.branchRadiusRatio*(level===0?1:.8),level+1,segment.id,pathKey+'/child:'+i);
     }
   }
   const stems=r.type==='bush'?5:1;
-  for(let i=0;i<stems;i++){const angle=i*2.399963;grow([0,0,0],normalize([r.type==='bush'?Math.cos(angle)*.38:Math.cos(r.seed*1.719)*r.trunkLean,1,r.type==='bush'?Math.sin(angle)*.38:Math.sin(r.seed*1.719)*r.trunkLean]),r.heightMeters*(r.type==='bush'?.55:.7),r.trunkRadiusMeters*(r.type==='bush'?.55:1),0,-1);}
+  for(let i=0;i<stems;i++){const angle=i*2.399963;grow([0,0,0],normalize([r.type==='bush'?Math.cos(angle)*.38:Math.cos(r.seed*1.719)*r.trunkLean,1,r.type==='bush'?Math.sin(angle)*.38:Math.sin(r.seed*1.719)*r.trunkLean]),r.heightMeters*(r.type==='bush'?.55:.7),r.trunkRadiusMeters*(r.type==='bush'?.55:1),0,-1,'stem:'+i);}
   // Fit crown spread around the stem axis, not around the world origin: a
   // leaning trunk must not consume the crown radius and squash its fronds.
   const stemTip=branches[r.branchSegments-1].end,axisX=r.type==='tree'?stemTip[0]/stemTip[1]:0,axisZ=r.type==='tree'?stemTip[2]/stemTip[1]:0;
@@ -78,9 +79,10 @@ export function compileFoliage(input:FoliageRecipe):FoliageModel{
       for(let z=low[2];z<=high[2];z++)for(let y=low[1];y<=high[1];y++)for(let x=low[0];x<=high[0];x++)for(const f of (grouped?materialPatternGroupedFeaturesAtCell(pattern,[x,y,z],frame,20000):materialPatternFeaturesAtCell(pattern,[x,y,z],frame)))if(f.accepted)candidates.push(f);
     }
     if(candidates.length>22000)throw Error('Foliage generated more than 22000 proposals. Reduce density.');
-    return candidates.filter((f,i)=>{const height=Math.max(0,Math.min(1,(f.center[1]+centerY-r.heightMeters*r.crownStart)/(r.heightMeters*(1-r.crownStart))));return random(i,883,seed)<=1-(1-tipDensity)*height*height;}).map((f,i)=>({f,rank:random(i,701,seed)})).sort((a,b)=>a.rank-b.rank);
+    return candidates.filter(f=>{const height=Math.max(0,Math.min(1,(f.center[1]+centerY-r.heightMeters*r.crownStart)/(r.heightMeters*(1-r.crownStart))));return random(generationIdentitySeed(seed,f.id,'acceptance'),883,seed)<=1-(1-tipDensity)*height*height;}).map(f=>({f,rank:random(generationIdentitySeed(seed,f.id,'ranking'),701,seed)})).sort((a,b)=>a.rank-b.rank||a.f.id.localeCompare(b.f.id));
   }
-  function attach(f:MaterialPatternFeature,i:number):FoliageLeaf{
+  function attach(f:MaterialPatternFeature,channel='leaf'):FoliageLeaf{
+    const i=generationIdentitySeed(r.seed,f.id,channel);
     const targetY=f.center[1]+centerY,envelope=r.crownShape==='conical'?Math.pow(Math.max(.025,Math.min(1,(1-targetY/r.heightMeters)/(1-r.crownStart))),r.crownTaper):1,target:Vec=[axisX*targetY+f.center[0]*envelope,targetY,axisZ*targetY+f.center[2]*envelope];let nearest=Infinity,twig=twigs[0],t=0;
     for(const b of twigs){const axis=sub(b.end,b.start),delta=sub(target,b.start),length=axis.reduce((n,v)=>n+v*v,0),at=Math.max(0,Math.min(1,axis.reduce((n,v,i)=>n+v*delta[i],0)/(length||1))),p=add(b.start,scale(axis,at)),distance=Math.hypot(...sub(target,p));if(distance<nearest){nearest=distance;twig=b;t=at;}}
     const path=paths.get(twig.path)!,along=.15+random(Math.floor(f.center[0]*100000),Math.floor(f.center[2]*100000),r.seed+Math.floor(f.center[1]*10000))*.85;twig=path[Math.min(path.length-1,Math.floor(along*path.length))];t=along*path.length%1;
@@ -89,19 +91,19 @@ export function compileFoliage(input:FoliageRecipe):FoliageModel{
     return{id:f.id,anchor,direction:normalize(direction),roll:(random(i,5,r.seed)-.5)*Math.PI*2,sizeScale:f.sizeScale*(r.tipLeafScale+(1-r.tipLeafScale)*Math.max(0,1-anchor[1]/r.heightMeters)),branch:twig.id,t};
   }
   const candidates=distribute(r.density,r.seed),budget={low:1800,medium:6500,high:16000}[r.quality];
-  for(const {f}of candidates.slice(0,budget))leaves.push(attach(f,leaves.length));
+  for(const {f}of candidates.slice(0,budget))leaves.push(attach(f));
   if(r.leafArrangement!=='scattered'){
-    const byPath=new Map<number,FoliageLeaf[]>();for(const leaf of leaves){const id=branches[leaf.branch].path,list=byPath.get(id)??[];list.push(leaf);byPath.set(id,list);}
-    for(const [id,list]of byPath){const path=paths.get(id)!;
-      for(let i=0;i<list.length;i++){const l=list[i],along=r.leafArrangement==='fan'?.94:.1+.84*(Math.floor(i/2)+.5)/Math.ceil(list.length/2),b=path[Math.min(path.length-1,Math.floor(along*path.length))],t=along*path.length%1,axis=normalize(sub(b.end,b.start)),side=normalize([axis[2],0,-axis[0]]);
-        l.branch=b.id;l.t=t;l.anchor=add(b.start,scale(sub(b.end,b.start),t));
-        if(r.leafArrangement==='pinnate')l.direction=normalize(add(add(scale(side,i%2?1:-1),scale(axis,.28)),[0,-r.leafDroop,0]));
-        else{const angle=-1.25+2.5*i/Math.max(1,list.length-1);l.direction=normalize(add(add(scale(side,Math.sin(angle)),scale(axis,Math.cos(angle))),[0,-r.leafDroop*.4,0]));}
-      }
+    // Sample attachment slots from each feature identity. Filtering or quality
+    // thinning must not re-space or flip the surviving leaflets in a frond.
+    for(const l of leaves){const path=paths.get(branches[l.branch].path)!,identity=generationIdentitySeed(r.seed,l.id,'leaf-arrangement'),u=random(identity,1,r.seed),sideSign=random(identity,2,r.seed)<.5?-1:1;
+      const along=r.leafArrangement==='fan'?.94:.1+.84*u,b=path[Math.min(path.length-1,Math.floor(along*path.length))],t=along*path.length%1,axis=normalize(sub(b.end,b.start)),side=normalize([axis[2],0,-axis[0]]);
+      l.branch=b.id;l.t=t;l.anchor=add(b.start,scale(sub(b.end,b.start),t));
+      if(r.leafArrangement==='pinnate')l.direction=normalize(add(add(scale(side,sideSign),scale(axis,.28)),[0,-r.leafDroop,0]));
+      else{const angle=-1.25+2.5*u;l.direction=normalize(add(add(scale(side,Math.sin(angle)),scale(axis,Math.cos(angle))),[0,-r.leafDroop*.4,0]));}
     }
   }
   const bloomCandidates=distribute(r.flowers.density,r.seed+10007,1),bloomBudget={low:48,medium:128,high:256}[r.quality];
-  for(const {f}of bloomCandidates.slice(0,bloomBudget)){const a=attach(f,flowers.length);flowers.push({anchor:a.anchor,normal:normalize([a.direction[0]*.3,1,a.direction[2]*.3]),sizeScale:a.sizeScale,branch:a.branch,t:a.t});}
+  for(const {f}of bloomCandidates.slice(0,bloomBudget)){const a=attach(f,'flower');flowers.push({anchor:a.anchor,normal:normalize([a.direction[0]*.3,1,a.direction[2]*.3]),sizeScale:a.sizeScale,branch:a.branch,t:a.t});}
   const points=[...branches.flatMap(b=>[b.start,b.end]),...leaves.flatMap(l=>[l.anchor,add(l.anchor,scale(l.direction,r.leafSizeMeters*l.sizeScale))]),...flowers.map(f=>f.anchor)];
   const pad=Math.max(r.leafSizeMeters*.65,r.flowers.sizeMeters*.6)+r.trunkRadiusMeters*(1+r.rootFlare),min=[0,0,0].map((_,i)=>Math.min(...points.map(p=>p[i]))-pad) as Vec,max=[0,0,0].map((_,i)=>Math.max(...points.map(p=>p[i]))+pad) as Vec;
   return{recipe:r,branches,leaves,flowers,bounds:{min,max},diagnostics:{branches:branches.length,leaves:leaves.length,proposedLeaves:candidates.length,flowers:flowers.length,proposedFlowers:bloomCandidates.length,qualityThinning:candidates.length>budget,warnings:[...(candidates.length>budget?['Quality budget thinned the leaf proposals deterministically.']:[]),...(bloomCandidates.length>bloomBudget?['Quality budget thinned bloom proposals.']:[])]}};

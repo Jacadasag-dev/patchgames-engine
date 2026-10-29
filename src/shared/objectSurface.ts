@@ -1,4 +1,6 @@
 import {z} from 'zod';
+import {compileGenerationMaps,type GenerationMapRecipe} from './generationMaps.ts';
+import {compileGenerationBindings,type GenerationTarget,type GenerationBinding} from './generationBindings.ts';
 import {materialFractureAt,materialGeneratorSchema,sampleMaterialGenerator,sampleMaterialOpacity,type ResolvedMaterialGenerator,type GeneratedMaterialPixels} from './materialGenerator.ts';
 import {materialRecipe} from './materialRegistry.ts';
 import {materialPatternSchema,materialBoundarySchema} from './materialPatternSchema.ts';
@@ -9,6 +11,10 @@ export type BoxSurface=typeof BOX_SURFACES[number];
 type Vec=[number,number,number];
 const unit=z.number().finite().min(0).max(1),metres=z.number().finite().min(0.001).max(20);
 const face=z.enum(BOX_SURFACES),color=z.string().regex(/^#[0-9a-f]{6}$/i);
+const surfaceGenerationSchema=z.object({
+  graph:z.unknown().transform((input,ctx)=>{try{return compileGenerationMaps(input).recipe;}catch(error){ctx.addIssue({code:'custom',message:String(error)});return z.NEVER;}}),
+  bindings:z.array(z.object({id:z.string().min(1).max(80),target:z.string().min(1).max(160),map:z.string().min(1).max(80),range:z.tuple([z.number().finite().min(0).max(4),z.number().finite().min(0).max(4)]),operation:z.enum(['replace','multiply']).default('replace'),mask:z.string().min(1).max(80).optional()}).strict()).min(1).max(8),
+}).strict();
 const selection=z.object({space:z.enum(['geometry','model']).default('model'),faces:z.array(face).min(1).max(6)}).strict();
 /** One composable mask: face selection × edge band × boundary × generated pattern. */
 export const surfaceCoverageSchema=z.object({
@@ -20,7 +26,7 @@ export const objectSurfaceSchema=z.object({
   kind:z.literal('object-surface'),version:z.literal(2),name:z.string().min(1).max(120),
   sizeMeters:z.tuple([metres,metres,metres]),
   orientation:z.object({front:z.enum(['+z','-z','+x','-x']).default('+z'),up:z.literal('+y').default('+y')}).strict().default({front:'+z',up:'+y'}),
-  seed:z.number().int().min(-2147483648).max(2147483647).default(1),base:materialGeneratorSchema,
+  seed:z.number().int().min(-2147483648).max(2147483647).default(1),base:materialGeneratorSchema,generation:surfaceGenerationSchema.optional(),
   layers:z.array(z.object({id:z.string().min(1).max(64),material:materialGeneratorSchema,opacity:unit.default(1),heightOffsetMeters:z.number().finite().min(-.1).max(.1).default(0),coverage:surfaceCoverageSchema.prefault({})}).strict()).max(4).default([]),
   effects:z.array(z.object({id:z.string().min(1).max(64),kind:z.literal('slash'),enabled:z.boolean().default(true),
     surface:face,space:z.enum(['geometry','model']).default('model'),
@@ -30,6 +36,7 @@ export const objectSurfaceSchema=z.object({
   }).strict()).max(4).default([]),
   output:z.object({resolution:z.union([z.literal(32),z.literal(64),z.literal(128),z.literal(256),z.literal(512)]).default(128),style:z.enum(['realistic','stylized','pixel']).default('realistic'),paletteSteps:z.number().int().min(2).max(32).default(8)}).strict().default({resolution:128,style:'realistic',paletteSteps:8}),
 }).strict().superRefine((r,ctx)=>{
+  if(r.generation)try{surfaceGeneration(r);}catch(error){ctx.addIssue({code:'custom',path:['generation'],message:String(error)});}
   if(r.layers.some(l=>l.material.optics)||r.base.optics&&(r.layers.length||r.effects.length))ctx.addIssue({code:'custom',message:'Optical surfaces require a single base material without layers or effects. Use separate meshes for optical and opaque surfaces.'});
   const ids=new Set<string>();for(const item of [...r.layers,...r.effects]){if(ids.has(item.id))ctx.addIssue({code:'custom',message:'Surface layer/effect IDs must be unique.'});ids.add(item.id);}
   for(const [i,effect]of r.effects.entries()){
@@ -42,15 +49,17 @@ export const objectSurfaceSchema=z.object({
     if(band.depthMeters>extent)ctx.addIssue({code:'custom',path:['layers',i,'coverage','band','depthMeters'],message:'Coverage band depth must fit the object along its selected direction.'});
   }
 });
-export type ObjectSurfaceRecipe=z.input<typeof objectSurfaceSchema>;
+export interface ObjectSurfaceGeneration {graph:GenerationMapRecipe;bindings:readonly GenerationBinding[]}
+export type ObjectSurfaceRecipe=Omit<z.input<typeof objectSurfaceSchema>,'generation'>&{generation?:ObjectSurfaceGeneration};
 export type ResolvedObjectSurface=z.output<typeof objectSurfaceSchema>;
 const materialSlot=z.union([materialGeneratorSchema,z.object({ref:z.string().min(1).max(120).regex(/^[a-z][a-z0-9._-]*$/i)}).strict()]);
 /** Named slots reference the shared registry; inline recipes remain useful for portable lab examples. */
 export const objectSurfaceDocumentSchema=z.object({...objectSurfaceSchema.shape,base:materialSlot,layers:z.array(objectSurfaceSchema.shape.layers.unwrap().element.extend({material:materialSlot})).max(4).default([])}).strict().superRefine((doc,ctx)=>{
-  const placeholder=materialGeneratorSchema.parse({pattern:{family:'plaster'}}),result=objectSurfaceSchema.safeParse({...doc,base:'ref'in doc.base?placeholder:doc.base,layers:doc.layers.map(layer=>({...layer,material:'ref'in layer.material?placeholder:layer.material}))});
+  const placeholder=materialGeneratorSchema.parse({pattern:{family:'plaster'}}),result=objectSurfaceSchema.safeParse({...doc,generation:undefined,base:'ref'in doc.base?placeholder:doc.base,layers:doc.layers.map(layer=>({...layer,material:'ref'in layer.material?placeholder:layer.material}))});
   if(!result.success)for(const issue of result.error.issues)ctx.addIssue({code:'custom',path:issue.path,message:issue.message});
+  else if(doc.generation)try{surfaceGeneration({...result.data,generation:doc.generation},false);}catch(error){ctx.addIssue({code:'custom',path:['generation'],message:String(error)});}
 });
-export type ObjectSurfaceDocument=z.input<typeof objectSurfaceDocumentSchema>;
+export type ObjectSurfaceDocument=Omit<z.input<typeof objectSurfaceDocumentSchema>,'generation'>&{generation?:ObjectSurfaceGeneration};
 export function objectSurfaceMaterialIds(input:ObjectSurfaceDocument):string[]{const doc=objectSurfaceDocumentSchema.parse(input);return [...new Set([doc.base,...doc.layers.map(l=>l.material)].flatMap(slot=>'ref'in slot?[slot.ref]:[]))];}
 export function resolveObjectSurfaceDocument(input:ObjectSurfaceDocument):ResolvedObjectSurface{
   const doc=objectSurfaceDocumentSchema.parse(input);
@@ -58,6 +67,22 @@ export function resolveObjectSurfaceDocument(input:ObjectSurfaceDocument):Resolv
   return objectSurfaceSchema.parse({...doc,base:resolve(doc.base),layers:doc.layers.map(layer=>({...layer,material:resolve(layer.material)}))});
 }
 const clamp=(n:number)=>Math.max(0,Math.min(1,n)),mix=(a:number,b:number,t:number)=>a+(b-a)*t;
+interface SurfaceGenerationPlan {bindings:ReturnType<typeof compileGenerationBindings>;cost:number}
+const surfacePlans=new WeakMap<object,SurfaceGenerationPlan>();
+/** Portable surface bakes have continuous object/surface metre frames. World and
+ * entity-random bindings need a real instance adapter and are rejected here. */
+function surfaceGeneration(r:ResolvedObjectSurface,validateBase=true):SurfaceGenerationPlan|undefined{
+  if(!r.generation)return;const cached=surfacePlans.get(r);if(cached)return cached;
+  const ids=['base.roughness','base.weathering','base.variation',...r.layers.map(layer=>'layer:'+layer.id+'.opacity')];
+  const targets:GenerationTarget[]=ids.map(id=>({id,unit:'normalized',range:[0,1],effect:'material',stage:'prepare',spaces:['object','surface'],scopes:[]}));
+  const base=surfaceGenerationBase(r);for(const b of r.generation.bindings)if(validateBase&&b.operation==='multiply'&&b.range.some(v=>base[b.target]*v>1))throw Error('Binding '+b.id+' ('+b.target+'): multiplier range exceeds the material parameter bounds; reduce its range.');
+  const bindings=compileGenerationBindings(r.generation.graph,r.generation.bindings,targets),graph=compileGenerationMaps(r.generation.graph),cost=r.generation.bindings.reduce((sum,b)=>sum+graph.output(b.map).cost+(b.mask?graph.output(b.mask).cost:0),0),plan={bindings,cost};surfacePlans.set(r,plan);return plan;
+}
+function surfaceGenerationBase(r:ResolvedObjectSurface):Record<string,number>{return{'base.roughness':r.base.roughness,'base.weathering':r.base.weathering,'base.variation':r.base.variation,...Object.fromEntries(r.layers.map(layer=>['layer:'+layer.id+'.opacity',layer.opacity]))};}
+function surfaceGenerationContext(r:ResolvedObjectSurface,name:BoxSurface,u:number,v:number){const frame=boxSurfaceFrame(r.sizeMeters,name);return{object:frame.point(u,v),surface:[u*frame.span[0],v*frame.span[1],0] as Vec};}
+/** Explain directional surface bindings without sampling repeated source UVs. */
+export function inspectObjectSurfaceGeneration(r:ResolvedObjectSurface,name:BoxSurface,u:number,v:number){return surfaceGeneration(r)?.bindings.inspect(surfaceGenerationContext(r,name,u,v),surfaceGenerationBase(r));}
+
 const normals:Record<BoxSurface,Vec>={right:[1,0,0],left:[-1,0,0],top:[0,1,0],bottom:[0,-1,0],front:[0,0,1],back:[0,0,-1]};
 /** Geometric face IDs always name fixed box axes. Semantic model faces use declared front/+Y up. */
 export function resolveSurfaceName(front:ResolvedObjectSurface['orientation']['front'],name:BoxSurface,space:'geometry'|'model'):BoxSurface{
@@ -118,8 +143,8 @@ function materialSample(m:ResolvedMaterialGenerator,u:number,v:number,output:Res
 }
 /** Base UVs repeat in metres. Slash coordinates remain bounded to one face and never use those UVs. */
 export function sampleObjectSurface(r:ResolvedObjectSurface,name:BoxSurface,u:number,v:number,samplers?:ReadonlyMap<ResolvedObjectSurface['layers'][number],MaterialPatternSampler>){
-  const frame=boxSurfaceFrame(r.sizeMeters,name),point=frame.point(u,v),result=materialSample(r.base,u*frame.span[0]/r.base.tileMeters[0],v*frame.span[1]/r.base.tileMeters[1],r.output);
-  for(const layer of r.layers){let weight=surfaceCoverage(r,layer,name,point,samplers?.get(layer))*layer.opacity;if(!weight)continue;const m=layer.material;
+  const frame=boxSurfaceFrame(r.sizeMeters,name),point=frame.point(u,v),plan=surfaceGeneration(r),values=plan?{...surfaceGenerationBase(r),...plan.bindings.sample({object:point,surface:[u*frame.span[0],v*frame.span[1],0]},surfaceGenerationBase(r))}:undefined,base=values?{...r.base,roughness:values['base.roughness'],weathering:values['base.weathering'],variation:values['base.variation']}:r.base,result=materialSample(base,u*frame.span[0]/base.tileMeters[0],v*frame.span[1]/base.tileMeters[1],r.output);
+  for(const layer of r.layers){let weight=surfaceCoverage(r,layer,name,point,samplers?.get(layer))*(values?.['layer:'+layer.id+'.opacity']??layer.opacity);if(!weight)continue;const m=layer.material;
     // Coverage shares one model-space field, but texture projection must span the
     // actual face. Top-down projection on vertical faces collapses one axis.
     const sample=materialSample(m,u*frame.span[0]/m.tileMeters[0],v*frame.span[1]/m.tileMeters[1],r.output);
@@ -138,6 +163,7 @@ export async function generateObjectSurface(input:ObjectSurfaceDocument,options:
   const recipe=resolveObjectSurfaceDocument(input),size=options.resolution??recipe.output.resolution;
   if(!Number.isInteger(size)||size<16||size>512)throw Error('Object surfaces support 16–512 pixels per face.');
   const faces={} as ObjectSurfaceBake['faces'];let bytes=0;const pixelsPerMeter=size/Math.max(...recipe.sizeMeters);
+  const generation=surfaceGeneration(recipe);if(generation){let samples=0;for(const name of BOX_SURFACES){const span=boxSurfaceFrame(recipe.sizeMeters,name).span;samples+=Math.max(1,Math.round(span[0]*pixelsPerMeter))*Math.max(1,Math.round(span[1]*pixelsPerMeter));}if(samples*generation.cost>16000000)throw Error('Surface generation binding budget exceeds 16000000 evaluations; reduce map octaves/bindings or bake resolution.');}
   const samplers=new Map(recipe.layers.map(layer=>[layer,createMaterialPatternSampler(layer.coverage.pattern)] as const));
   for(const name of BOX_SURFACES){
     const span=boxSurfaceFrame(recipe.sizeMeters,name).span,width=Math.max(1,Math.round(span[0]*pixelsPerMeter)),rows=Math.max(1,Math.round(span[1]*pixelsPerMeter));

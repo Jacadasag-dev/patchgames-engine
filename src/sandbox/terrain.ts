@@ -1,3 +1,4 @@
+import {compileGenerationMaps,type GenerationMapRecipe} from '../shared/generationMaps.ts';
 import type { PhysicsCollider, PhysicsScene, PhysicsVector } from './physics.ts';
 import { physicsShapeBounds, physicsShapeVolume } from './physicsGeometry.ts';
 import { validateAssetManifest, transformAssetColliders, type AssetManifest } from './assetFamilies.ts';
@@ -46,6 +47,9 @@ export interface TerrainScatterLayer {
   /** Candidate grid spacing in metres; density is acceptance probability [0,1]. */
   spacing: number;
   density: number;
+  /** Exact final quota after spacing and constraints. Eager generation only;
+   * underfilled requests produce an error rather than a silent partial success. */
+  count?: number;
   scale?: [number, number];
   maxSlope?: number;
   elevation?: [number, number];
@@ -108,11 +112,16 @@ export interface TerrainScatterReservation {
   clearance?: number;
   shoulder?: number;
 }
+/** Additive, metre-valued elevation fields sampled at absolute world X/Z. */
+export interface TerrainElevationMaps {
+  graph: GenerationMapRecipe;
+  layers: { id: string; map: string; weight?: number; mask?: string }[];
+}
 export interface TerrainRecipe {
   version: 1;
   seed: number;
   bounds: { width: number; depth: number; cells?: number };
-  base?: { height?: number; noise?: { amplitude: number; wavelength: number; octaves?: number } };
+  base?: { height?: number; noise?: { amplitude: number; wavelength: number; octaves?: number }; maps?: TerrainElevationMaps };
   /** Optional ground texture; omitted preserves the original vertex-color view. */
   material?: SurfaceMaterialInput;
   assets: TerrainAsset[];
@@ -240,7 +249,25 @@ const canonical = (value: unknown): string => {
     .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, v]) => `${JSON.stringify(key)}:${canonical(v)}`).join(',')}}`;
   return JSON.stringify(value) ?? 'null';
 };
-function terrainFingerprint(recipe: TerrainRecipe, strict = false): string {
+/** Dependency-only view: keep the persisted graph intact while excluding maps
+ * unreachable from elevation bindings from terrain geometry/cache revisions. */
+export function terrainMapDependencyRecipe(recipe: TerrainRecipe): TerrainRecipe {
+  const value = recipe.base?.maps;
+  if (!value || !Array.isArray(value.layers) || !value.graph || (!value.graph.maps || typeof value.graph.maps !== 'object' || Array.isArray(value.graph.maps))) return recipe;
+  const nodes = value.graph.maps, used = new Set<string>(), pending = value.layers.flatMap(layer => layer && typeof layer.map === 'string'
+    ? [layer.map, ...(typeof layer.mask === 'string' ? [layer.mask] : [])] : []);
+  while (pending.length) {
+    const id = pending.pop()!; if (used.has(id)) continue; used.add(id); const node = nodes[id];
+    if (!node || typeof node !== 'object') continue;
+    if (node.type === 'remap' || node.type === 'clamp') pending.push(node.input);
+    else if (node.type === 'multiply' && Array.isArray(node.inputs)) pending.push(...node.inputs.filter(v => typeof v === 'string'));
+    else if ((node.type === 'add' || node.type === 'mix') && Array.isArray(node.inputs)) for (const input of node.inputs) if (input && typeof input.map === 'string') pending.push(input.map);
+  }
+  return { ...recipe, base: { ...recipe.base, maps: { ...value, graph: { ...value.graph,
+    maps: Object.fromEntries([...used].sort().map(id => [id, nodes[id]])) }, layers: [...value.layers].sort((a, b) => String(a?.id) < String(b?.id) ? -1 : String(a?.id) > String(b?.id) ? 1 : 0) } } };
+}
+function terrainFingerprint(source: TerrainRecipe, strict = false, dependenciesOnly = true): string {
+  const recipe = dependenciesOnly ? terrainMapDependencyRecipe(source) : source;
   if (!Array.isArray(recipe.assets) || !recipe.assets.some(asset => asset?.model !== undefined)) return canonical(recipe);
   return canonical({ ...recipe, assets: recipe.assets.map(asset => {
     if (asset?.model === undefined) return asset;
@@ -361,10 +388,47 @@ function mixColor(a: number, b: number, weight: number): number {
     | Math.round(((a >>> 8) & 255) * (1 - weight) + ((b >>> 8) & 255) * weight) << 8
     | Math.round((a & 255) * (1 - weight) + (b & 255) * weight);
 }
-function baseHeight(recipe: TerrainRecipe, p: TerrainPoint, noiseSamples: Map<string, number>, rotations: FootprintRotation[], weights?: number[]): number {
+interface TerrainMapHeight { recipe: TerrainElevationMaps; sample: (point: TerrainPoint) => number }
+/** Compile once per preparation/query factory, never once per sampled vertex. */
+function terrainMapHeight(input: TerrainElevationMaps | undefined): TerrainMapHeight | undefined {
+  if (input === undefined) return undefined;
+  const plain = (value: unknown, keys: string[]): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
+    && [Object.prototype, null].includes(Object.getPrototypeOf(value)) && Object.keys(value).every(key => keys.includes(key));
+  if (!plain(input, ['graph', 'layers']) || !Array.isArray(input.layers) || !input.layers.length || input.layers.length > 8)
+    throw Error('Terrain elevation maps require a graph and 1–8 additive layers.');
+  const compiled = compileGenerationMaps(input.graph), ids = new Set<string>();
+  const output = (id: string, unit: 'metres' | 'normalized') => {
+    const value = compiled.output(id);
+    if (value.unit !== unit || value.dynamic || value.spaces.some(space => space !== 'world') || value.scopes?.length)
+      throw Error('Terrain map '+id+' must be static '+unit+' values in world space without object/part sampling.');
+    if (!value.range.every(Number.isFinite) || unit === 'normalized' && (value.range[0] < 0 || value.range[1] > 1))
+      throw Error('Terrain map '+id+' requires a finite '+unit+' output range.');
+    compiled.sample(id, { world: [0, 0, 0] }); return value;
+  };
+  let reach = 0, cost = 0;
+  const layers = input.layers.map(layer => {
+    if (!plain(layer, ['id', 'map', 'weight', 'mask']) || typeof layer.id !== 'string' || !/^[-a-z0-9._]{1,80}$/i.test(layer.id)
+      || ids.has(layer.id) || typeof layer.map !== 'string' || layer.mask !== undefined && typeof layer.mask !== 'string'
+      || layer.weight !== undefined && (!Number.isFinite(layer.weight) || Math.abs(layer.weight) > 10))
+      throw Error('Terrain elevation layers need unique valid IDs, map IDs, and additive weights within -10..10.');
+    ids.add(layer.id); const weight = layer.weight ?? 1, value = output(layer.map, 'metres');
+    reach += Math.max(Math.abs(value.range[0]), Math.abs(value.range[1])) * Math.abs(weight); cost += value.cost;
+    if (layer.mask !== undefined) cost += output(layer.mask, 'normalized').cost;
+    return { id: layer.id, map: layer.map, weight, ...(layer.mask !== undefined ? { mask: layer.mask } : {}) };
+  }).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  if (reach > 10000 || cost > 4096) throw Error('Terrain elevation maps exceed the 10000m contribution or 4096 sample-operation budget.');
+  return { recipe: { graph: compiled.recipe, layers }, sample: point => {
+    const context = { world: [point.x, 0, point.z] as const }; let height = 0;
+    for (const layer of layers) if (layer.weight !== 0) height += compiled.sample(layer.map, context) * layer.weight
+      * (layer.mask === undefined ? 1 : compiled.sample(layer.mask, context));
+    return height;
+  } };
+}
+function baseHeight(recipe: TerrainRecipe, p: TerrainPoint, noiseSamples: Map<string, number>, rotations: FootprintRotation[], weights?: number[], maps?: TerrainMapHeight): number {
   let result = recipe.base?.height ?? 0;
   const n = recipe.base?.noise;
   if (n) for (let octave = 0; octave < (n.octaves ?? 3); octave++) result += noise(recipe.seed + octave, p.x / n.wavelength * 2 ** octave, p.z / n.wavelength * 2 ** octave, noiseSamples) * n.amplitude / 2 ** octave;
+  result += maps?.sample(p) ?? 0;
   for (let i = 0; i < recipe.regions.length; i++) {
     const region = recipe.regions[i];
     result += (region.elevation ?? 0) * (weights ? weights[i] : maskWeight(region.mask, p, region.blend ?? 0, rotations[i]));
@@ -376,7 +440,7 @@ function baseHeight(recipe: TerrainRecipe, p: TerrainPoint, noiseSamples: Map<st
  * the analytic base before road grading/foundations, not a rendered triangle or
  * collision query. Source edits require a new sampler. */
 export function createTerrainBaseHeightSampler(input: TerrainRecipe): (x: number, z: number) => number {
-  const n = input.base?.noise;
+  const n = input.base?.noise, maps = terrainMapHeight(input.base?.maps);
   if (!Number.isInteger(input.seed) || input.seed < 0 || input.seed > 0xffffffff || !Array.isArray(input.regions) || input.regions.length > 32
     || !finite(input.base?.height ?? 0) || Math.abs(input.base?.height ?? 0) > 10000
     || n && (!finite(n.amplitude) || n.amplitude < 0 || n.amplitude > 10000 || !finite(n.wavelength) || n.wavelength < .001
@@ -388,11 +452,11 @@ export function createTerrainBaseHeightSampler(input: TerrainRecipe): (x: number
       || (m.kind === 'circle' ? !positive(m.radius) : m.kind !== 'box' || !positive(m.width) || !positive(m.depth))) throw new Error('Invalid terrain elevation region.');
     return { id: region.id, mask: { ...m, center: { ...m.center } }, blend: region.blend, elevation: region.elevation, layers: [] };
   }).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  const recipe: TerrainRecipe = { version: 1, seed: input.seed, bounds: { ...input.bounds }, base: { height: input.base?.height, ...(n ? { noise: { ...n } } : {}) }, assets: [], regions };
+  const recipe: TerrainRecipe = { version: 1, seed: input.seed, bounds: { ...input.bounds }, base: { height: input.base?.height, ...(n ? { noise: { ...n } } : {}), ...(maps ? { maps: maps.recipe } : {}) }, assets: [], regions };
   const samples = new Map<string, number>(), rotations = regions.map(region => ({ c: Math.cos(region.mask.yaw ?? 0), s: Math.sin(region.mask.yaw ?? 0) }));
   return (x, z) => {
     if (!finite(x) || !finite(z)) throw new Error('Terrain base sample requires finite coordinates.');
-    const height = baseHeight(recipe, { x, z }, samples, rotations);
+    const height = baseHeight(recipe, { x, z }, samples, rotations, undefined, maps);
     if (!finite(height) || Math.abs(height) > 10000) throw new Error('Terrain base height exceeds world limits.');
     return height;
   };
@@ -692,6 +756,8 @@ function compileTerrainInternal(input: TerrainRecipe, previous?: TerrainManifest
     }
   }
   if (recipe.base?.height !== undefined && (!finite(recipe.base.height) || Math.abs(recipe.base.height) > 10000)) issue('height', 'Base height must be finite and within ±10000m');
+  let elevationMaps: TerrainMapHeight | undefined;
+  try { elevationMaps = terrainMapHeight(recipe.base?.maps); } catch (error) { issue('elevation-maps', error instanceof Error ? error.message : 'Invalid terrain generation maps'); }
   const n = recipe.base?.noise;
   if (n && (!nonnegative(n.amplitude) || n.amplitude > 10000 || !positive(n.wavelength) || n.wavelength < 0.001
     || !Number.isInteger(n.octaves ?? 3) || (n.octaves ?? 3) < 1 || (n.octaves ?? 3) > 6)) issue('noise', 'Noise requires amplitude from 0–10000m, wavelength at least 0.001m, and 1–6 octaves');
@@ -704,6 +770,10 @@ function compileTerrainInternal(input: TerrainRecipe, previous?: TerrainManifest
     unique(region.layers, `Layer in ${region.id}`);
     for (const layer of region.layers) {
       validateFacing(layer.facing, [region.id, layer.id]);
+      if (layer.count !== undefined && (!Number.isInteger(layer.count) || layer.count < 0 || layer.count > 256))
+        issue('scatter-count', 'Exact scatter count must be an integer from 0 to 256', [region.id, layer.id]);
+      if (layer.count !== undefined && (window || terrainUsesStreaming(recipe)))
+        issue('scatter-count-streaming', 'Exact global scatter counts require eager terrain generation; use streaming:false or a separate prepared placement plan.', [region.id, layer.id]);
       if (layer.preferences !== undefined && (!Array.isArray(layer.preferences) || layer.preferences.length > 8
         || layer.preferences.some(preference => !record(preference) || Object.keys(preference).some(key => !['target', 'mode', 'range', 'weight'].includes(key))
           || !targetOkay(preference.target, false) || !['near', 'away'].includes(preference.mode as string)
@@ -802,18 +872,18 @@ function compileTerrainInternal(input: TerrainRecipe, previous?: TerrainManifest
     return { route, tint: color(route.color, 0x9c8560), blend: route.shoulder ?? resolution,
       minX: Math.min(...route.points.map(p => p.x)) - margin, maxX: Math.max(...route.points.map(p => p.x)) + margin,
       minZ: Math.min(...route.points.map(p => p.z)) - margin, maxZ: Math.max(...route.points.map(p => p.z)) + margin,
-      heights: route.grade ? route.points.map(p => p.y ?? baseHeight(recipe, p, noiseSamples, regionRotations)) : [],
+      heights: route.grade ? route.points.map(p => p.y ?? baseHeight(recipe, p, noiseSamples, regionRotations, undefined, elevationMaps)) : [],
       segments: route.points.slice(1).map((p, index) => {
         const a = route.points[index], dx = p.x - a.x, dz = p.z - a.z;
         return { x: a.x, z: a.z, dx, dz, denominator: dx * dx + dz * dz || 1 };
       }) };
   });
   const foundations = placementShapes.filter(placement => placement.foundation).map(placement => ({ placement,
-    target: placement.foundation!.height ?? baseHeight(recipe, placement.position, noiseSamples, regionRotations),
+    target: placement.foundation!.height ?? baseHeight(recipe, placement.position, noiseSamples, regionRotations, undefined, elevationMaps),
     blend: placement.foundation!.blend ?? placement.shoulder ?? resolution }));
   const regionColors = recipe.regions.map(region => color(region.color, -1));
   const finalHeight = (p: TerrainPoint, nearby: (ReturnType<typeof nearestRoute> | undefined)[], weights: number[]): number => {
-    const original = baseHeight(recipe, p, noiseSamples, regionRotations, weights);
+    const original = baseHeight(recipe, p, noiseSamples, regionRotations, weights, elevationMaps);
     return gradedHeight(carveTerrainChannels(original, p.x, p.z, channels, gradeError), p, routeSurfaces, nearby, foundations, gradeError);
   };
   for (let col = 0; col <= cells; col++) for (let row = 0; row <= cells; row++) {
@@ -871,7 +941,7 @@ function compileTerrainInternal(input: TerrainRecipe, previous?: TerrainManifest
   }
   for (const p of placementShapes) if (p.foundation) {
     if (window && !sampleTerrain(manifest, p.position.x, p.position.z).inside) continue;
-    const target = p.foundation.height ?? baseHeight(recipe, p.position, noiseSamples, regionRotations);
+    const target = p.foundation.height ?? baseHeight(recipe, p.position, noiseSamples, regionRotations, undefined, elevationMaps);
     const shape = p.footprint;
     const probes = shape.kind === 'box' ? corners(shape, p.position, p.yaw) : [0, 1, 2, 3].map(i => ({ x: p.position.x + Math.cos(i * Math.PI / 2) * shape.radius, z: p.position.z + Math.sin(i * Math.PI / 2) * shape.radius }));
     const worst = [p.position, ...probes].reduce((n, probe) => {
@@ -886,6 +956,7 @@ function compileTerrainInternal(input: TerrainRecipe, previous?: TerrainManifest
     ...layer.assets.map(id => radius(assets.get(id)!.footprint) * (layer.scale?.[1] ?? 1) * 2)), max), 0) : 0;
   if (!finite(halo) || window && halo > 1000) { issue('chunk-halo-budget', 'Scatter footprint neighbourhood exceeds the 1000m chunk generation bound'); return finish(); }
   for (let regionIndex = 0; regionIndex < recipe.regions.length; regionIndex++) for (const layer of [...recipe.regions[regionIndex].layers].sort(compare)) {
+    if (layer.count === 0) continue;
     const region = recipe.regions[regionIndex], rotation = regionRotations[regionIndex];
     const gridColumns = Math.ceil(width / layer.spacing), gridRows = Math.ceil(depth / layer.spacing);
     const minCol = window ? Math.max(0, Math.floor((window.minX - halo + width / 2) / layer.spacing)) : 0;
@@ -934,6 +1005,7 @@ function compileTerrainInternal(input: TerrainRecipe, previous?: TerrainManifest
   }
   const removals = new Set(recipe.overrides?.remove ?? []), pinnedIds = new Set((recipe.overrides?.pin ?? []).map(p => p.id));
   const corridors = [...routes.map(route => ({ ...route, reservationId: `route:${route.id}` })), ...placements.flatMap(p => (p.entrances ?? []).map(e => ({ ...e, shoulder: p.shoulder, reservationId: `entrance:${p.id}:${e.id}` })))];
+  const acceptedCounts = new Map<TerrainScatterLayer, number>();
   for (const generic of spacing) {
     const candidate = generic as typeof candidates[number];
     if (window && (candidate.position.x < window.minX || candidate.position.x >= window.maxX
@@ -985,9 +1057,16 @@ function compileTerrainInternal(input: TerrainRecipe, previous?: TerrainManifest
     const sampled = sampleTerrain(manifest, candidate.position.x, candidate.position.z);
     if (candidate.layer.maxSlope !== undefined && Math.hypot(sampled.normal.x, sampled.normal.z) / sampled.normal.y > candidate.layer.maxSlope
       || candidate.layer.elevation && (sampled.height < candidate.layer.elevation[0] || sampled.height > candidate.layer.elevation[1])) { excluded(`filter:${candidate.source.region}:${candidate.source.layer}`); continue; }
+    const accepted = acceptedCounts.get(candidate.layer) ?? 0;
+    if (candidate.layer.count !== undefined && accepted >= candidate.layer.count) { excluded('quota:'+candidate.source.region+':'+candidate.source.layer); continue; }
+    acceptedCounts.set(candidate.layer, accepted + 1);
     const { priority: _priority, layer: _layer, randomKey: _randomKey, ...instance } = candidate;
     instance.position.y = sampled.height;
     manifest.instances.push(instance);
+  }
+  for (const region of recipe.regions) for (const layer of region.layers) if (layer.count !== undefined) {
+    const accepted = acceptedCounts.get(layer) ?? 0;
+    if (accepted < layer.count) issue('exact-count-underfill', 'Requested '+layer.count+' instances but accepted '+accepted+' after density, spacing, terrain and clearance constraints; increase candidate density/area or relax constraints.', [region.id, layer.id]);
   }
   for (const p of placementShapes) {
     if (window && (p.position.x < window.minX || p.position.x >= window.maxX || p.position.z < window.minZ || p.position.z >= window.maxZ)) continue;
@@ -1036,10 +1115,16 @@ function compileTerrainInternal(input: TerrainRecipe, previous?: TerrainManifest
 export class TerrainCompiler {
   private fingerprint?: string;
   private manifest?: TerrainManifest;
+  private sourceFingerprint?: string;
   compile(recipe: TerrainRecipe): TerrainManifest {
-    const fingerprint = terrainFingerprint(recipe);
-    if (this.manifest && fingerprint === this.fingerprint) return this.manifest;
-    const manifest = compileTerrain(recipe, this.manifest);
+    const sourceFingerprint = terrainFingerprint(recipe, false, false), fingerprint = terrainFingerprint(recipe);
+    if (this.manifest && sourceFingerprint === this.sourceFingerprint) return this.manifest;
+    // Revalidate edited source data even when only unrelated maps changed; never
+    // let a geometry cache hit accept an invalid unused graph or lose new source.
+    const checked = this.manifest && fingerprint === this.fingerprint ? prepareTerrainRecipe(recipe) : undefined;
+    const manifest: TerrainManifest = this.manifest && checked?.diagnostics.valid
+      ? { ...this.manifest, recipe: checked.recipe, changes: { added: [], removed: [], updated: [], unchanged: this.manifest.instances.length, surfaceChanged: false } }
+      : compileTerrain(recipe, this.manifest);
     if (manifest.diagnostics.valid) {
       const freeze = (value: unknown): void => {
         if (!value || typeof value !== 'object' || Object.isFrozen(value)) return;
@@ -1047,9 +1132,9 @@ export class TerrainCompiler {
         Object.freeze(value);
       };
       freeze(manifest);
-      this.fingerprint = fingerprint; this.manifest = manifest;
+      this.fingerprint = fingerprint; this.sourceFingerprint = sourceFingerprint; this.manifest = manifest;
     }
     return manifest;
   }
-  reset(): void { this.fingerprint = undefined; this.manifest = undefined; }
+  reset(): void { this.fingerprint = undefined; this.sourceFingerprint = undefined; this.manifest = undefined; }
 }

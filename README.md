@@ -15,11 +15,16 @@ The engine provides:
   scene transitions, and round lifecycle contracts.
 - [Material generators](docs/material-generator.md) with eight editable families,
   repeatable PBR maps, physical scale and pixel-art through 2048-pixel output.
+- [Shared generation maps](docs/generation-maps.md) for layered terrain, bounded
+  foliage variants and directional material variation using Map → Combine → Apply.
 
 Run `npm run demo:materials` for the interactive Material Lab: 50 generated
 presets, editable controls, 3D preview, texture maps and PNG/JSON exports.
 It also includes [object surface recipes](docs/object-surfaces.md): a grass-topped
 dirt block and a brick wall with one editable, non-repeating slash.
+
+Run `npm run demo:generation` for the [Generation Lab](examples/generation-lab.html):
+edit one shared graph and preview terrain, four varied trees and wall weathering.
 
 ## Complete starter games
 
@@ -58,7 +63,7 @@ Import only the modules needed by each environment. Host/compiler modules use
 Node APIs; view modules require a browser. Game logic runs inside the sandbox and
 imports the approved helpers through the compiler's source boundary.
 
-Start with [custom maps](docs/custom-maps.md), [game scenes](docs/game-scenes.md),
+Start with [generation maps](docs/generation-maps.md), [custom maps](docs/custom-maps.md), [game scenes](docs/game-scenes.md),
 [world planning](docs/world-planning.md), [voxel worlds](docs/voxel-worlds.md),
 and [shared animation](docs/shared-actor-animation.md). These guides document
 engine APIs and standalone integration. The hosted AI connector is maintained
