@@ -23,10 +23,9 @@ The scatter process draws a seeded bounded Poisson count and independent uniform
 positions within implementation regions. It does not put one shaken point in
 every cell. The mixed process uses ordered-point probability `regularity` and
 scatter rate `1-regularity`; the four-scatter-proposal cap slightly truncates rare
-tails. Small surfaces naturally vary in count. Clumping and concentration decide
-which of these proposals generate; shape, size and source opacity remain separate.
-`irregularity` can bend strands and loosen the ordered component at intermediate
-regularity, but does not reintroduce a grid at the scattered endpoint.
+tails. Small surfaces naturally vary in count. Clumping redistributes scattered proposals; concentration decides
+which generate; shape, size and source opacity remain separate.
+`irregularity` bends veins without changing the placement grid.
 
 Every pattern also accepts `shapeVariation` and `sizeVariation` (0–1). Shape
 variation applies a finer irregular warp to boundaries; size variation applies a
@@ -58,22 +57,27 @@ Features can extend past the preferred region because their centres, not every
 pixel, follow the distribution. Inversion complements the generated mask; gates
 combine generated masks rather than imposing a shared opacity fade.
 
-`clumping:0..1` groups feature generation around a shared, smooth density field.
-`groupSizeMeters` (.004–20, default .6) sets the physical grouping scale. Start
-around 3–6 feature widths. Clumping correlates nearby feature presence, not their
-color or opacity, and works with inward/outward bias. Feature counts/coverage
-remain artistic rather than exact counts. All six pattern types share the seeded
-proposal system: blobs, speckles and patches; finite stripe/vein strands; and
-cell regions. Strands can join where they overlap. Distribution edits can add or
-remove a whole strand/cell; they do not shorten it with an alpha gradient.
+`density` controls feature amount independently of feature size: 0–256, default 32,
+measured in centres/m² in face space or centres/m³ in model space. Concentration,
+bounds and masks can reduce the resulting count; overlapping features can merge.
+`coverage` controls individual feature fill/width, not the number of centres.
+`mode:'solid'` explicitly fills a layer without feature generation; use it with a
+boundary for cross-sections. The default mode is `features`.
 
-`materialPatternFeaturesAtCell(pattern,[cellX,cellY,cellZ],frame)` exposes the full
-proposal set, including stable IDs, physical centres, generation probabilities,
-accepted flags and size scales. The singular `materialPatternFeatureAtCell`
-inspects only the ordered proposal, whose accepted flag is false when it is not
-selected by regularity. Use the plural API for distribution statistics. Accepted
-flags are deterministic. Changing concentration or clumping leaves the proposal
-set and its individual sizes intact; placement regularity changes that set.
+`clumping:0..1` moves the scattered component into seeded parent/offspring groups.
+`groupSizeMeters` sets parent spacing and child spread (radius up to .45 times
+that size). Larger groups are fewer and broader, with more children per parent;
+the mean feature density stays similar. Ordered placements retain their grid and
+use correlated occupancy instead. All six pattern types share these controls.
+Feature interiors keep their material opacity and individual size.
+
+`materialPatternFeaturesAtCell` exposes base proposals; grouped proposals come
+from `materialPatternGroupedFeaturesAtCell` and include group IDs.
+`inspectMaterialPatternDistribution(pattern,frame)` reports generated centre and
+group counts before gates, opacity and overlap. It requires physical dimensions
+and reports incomplete after 4096 regions. Concentration preserves proposals;
+clumping, density and regularity change proposals. Samplers reject combinations
+that exceed bounded feature/group search budgets with an actionable error.
 
 For a bake, prefer `createMaterialPatternSampler(recipe)`. It validates a snapshot
 and caches up to 8192 regions per root/gate sampler across physical domains.
