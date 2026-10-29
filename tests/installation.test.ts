@@ -38,12 +38,12 @@ it('rejects a stale dependency pin until rematerialized',()=>{
  expect(()=>materializeEngine({root,engineRoot:engine,check:true})).toThrow('stale');
  materializeEngine({root,engineRoot:engine});expect(engineSourceFiles(root)).toHaveLength(3);
 });
-it('keeps licensed host data separate while preserving the legacy animation entry point',()=>{
- const{root,engine}=fixture();const asset='export const UE_LOCOMOTION_DATA = {source:"licensed host asset"};\n';
+it('keeps licensed host data separate behind a neutral animation entry point',()=>{
+ const{root,engine}=fixture();const asset='export const HOST_LOCOMOTION_DATA = {source:"licensed host asset"};\n';
  write(root,'src/engineAssets/humanoidLocomotion.ts',asset);materializeEngine({root,engineRoot:engine});
  expect(readFileSync(join(root,'src/sandbox/hostAssets.ts'),'utf8')).toBe(asset);
  expect(readFileSync(join(root,'src/sandbox/defaultLocomotionData.ts'),'utf8')).toContain('DEFAULT_LOCOMOTION_DATA');
- expect(readFileSync(join(root,'src/sandbox/ueLocomotionData.ts'),'utf8')).toContain('./hostAssets.ts');
+ expect(readFileSync(join(root,'src/sandbox/defaultLocomotionData.ts'),'utf8')).toContain('HOST_LOCOMOTION_DATA');
  expect(readFileSync(join(engine,'src/sandbox/defaultLocomotionData.ts'),'utf8')).not.toContain('licensed');
 });
 it('rejects unexpected package source without creating platform files',()=>{

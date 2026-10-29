@@ -47,9 +47,11 @@ function materializeEngine(options = {}) {
   visit("src");
   const hostAsset = resolve(root, "src/engineAssets/humanoidLocomotion.ts");
   if (existsSync(hostAsset)) {
-    files["src/sandbox/hostAssets.ts"] = readFileSync(hostAsset);
-    files["src/sandbox/defaultLocomotionData.ts"] = Buffer.from("export {UE_LOCOMOTION_DATA as DEFAULT_LOCOMOTION_DATA} from './hostAssets.ts';\n");
-    files["src/sandbox/ueLocomotionData.ts"] = Buffer.from("export {UE_LOCOMOTION_DATA, UE_LOCOMOTION_JOINTS} from './hostAssets.ts';\n");
+    const contents = readFileSync(hostAsset);
+    if (!/\bexport\s+const\s+HOST_LOCOMOTION_DATA\b/.test(contents.toString("utf8")))
+      throw Error("Host humanoid animation data must export HOST_LOCOMOTION_DATA.");
+    files["src/sandbox/hostAssets.ts"] = contents;
+    files["src/sandbox/defaultLocomotionData.ts"] = Buffer.from("export {HOST_LOCOMOTION_DATA as DEFAULT_LOCOMOTION_DATA} from './hostAssets.ts';\n");
   }
   const prior = receipt(root);
   const originals = /* @__PURE__ */ new Map();
@@ -63,7 +65,6 @@ function materializeEngine(options = {}) {
     if (!existsSync(target)) continue;
     const current = digest(readFileSync(target));
     if (current === digest(contents) || current === prior?.files[file] || options.adopt && current === originals.get(file)) continue;
-    if (options.adopt && file === "src/sandbox/ueLocomotionData.ts" && existsSync(hostAsset) && current === digest(files["src/sandbox/hostAssets.ts"])) continue;
     throw Error(`Refusing to overwrite modified engine file: ${file}`);
   }
   if (options.check) {

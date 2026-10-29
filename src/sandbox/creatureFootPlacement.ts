@@ -82,25 +82,27 @@ export function creatureFootProfile(bankOrRig: CreatureRig | { rig: CreatureRig 
   const rig = 'rig' in bankOrRig ? bankOrRig.rig : bankOrRig;
   const legs: CreatureLeg[] = [];
   const id = rig.id.replace(/-v1$/, '');
-  if (id === 'mesh2motion-fox' || id === 'mesh2motion-kaiju') {
-    for (const part of id === 'mesh2motion-kaiju' ? ['Back'] : ['Front', 'Back']) for (const side of ['L', 'R']) {
+  if (id === 'creature-fox-01' || id === 'creature-kaiju-01') {
+    for (const part of id === 'creature-kaiju-01' ? ['Back'] : ['Front', 'Back']) for (const side of ['L', 'R']) {
       legs.push({ id: `${part.toLowerCase()}-${side.toLowerCase()}`, upper: `${part}_Leg_Upper_${side}`,
         lower: `${part}_Leg_Lower_${side}`, end: `${part}_Leg_Ankle_${side}`, foot: `${part}_Leg_Foot_${side}` });
     }
-  } else if (id === 'mesh2motion-horse') {
+  } else if (id === 'creature-horse-01') {
     for (const part of ['front', 'back']) for (const side of ['l', 'r']) legs.push({ id: `${part}-${side}`,
       upper: `${part}_leg_upper_${side}`, lower: `${part}_leg_lower_${side}`, end: `${part}_leg_ankle_${side}`, foot: `${part}_leg_foot_${side}` });
-  } else if (id === 'mesh2motion-bird') {
+  } else if (id === 'creature-bird-01') {
     for (const side of ['L', 'R']) legs.push({ id: `back-${side.toLowerCase()}`, upper: `UpperLeg_${side}`,
       lower: `LowerLeg_${side}`, end: `AnkleLeg_${side}`, foot: `Foot_${side}` });
-  } else if (id === 'mesh2motion-dragon') {
+  } else if (id === 'creature-dragon-01') {
     for (const part of ['front', 'back']) for (const side of ['l', 'r']) legs.push({ id: `${part}-${side}`,
       upper: `${part}_leg_${part === 'front' ? 'collar' : 'hip'}_${side}`, lower: `${part}_leg_${side}`,
       end: `${part}_ankle_${side}`, foot: `${part}_foot_${side}` });
-  } else if (id === 'mesh2motion-spider') {
+  } else if (id === 'creature-spider-01') {
     for (const side of ['l', 'r']) for (const leg of ['a', 'b', 'c', 'd']) legs.push({ id: `${leg}-${side}`,
       upper: `leg_${leg}_1_${side}`, lower: `leg_${leg}_2_${side}`, end: `leg_${leg}_3_${side}`, foot: `leg_${leg}_tip_${side}` });
-  } else if (/^quaternius-(alpaca|bull|cow|deer|donkey|fox|horse-white|horse|husky|shibainu|stag|wolf)$/.test(id)) {
+  } else if (['creature-alpaca-01','creature-bull-01','creature-cow-01','creature-deer-01','creature-donkey-01',
+    'creature-fox-02','creature-horse-white-01','creature-horse-02','creature-husky-01','creature-shiba-inu-01',
+    'creature-stag-01','creature-wolf-01'].includes(id)) {
     for (const part of ['Front', 'Back']) for (const side of ['L', 'R']) legs.push({ id: `${part.toLowerCase()}-${side.toLowerCase()}`,
       upper: `${part}UpperLeg${side}`, lower: `${part}LowerLeg${side}`, end: `FF${part === 'Back' ? 'B' : ''}${side}`, detachedEnd: true });
   }

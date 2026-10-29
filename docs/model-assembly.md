@@ -87,7 +87,7 @@ The shared actor runtime is available to ordinary game files and native features
   nearest-frame search, and continuity-aware playback transitions.
 - `sandbox/animationImport.ts`: conversion of compatible sampled transform data
   into shared clips using explicit joint, rest-pose and unit mappings.
-- `sandbox/creatureAnimationLibrary.ts`: discover Mesh2Motion/Quaternius creature
+- `sandbox/creatureAnimationLibrary.ts`: discover the built-in creature
   banks, load a compatible source rig and blend its available semantic actions.
 - `sandbox/creatureAnimationView.ts`: build a bank's actual Bone hierarchy and
   animation adapter for custom geometry; `creatureRigs.ts` describes its rest data.

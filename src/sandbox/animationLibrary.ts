@@ -3,7 +3,7 @@ import { HUMANOID_JOINTS, HUMANOID_RIG_ID } from './humanoidRig.ts';
 import { registerDecodedMotionSource, type MotionSource, type MotionTrajectory } from './motionMatching.ts';
 import { DEFAULT_LOCOMOTION_DATA } from './defaultLocomotionData.ts';
 
-/** A portable data format, not an Unreal runtime dependency. Every frame stores
+/** A portable, engine-independent data format. Every frame stores
  * the first joint's XYZ translation, each joint's XYZW rotation, root XYZ/yaw,
  * and left/right foot contacts, in that order. All are quantized integers.
  * Samples span 0..durationMs uniformly, including the final endpoint. */

@@ -59,15 +59,13 @@ database, moderation, billing, production deployment, and customer games stay in
 the platform repository. The headless runtime accepts input streams from your
 own transport; a standalone hosted multiplayer service is not included yet.
 
-The initial extraction retains source paths to make the separation reviewable.
-The production platform still uses its existing source tree until it is migrated
-to a pinned version of this package. `extraction-manifest.json` records the source
-commit and copied-file hashes; the repositories are not automatically synchronized.
+The hosted platform consumes an immutable version of this package. The installer
+generates its compatibility source paths; engine implementations are maintained
+here. `extraction-manifest.json` retains the historical extraction audit.
 
 ## Assets and animation
 
-This repository excludes Unreal Game Animation Sample source files and their
-baked motion data. Its default humanoid idle/walk/run bank is an original,
+Its default humanoid idle/walk/run bank is an original,
 procedural starter. It does not provide the same motion-capture quality as the
 hosted installation's separately licensed animation bank.
 
@@ -75,10 +73,14 @@ To use a bank you have rights to distribute, call
 `configureSharedHumanoidLocomotion(packedBank)` before building motion databases.
 The importer, retargeting, and playback code are available independently.
 
-Included Mesh2Motion and Quaternius creature data uses CC0-1.0. Media catalog entries retain
+Included creature data uses CC0-1.0. Media catalog entries retain
 source metadata; hosted texture/audio binaries are not bundled. Applications
 must supply their own media resolver and assets. See
 [third-party notices](THIRD_PARTY_NOTICES.md).
+
+Animation banks, rigs, clips and bodies use neutral identifiers such as
+`creature-fox-01` and `creature-fox-02-v1`. See [asset naming](docs/asset-names.md)
+for the naming contract and the breaking changes in 0.2.0.
 
 ## Contributing
 

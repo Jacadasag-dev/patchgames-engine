@@ -41,8 +41,8 @@ structures. See
    screenshots alone cannot establish traversability.
 
 This uses the same editable TypeScript/JSON and inspection tools available to a
-connected AI. It does not require a separate generative service or an Unreal
-installation. The browser terrain lab makes the effects easier for a person to
+connected AI. It does not require a separate generative service or external
+game editor. The browser terrain lab makes the effects easier for a person to
 explore; ordinary game revisions remain the AI's authoring and inspection unit.
 
 ## Shared recipe and manifest

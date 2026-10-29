@@ -162,7 +162,7 @@ export function createModStarter(template: ModStarterTemplate, id: string, name?
   if (actor !== 'humanoid' && actor !== 'creature') throw new Error('Unknown actor starter.');
   if (template === 'gravity' && (options.actor || options.bankId)) throw new Error('Gravity has no actor model.');
   if (actor === 'humanoid' && options.bankId) throw new Error('bankId requires a creature actor.');
-  const bankId = options.bankId ?? 'quaternius-fox';
+  const bankId = options.bankId ?? 'creature-fox-02';
   if (actor === 'creature' && template !== 'gravity' && !sharedCreatureCatalog().some(entry => entry.id === bankId))
     throw new Error('Unknown creature bank. Discover exact IDs with sharedCreatureCatalog.');
   const title = name?.trim() ?? names[template];
