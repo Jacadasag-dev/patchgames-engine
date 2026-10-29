@@ -492,7 +492,7 @@ export function terrainPhysicsScene(manifest: TerrainManifest, extraColliders: P
     heights: [...manifest.heights], width: manifest.bounds.width, depth: manifest.bounds.depth } };
 }
 
-/** Bounded diagnostics for inspect_game; never returns thousands of transforms. */
+/** Bounded terrain diagnostics for host inspection; never returns thousands of transforms. */
 export function terrainInspection(manifest: TerrainManifest): TerrainInspection {
   const reasons = Object.entries(manifest.diagnostics.excludedBy).sort(([a], [b]) => a < b ? -1 : 1);
   const issues = manifest.diagnostics.issues.slice(0, 12);

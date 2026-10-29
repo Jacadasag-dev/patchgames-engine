@@ -84,7 +84,7 @@ function range(values: Float32Array): [number, number] {
   return [Number(min.toFixed(4)), Number(max.toFixed(4))];
 }
 
-/** Pure, deterministic material composition shared by connector inspection and runtime. No DOM or network. */
+/** Pure, deterministic material composition shared by host previews and runtime. No DOM or network. */
 export async function renderMaterialRecipe(input: TextureRecipe, options: MaterialRecipeOptions = {}): Promise<MaterialRecipePixels> {
   const recipe = textureRecipeSchema.parse(input);
   const size = options.resolution ?? recipe.resolution;

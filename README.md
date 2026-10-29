@@ -1,7 +1,7 @@
 # PatchGames Engine
 
 A TypeScript game engine for sandboxed multiplayer simulation, browser rendering,
-and AI-assisted game authoring. Licensed under Apache-2.0.
+and reusable game-authoring APIs. Licensed under Apache-2.0.
 
 The engine provides:
 
@@ -46,10 +46,9 @@ imports the approved helpers through the compiler's source boundary.
 
 Start with [custom maps](docs/custom-maps.md), [game scenes](docs/game-scenes.md),
 [world planning](docs/world-planning.md), [voxel worlds](docs/voxel-worlds.md),
-and [shared animation](docs/shared-actor-animation.md). The
-[map authoring handbook](docs/handbooks/custom-maps.md) is suitable for AI tools.
-Some inherited guides describe the hosted product's connector/editor workflow;
-those hosted services are separate from this repository.
+and [shared animation](docs/shared-actor-animation.md). These guides document
+engine APIs and standalone integration. The hosted AI connector is maintained
+privately; see [the repository boundary](docs/repository-boundary.md).
 
 ## Engine and hosted platform
 

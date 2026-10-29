@@ -2,8 +2,6 @@
 
 The asset tools let AI authors define reusable generators for their own objects, then select reproducible variants with matching geometry and compound collision. The supplied furniture families are examples; they do not restrict the kinds of objects, purposes or styles an author can create.
 
-Both connected builders and workspace AI discover the same helpers through `get_creation_catalog({query:'assets'})`, `get_authoring_guide({topic:'assets'})` and the readable references:
-
 - `src/sandbox/assetFamilies.ts`: family definitions, parameter validation, seeded resolution and bounded caching.
 - `src/sandbox/variation.ts`: general keyed values, correlated choices and bounded recursive data generation.
 - `src/sandbox/assetFamilyPresets.ts`: extensible example families.
@@ -13,26 +11,6 @@ Both connected builders and workspace AI discover the same helpers through `get_
 - `src/sandbox/town.ts`: editable mixed-use layouts using the ordinary [building/city pipeline](procedural-buildings.md).
 
 Families can optionally include destruction through `resolveDestructibleAsset`, or `prepareAssetDestruction` after resolving and placing an instance. A configuration factory receives the selected model, so supports and fracture rules can follow its generated dimensions and parts. See [procedural destruction](structural-destruction.md#opt-into-destruction-during-procedural-generation) for rendering, collision and shared simulation setup; destruction remains disabled when no configuration is supplied.
-
-## Run the town workshop
-
-With the project dependencies installed, run:
-
-```sh
-npm run dev:town
-```
-
-Open [the town workshop](http://localhost:5177/tests/visual/town-workshop.html). The default port is 5177; use the port printed by Vite if it is occupied. The same page is also available from `npm run dev:city`. No account or game server is required.
-
-The **Town** tab selects a place, floor plan or **Walk inside**. Use WASD to move, drag to look, Space to jump and Escape to pause. The **Asset families** tab edits table shape, construction, palette and dimensions using the shared family generator. This table editor demonstrates one family; custom families are authored in source, with no fixed list of allowed purposes.
-
-`tests/visual/town-workshop.html` uses the ordinary authored fixture under `tests/fixtures/town-game/`. Run its package through the project's development/inspection environment, which provides Chromium at `/usr/bin/chromium`:
-
-```sh
-npm run verify:town
-```
-
-`scripts/verify-town.ts` builds the fixture's logic/view packages and invokes the same `renderInspection` pipeline as `inspect_game`. Cases include `town`, `table-family`, each public building, `cottage` and `walk-through`; select one with `npm run verify:town -- --case restaurant`. Images and `inspection.json` reports go to `tests/.tmp/town-inspection/<case>/`. Software rendering supplies integration evidence, not a device frame-rate benchmark.
 
 ## Define an object for an authored purpose
 

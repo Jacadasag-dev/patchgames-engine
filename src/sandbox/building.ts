@@ -349,7 +349,7 @@ export function resolveBuildingDoorIntent(recipe: BuildingRecipe, floor: Buildin
 /** Compile once when a recipe changes. Invalid drafts have diagnostics but no usable geometry. */
 export function compileBuilding(input: BuildingRecipe): BuildingManifest {
   const issues: BuildingIssue[] = [], issue = (code: string, message: string, ...ids: string[]) => { if (issues.length < 128) issues.push({ code, message, ...(ids.length ? { ids } : {}) }); };
-  // Bounded input shape checks precede traversal/cloning, including untyped connector data.
+  // Bounded input shape checks precede traversal/cloning, including untyped host data.
   const validShape = !!input && typeof input === 'object' && Array.isArray(input.floors) && input.floors.length <= BUILDING_LIMITS.floors
     && Array.from(input.floors).every(f => f && Array.isArray(f.rooms) && f.rooms.length <= BUILDING_LIMITS.roomsPerFloor && Array.from(f.rooms).every(r => r && typeof r === 'object' && !Array.isArray(r))
       && (f.openings === undefined || Array.isArray(f.openings) && f.openings.length <= BUILDING_LIMITS.openingsPerFloor)

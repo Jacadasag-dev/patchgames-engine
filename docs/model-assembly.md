@@ -1,40 +1,5 @@
 # Model assembly for Game builders
 
-## Website AI workflow
-
-1. `get_model_starter` returns ordinary editable data for a quadruped, humanoid,
-   or prop, with front/side/three-quarter images. Animals include idle and walk clips.
-2. Edit the returned parts, proportions, colors and animations. Optionally use
-   `inspect_model` to check or preview a clip/time before saving; saving already
-   includes validation and a preview, so this step can be skipped.
-3. `save_model` checks and saves the JSON, `.model.ts` wrapper and `.view.ts` adapter
-   in one revision. It refuses existing assets unless `replace: true` is explicit.
-4. Follow its returned integration instructions: create once, add the root to the
-   game's actors, call `play(clip, simulationTimeMs)`, dispose on removal. Connect
-   actual behavior/state and build the Game. Saving alone does not spawn the model.
-
-These tools cost no build credits and share a 20-calls/minute account limit. They
-accept bounded model data or a saved `.model.ts` path and revision, and return PNG
-geometry previews. Source expressions execute only in bounded QuickJS/WASM on
-preview workers; they have no Node, filesystem, network or host callbacks.
-Production previews use a separate worker queue with shared caching;
-when busy, retry the same request after the returned delay. See
-[authoring capacity](authoring-capacity.md) for limits and deployment. The previews use the same primitive geometry and poses with
-flat lighting, not the game's camera, shaders, terrain or effects. Only the model
-is previewed. Dark models use a neutral light backdrop and camera-relative lighting
-for every angle. For TypeScript-authored definitions, use:
-
-```json
-{"gameId":"<game UUID>","revisionId":"<saved revision UUID>","path":"src/game/horse.model.ts","clip":"walk","timeMs":125}
-```
-
-Omit `clip`/`timeMs` for rest. Do not send `model` alongside `path`/`revisionId`.
-The tool evaluates the default export, expanding helpers and imports from that
-immutable revision. It returns the source path, revision and file hash. Relative
-game TS/JSON imports plus `model.ts`, `rig.ts` and `modelStarters.ts` are supported;
-other platform modules and external packages require a normal build. Missing
-files or unsupported imports fail explicitly; there is no draft/latest fallback.
-
 ## Neutral body plans
 
 Starters describe a body plan, not an animal species. The quadruped has only a
@@ -94,12 +59,6 @@ The shared actor runtime is available to ordinary game files and native features
 - `sandbox/creatureModelView.ts`: create the original CC0 skinned body using the
   same bones and animation adapter; `dispose()` releases owned render resources.
 
-These APIs are exposed by `get_game` / `read_files` and the built-in agent's
-`findCode`. `get_mod_starter` appearance and creature templates include a small
-editable idle clip. Their models remain neutral placeholders; replace their
-geometry, mappings and clips for the requested creation. Keep those files in the
-feature so its animation travels with the mod across game modes.
-
 The [creature animation guide](creature-animation-import.md) includes a complete
 portable feature example using catalog discovery, cached banks and a controller.
 Creature families keep source-specific skeletons and explicit coverage; their
@@ -156,12 +115,6 @@ character. Contact helpers require explicit physical support and limb geometry;
 they do not discover terrain or stairs automatically. `selectLocomotionBlend`
 uses authored speed/direction samples; `MotionDatabase` / `MotionMatcher` provide
 the separate indexed motion-search path described below.
-
-Use `inspect_game` on the saved revision for final motion checks. Compare the
-same seed, roster, controls and capture times for rest, movement, turns and
-attacks. `inspect_model` continues to preview `ModelAnimation` clips; model-only
-images do not validate these view-owned layers, terrain contacts or in-game
-lighting.
 
 A base view can optionally expose `inspection(): Record<string, unknown>` with
 current animation layers, phases, action IDs, contact status and fallback reasons.

@@ -581,7 +581,7 @@ export interface GameLogic<W, P, I, T extends TuningValues> {
   learning?: LearningInterface;
   /** Resets the world and every participant for a new match (positions, health, items...). */
   setupMatch(ctx: MatchContext<W, P, T>): void;
-  /** Up to 16 named, test-only setups, exposed by describe_game. Not called by
+  /** Up to 16 named, test-only setups, available through engine inspection. Not called by
    * live matches, replay verification, prediction, training or normal tests.
    * Prefer setups over editing setupMatch merely to inspect equipment/state. */
   inspectionSetups?: readonly InspectionSetup<W, P, T>[];

@@ -3,7 +3,7 @@ import { ContractError, parseRoster, type RosterDeclaration } from './shapes.ts'
 import { schemaErrors, type TuningSchema } from './tuningSchema.ts';
 
 /** The roster a game declares lives in a JSON file beside its tuning (docs/game-tags.md), so the
- * editor's JSON form edits it and the connector's file tools treat it like any other file. Its
+ * host applications edit it as an ordinary JSON file. Its
  * sibling schema carries the limits and descriptions the form shows. */
 export const ROSTER_FILE = 'src/game/roster.json';
 export const ROSTER_SCHEMA_FILE = 'src/game/roster.schema.json';

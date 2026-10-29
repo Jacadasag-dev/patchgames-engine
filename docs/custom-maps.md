@@ -2,8 +2,6 @@
 
 `mapAssembly.ts` compiles exact, editable map components. `mapAssemblyView.ts` renders the same geometry. It complements the existing building, fixture, world-planning and terrain-volume tools; procedural variation is optional.
 
-Discover this workflow with `get_creation_catalog({query:'custom map'})` and `get_authoring_guide({topic:'custom-maps'})`. A connector with an older cached topic enum can use the `buildings` guide, then read the named map-assembly API references directly.
-
 ## Supported geometry and ownership
 
 Version 1 covers static boxes and gables with stable IDs, geometric face connections, scoped support checks, owned floor regions and required sign approaches. Box geometry is centred. Gables have their bottom at local Y=0, a ridge along local Z, and an authored rise/thickness. Coordinates use metres, Y up, +Z front and yaw in radians. There is no scale transform; edit dimensions and recompile.
@@ -72,13 +70,13 @@ Signs reference box parts and display text on the front face. Declare required a
 
 ## Evidence and repairs
 
+Capture the authored view inventory against a fixed revision. Cover roof exteriors, joints, sign approaches, surface boundaries and traversal routes. Keep normal materials and culling enabled. Report uninspected areas explicitly.
+
 Read `diagnostics.valid` and the separate coverage entries for `geometry`, `connections`, `support`, `surfaces`, `readability`, `rendering` and `traversal`. Each entry is `passed`, `failed`, `incomplete` or `notApplicable`. `defineMapAssembly` rejects failed/incomplete compiler checks; use `compileMapAssembly` to inspect a broken draft. Passing compiler checks do not establish rendered appearance, navigation or live performance.
 
 Use `mapAssemblyInspection(manifest,{offset?,limit?})` to page diagnostic details. Retain total and omitted issue counts; exhausted work budgets or unsupported components are not clean results. Fix the named source relationship or geometry. Do not silently delete requested components, move gameplay cover, increase every tolerance or mark structural pieces decorative merely to obtain a pass.
 
 Evidence belongs to the compiled revision and exact saved game source. After resizing a wall, rotating an assembly, changing a roof or placing cover near a sign, rerun affected checks and views. An arbitrary renderer override or runtime geometry mutation requires new evidence; earlier passing geometry does not validate the replacement.
-
-The `views` array is an authored inspection inventory, not proof that inspection ran. Cover all required roof exteriors, fixture connections, sign approaches, surface boundaries, doorways and vertical routes. Execute bounded `inspect_game` batches against the pinned revision. Ordinary `review_change` executes at most three scenarios, so show any remaining inventory. Keep normal materials/culling enabled for appearance; diagnostic overlays are supplementary.
 
 Exercise traversal separately through legal controls with the actual actor dimensions. Staged inspection cameras do not prove that players can reach a location. Measure real client frame intervals, including entering new areas and interacting with the map. Compiler timing and offline rendering are not production FPS.
 
@@ -86,6 +84,6 @@ Camera clearance is authored separately: installing a map does not add an automa
 
 ## Acceptance cases
 
-Keep both failing and valid counterparts: detached roof/supported pavilion, floating lantern/connected suspension, duplicate floor/material region, and obscured sign/readable required approach. Mutate a passing assembly by moving, resizing or removing its parent and ensure current diagnostics reflect the new revision. Check exterior roof faces, matching physics contacts, missing assets, unknown external geometry and exhausted budgets. A fresh customer-connector trial should discover the guide, author a small assembly and correct an intentional defect without repository-only tools or hidden handholding.
+Keep both failing and valid counterparts: detached roof/supported pavilion, floating lantern/connected suspension, duplicate floor/material region, and obscured sign/readable required approach. Mutate a passing assembly by moving, resizing or removing its parent and ensure current diagnostics reflect the new revision. Check exterior roof faces, matching physics contacts, missing assets, unknown external geometry and exhausted budgets. Test that a new author can build a small assembly and correct an intentional defect using the documented engine APIs.
 
 The local engine workshop is `tests/visual/custom-map.html`, served by the existing `tests/visual/city-workshop.config.ts` development configuration. It uses `tests/fixtures/custom-map/recipe.ts` and offers a valid courtyard plus detached roof/lamp, blocked sign, duplicate floor and reversed-renderer cases. Review ordinary exterior cameras and the compiler/renderer reports, then replay the native-controller route through the gate and up/down the stairs. Manual WASD/drag-look inspection supplements that route. Running the workshop or passing its tests alone does not establish that its screenshots have been visually reviewed.

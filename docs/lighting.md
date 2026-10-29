@@ -61,10 +61,3 @@ shadow cap. A point-light shadow needs six views, while an aimed spotlight needs
 one. Mirrors also render the scene again. Inspect walking characters, modded
 models and furniture from the player camera and mirror, and check performance
 with the intended participant count.
-
-The filesystem AI receives a lighting handbook for relevant requests or existing
-lighting code, the helper's current source, and `findCode` entries. Connected AIs
-receive `get_game.lightingAuthoring` guidance and can read the helper's public API
-through `read_files`. The view sandbox permits this helper in base and feature
-views; simulation logic cannot import it. Independent lighting additions can be
-packaged as ordinary native feature mods without depending on a particular mode.

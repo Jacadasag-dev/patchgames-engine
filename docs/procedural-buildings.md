@@ -1,7 +1,5 @@
 # Procedural buildings and city blocks
 
-The building tools turn editable recipes into enterable, furnished buildings with connected orthogonal footprints. The city generator supplies a finite first city block with stable identities and varied recipes. Both connected builders and workspace AI discover them through `get_creation_catalog({query:'buildings'})` and `get_authoring_guide({topic:'buildings'})`.
-
 The shared APIs live in:
 
 - `src/sandbox/building.ts`: building recipes, structural pieces, collision, support queries and diagnostics.
@@ -151,28 +149,6 @@ For a seeded family, `partitionBuildingFloor({...,merges:[{id:'living',rooms:['e
 Set `room.elevation` relative to its storey floor to raise or lower one room. Its ceiling remains at `floor.y + floor.height`; furniture y is relative to the room's walking surface. A door joining different levels creates physical steps and an actor-compatible support ramp; `transition:{kind:'ramp',run:1.4}` requests an exposed ramp. The compiler validates rise, run, slope, approach/landing space, furniture conflicts and headroom. Keep exterior-door rooms at elevation0. Upper-storey drops and interstorey stairs landing in raised rooms are rejected explicitly. Floor cutaways retain the different levels in the selected storey.
 
 Terrain-driven levels and cut/crawl-space family policies are composed through [world planning](world-planning.md). They keep floors horizontal and validate the resulting prepared terrain and access, rather than tilting rooms with the hill.
-
-## Run the workshop
-
-With the project dependencies installed, start the standalone local preview:
-
-```sh
-npm run dev:city
-```
-
-Open [the city workshop](http://localhost:5177/tests/visual/city-block.html). The default port is 5177; use Vite's printed port if it is already occupied. This preview does not require accounts or the game server. Choose **City view**, select a building and **Floor plan**, or **Explore on foot**. On foot, use WASD to move, drag to look, Space to jump and Escape to pause. **Return to entrance** resets the walk.
-
-The workshop at `tests/visual/city-block.html` imports the ordinary authored fixture in `tests/fixtures/city-game/`. Its floor controls change presentation only; they do not remove physical floors.
-
-Run the package inspection in the project's development/inspection environment, which supplies Chromium at `/usr/bin/chromium`:
-
-```sh
-npm run verify:city
-```
-
-This runs `scripts/verify-city.ts`: it builds the fixture's real logic/view packages and uses the same `renderInspection` pipeline as `inspect_game` for the overview, ground floor, upper floor and twelve-second walk. Images and `inspection.json` reports are written under `tests/.tmp/city-inspection/<case>/`. To run one case, use `npm run verify:city -- --case walk-through` (or `overview`, `ground-floor`, `upper-floor`). Software rendering verifies the integration and records evidence; its duration is not a device frame-rate benchmark.
-
-For the mixed-use town and editable asset-family preview, run `npm run dev:town` and open `/tests/visual/town-workshop.html` on the same default port. `npm run verify:town` exercises its ordinary `tests/fixtures/town-game/` package and writes evidence under `tests/.tmp/town-inspection/`. See [parametric assets](parametric-assets.md#run-the-town-workshop) for controls and selected inspection cases.
 
 ## Start with an editable block
 

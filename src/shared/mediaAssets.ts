@@ -18,7 +18,7 @@ export const MEDIA_ASSETS: readonly MediaAsset[] = mediaAssetData;
 const assetsById = new Map(MEDIA_ASSETS.map(asset => [asset.id, asset]));
 export function mediaAsset(id: string, kind?: MediaAsset['kind']): MediaAsset {
   const asset = assetsById.get(id);
-  if (!asset || kind && asset.kind !== kind) throw new Error(`Unknown ${kind ?? 'media'} asset: ${String(id).slice(0, 120)}. Use get_media_catalog to discover source IDs.`);
+  if (!asset || kind && asset.kind !== kind) throw new Error(`Unknown ${kind ?? 'media'} asset: ${String(id).slice(0, 120)}. Select an ID from the installed media catalog.`);
   return asset;
 }
 export function mediaAssetFiles(asset: MediaAsset): MediaFile[] {

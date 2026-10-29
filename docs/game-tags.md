@@ -57,12 +57,7 @@ longer gate a room; widening the probes is left out (below).
 
 ### The game declares its roster
 
-A game's developer, a human in the editor or an AI through the connector, says
-how many players the game is for and how many teams it has. The declaration is
-a JSON file, `src/game/roster.json`, with its limits and descriptions in
-`src/game/roster.schema.json` beside it, so the editor's existing JSON form
-edits it (no form of its own), the connector's file tools edit it like any
-other file, and the build reads it into the game package the lobby loads:
+Declare the roster in `src/game/roster.json`. The build reads this file into the game package. Its JSON schema documents the available fields:
 
 ```
 { "players": 8 | [min, max], "teams": 0 | 2–16, "teamSize": n }   (every field optional)
@@ -96,29 +91,10 @@ exactly 6 players seats 6 and the dropdown offers nothing else; a game declaring
 2–8 lets the host pick inside that range; a game declaring nothing keeps 1–32.
 Players beyond a smaller count move to the spectators as today.
 
-**Conflicts** are reported, never silently resolved: a game declaring teams
-without the `team` tag runs without team rules and the lobby shows one group; a
-`team`-tagged game declaring `teams: 0` runs with two teams by parity. Both
-appear as warnings in `get_game.modeAuthoring.roster.warnings` and in the
-editor's Game tags dialog, so the creator adds or removes the tag. Players are
-dealt to teams by seat parity as before (`seat % teams`), so team indices are
-stable while seats change.
-
 Alternatives considered: the declaration setting the `team` tag by itself
 (rejected: tags are the creator's and content never changes them) and the host
 overriding a declaration (rejected: the declaration is the game's intent, and a
 game that wants variation declares a range).
-
-**Where it shows.** The package carries the declaration (`GamePackage.roster`),
-so `describe_game` reports it on a built draft and `get_game` reads the draft's
-file directly, built or not, with the effective seats, limits and teams and any
-conflict or file error under `modeAuthoring.roster`; the authoring guide's
-`roster` topic shows the file, the game tags handbook the one-line form; the
-editor's Game tags dialog shows the declared roster, the effective seats and any
-conflict, and points at the file's Form mode. Every starter and the engine canvas
-ship an empty `roster.json` with the schema, so the form has fields to add
-(players as a count or a range, teams, team size) and nothing is declared until
-the developer says so.
 
 **Any JSON file with a sibling schema.** The editor validates `<name>.json`
 against `<name>.schema.json` when one exists, in the declarative format tuning
@@ -155,7 +131,7 @@ still sees as `ctx.mode` and declares in `supportedModes` (`duel`, `battle-royal
 `rpg`, `just-chatting`): the four archetypes map one to one, and free play reports
 `just-chatting`, the only legacy shape with a 1–32 open roster. The content
 contract keeps those ids because every built package, saved game test and content
-starter already speaks them; players and connectors never need them again.
+starter already speaks them; host applications never need them again.
 
 ### Validation: the cap and the invalid pairs
 
@@ -178,7 +154,7 @@ Two alternatives were considered for disagreeing tags:
 
 - **Priority by kind without exclusion** (two archetypes allowed, the later one
   wins). Cheap to implement but every "duel + arena" game would silently be an
-  arena; rejected because a tag that does nothing misleads players and connectors.
+  arena; rejected because a tag that does nothing misleads host applications.
 - **Union of permissions** (widest roster, longest clock). Rejected because the
   archetypes are coherent rule sets, not independent dials; an arena with a duel's
   knockout rule is neither game.
@@ -221,210 +197,3 @@ the same dialog or later, with no rebuild, and can change the base content
 independently through the base picker as today. A frozen season of a starter stays
 selectable (`season: YYYY-MM`), and a game keeps the base it was built on whatever
 later seasons elect.
-
-## Seasons: tag categories elect starters
-
-The season election keeps its machinery (plays, publications, the frozen snapshot,
-the fallback) and changes two things: it keys on **tag categories** and it replaces
-**starters**, never a game's base.
-
-**What a category is.** Options for a game with up to three tags:
-
-1. **Each of its tags (chosen).** A game tagged `arena`, `team`, `survival` is a
-   candidate in three categories and may win any of them, so a popular team arena
-   can become both the Arena starter and the Team starter. Membership comes from
-   the tags recorded with each play, so retagging mid-season moves only the plays
-   made afterwards, and the elected revision must still carry the tag. Cost: one
-   candidates query per tag (seven) instead of per mode (four), and a `LIKE` on the
-   recorded tags. Nothing new is stored on a play.
-2. **Its archetype only.** What the per-mode election did. Rejected: modifier
-   starters could never be elected, and the Creative canvas would stay empty for
-   ever while creative games are the games people actually make.
-3. **Its exact tag set.** Rejected as before: fragmentation, and no stock starter
-   for most combinations.
-
-**How popularity is counted.** Per category, with the existing score: unique
-players × 10 plus capped repeat plays, ties by unique players, then first play.
-A play counts once in every category the game's tags name; there is no
-cross-category normalisation, so a game's score is the same number in each of its
-categories and only the competition differs.
-
-**Eligibility** is unchanged: a published revision of a game that is not hidden,
-deleted, archived or a lobby copy, whose mods are all still available, published
-before the cutoff, and whose content supports the shape the starter's tags select.
-Membership comes from the plays, so a game retagged after people played it under a
-tag still competes there; the starter it becomes pre-fills the category's tag plus
-whatever of the game's own tags fits beside it.
-
-**Outcome.** At season end the winner's exact published content is registered as
-the category's starter for the new season (a base snapshot plus the game's name,
-tags and revision). Every starter under that category is replaced: the category
-has one starter, so new games, the lobby's starter tile and mod workspaces of that
-tag all begin from the winner. When no game qualifies, the previous season's
-starter carries forward (the stock content if nothing was ever elected). Categories
-without stock content (`team`, `survival`) simply have no starter until a season
-elects one. The `duel` category keeps its extra step: the winner is also promoted
-into the shared Duel game of the release, as before, because the matchmaking queue
-plays it.
-
-**Existing games are unaffected.** A game's `base_id` never moves with an election;
-the new starter appears in the base picker as the recommended choice and a creator
-moves to it deliberately. Lobbies pick games, not bases, so a lobby that has a game
-chosen keeps it; a lobby that has not chosen one opens on the current Duel starter.
-Free play (no tags) earns no participation and is in no category.
-
-Participation rules follow the derived rules: open sessions (rpg, social, creative,
-free play) earn it after a minute of connected play; closed rounds at a completed
-round. Team and survival change neither.
-
-## The lobby picks a game
-
-The lobby has **no mode selector and no base selector**. The host picks a game;
-the game brings its base and its tags, and the session's shape and seats follow
-the tags.
-
-- **The game picker** lists the available starters first (one tile per starter)
-  and then published community games, with the browser's search and sort. A **base
-  filter** narrows the list to the games built on one base: the engine versions,
-  the current starters and the frozen season starters, read from the base registry
-  a game revision already records (`custom_revisions.base_id`). "All bases" is the
-  default.
-- **Mods wait for a game.** The shared panel shows only the Game section until a
-  game is chosen (a starter tile counts); the Mods section then appears beside it.
-  When the chosen game changes, every selected mod that does not support the new
-  game's shape is **removed** and the setup message names them and why ("Removed
-  mods that do not support Just Chatting: Temple, Lanterns."). The build's own
-  resolution still omits mods that conflict with the content and reports them as
-  today. Compatibility is the mods' declared shape support (`supported_modes`),
-  which is what mode compatibility always was; no new notion is introduced.
-- **Seats** are a lobby setting beside the game: the host picks 1–32 (never below
-  the tags' minimum). A new game resets the seats to the game's `seats`; a seated
-  player beyond the new count moves to the spectators.
-- **Ready starts the round.** There is no Apply setup button. The selected game's
-  tags and declared roster configure the lobby immediately. When all seated players
-  are ready, the lobby counts down, then builds and prepares the game while keeping
-  the lobby and voice connected. The arena appears once preparation finishes, with
-  its normal countdown before play. Unreadying cancels the start; a failed build
-  leaves the pending setup available to retry.
-- **Player tiles are dynamic.** The grid shows the seated players and exactly one
-  empty tile, whatever the seat count, and no empty tile once the lobby is full.
-  With the `team` tag each team is its own group with its own single empty tile
-  until that team is full; a team's capacity is its share of the seats by parity
-  (the first teams get one more when the count does not divide). A two-seat round
-  keeps the face-off layout. The host's member menu moves a player to the
-  spectators, to a seat, or to a team, never to a numbered slot.
-- **Up to 16 teams.** Teams are named and coloured from a fixed scheme of 16
-  (Blue, Orange, Green, Red, Purple, Gold, Teal, Pink, Lime, Crimson, Sky, Amber,
-  Violet, Mint, Coral, Slate), each group and tile carrying its colour. Layout
-  options for sixteen groups and up to 32 players:
-  1. **A wrapping grid of team columns (chosen).** Each team is a column of its
-     tiles; columns wrap into rows at a 150 px minimum, so a desktop width shows
-     five or six teams per row and sixteen teams in three rows. With more than
-     four teams the tiles use the compact style (smaller avatar and name). The
-     grid scrolls inside the panel as the arena roster does. Cost: with many teams
-     the tiles are small and the panel needs scrolling; nothing is hidden.
-  2. **A wrapped list** (teams as inline rows). Rejected: a team's open spot
-     drifts away from its players and rows of different lengths read badly.
-  3. **A collapsing layout** (full teams collapse to a count). Rejected: it hides
-     who is seated, which is what the lobby is for.
-- **The scrollbar sits on the panel's edge.** The seat grid is the scrolling
-  element; it bleeds into the panel's padding with the padding moved inside the
-  scroller, so the scrollbar is flush with the panel's right border and the tiles
-  keep their inset.
-- **What the lobby opens with.** Options:
-  1. **Nothing runs until a game is chosen (chosen).** A new private lobby (the
-     menu's Host game, a Discord party) opens without a game: the panel shows the
-     Game section alone, the start bar says "Choose a game to play", ready and
-     start are refused by the server until a game is chosen, and the match room is
-     built after everyone readies up and the lobby countdown finishes. Friends can still take seats and talk.
-     A lobby opened for a specific game or starter (a Play button on a game, a
-     request that names tags) still opens on it. Cost: one extra click for a party
-     that wants the Duel starter; the lobby room itself carries the engine's
-     default schema until then.
-  2. **The current Duel starter runs until a game is chosen.** What this branch
-     did first; replaced at the user's direction, because a lobby should never
-     pick Duel on its own.
-  3. **The host's last played game.** Rejected for now: needs a per-account
-     timestamped history (the adoption table records who used a game, not when),
-     and the game may have been unpublished since. A "Recent" filter in the picker
-     is the natural later form.
-- **Changing tags in the lobby** is gone with the mode selector: the game's tags
-  are the game's. To run the Duel starter 2 v 2, a creator makes a game from the
-  Duel starter with the `team` tag and publishes it; the lobby then picks it.
-
-## Migration
-
-Persisted data today: `custom_games.mode`, `custom_revisions.mode` (and the `flags`
-columns this branch added), `custom_bases.mode`, `custom_change_packs.preview_mode`
-and `supported_modes`, `season_game_plays.mode`, the per-mode base and selection
-tables, room join options and the connector's `mode` fields.
-
-- `season_mode_game_selections.mode` and `custom_season_mode_bases.mode` become the
-  **category key**: new rows store the tag id, and legacy rows keyed by a shape id
-  (`battle-royale`, `rpg`, `just-chatting`) are read as that shape's archetype tag.
-  `custom_bases.mode` keeps meaning the content's shape. The frozen snapshot gains
-  the winner's `tags` and `category`. Stock starters stay in `custom_mode_bases`
-  (per shape) and `custom_blank_bases`; `custom_season_bases` and the Duel release
-  pointer are unchanged.
-- `custom_blank_bases.build_sha` records the release that registered a canvas; engine
-  versions are the rows with `mode = 'engine'` (their `custom_bases.mode` is the
-  free-play shape, since the canvas supports every shape), newest first.
-- `custom_games.tags` and `custom_revisions.tags` (`TEXT NOT NULL DEFAULT '[]'`)
-  become the canonical description. A one-time migration fills them from
-  `mode` and `flags` (`tagsFromLegacy`), recorded in `custom_pack_migrations` so it
-  runs once. The `mode` columns stay as a **derived shape index**, rewritten on
-  every save from the tags, so discovery filters, builds and elections keep their
-  SQL; the `flags` columns are rewritten the same way and no longer read.
-- `custom_bases.mode` keeps its meaning: the legacy shape the base's content
-  defaults to. Starter registration is unchanged underneath (the Duel release
-  pointer, `custom_mode_bases`, `custom_season_mode_bases`, `custom_blank_bases`).
-- `season_game_plays.tags` and `season_game_pending_plays.tags` record the tags;
-  `mode` on those tables stays the archetype key the election reads.
-- Mods keep `supported_modes` as content-shape compatibility: a mod declares which
-  shapes it runs under, which is what mode compatibility always meant.
-- Existing games behave as before: `gameRules(tagsFromLegacy(mode))` equals the
-  legacy rules for every mode, which a test asserts, and a migrated game's derived
-  `mode` equals its old one.
-
-### Connector compatibility
-
-`create_game` takes `tags` (preferred) and `starter` (any tag with a registered
-starter, or `blank`); `mode`, `flags` and `base` keep working as aliases (`mode`
-and `flags` become tags, `base:"season"` with a mode selects that archetype's
-starter, `base:"blank"` the blank one).
-Responses carry `tags` and a derived `mode`. `get_game.modeAuthoring` keeps its
-name and fields and gains `tags`, `archetype` and `starter`-independent effective
-rules (`maxPlayers` is always 32; `seats` is the roster a lobby opens with).
-`open_mod`, `create_mod_workspace`, `set_mod_modes`, `search_mods` and
-`verify_feature_modes` keep their shape-based `mode` arguments: they concern
-content compatibility, not a game's rules. The room's join options take `tags`
-with `mode` and `flags` as aliases; for a lobby they name the starter it opens on.
-The lobby messages are `lobbyGame {generation, revisionId | starter}`,
-`lobbyPacks {generation, layers}`, `lobbySeats {count}` and `lobbyApply`; the
-`lobbyGame` and `lobbyMode` messages are gone with the base and mode selectors.
-
-## What a tag does not change
-
-Content, mods, the build, the package hash or `supportedModes`. Changing tags in
-a lobby never rebuilds anything; the room is recreated with the new rules, as a
-mode change was.
-
-## Deliberately left out
-
-- Team counts other than two, team balancing, team switching mid-round, team chat
-  or voice. Ranked play with any tag but `duel`. Bots and training under modifiers.
-- Mod compatibility per tag and mod previews under modifiers.
-- Elections for free play; per-combination elections; electing the blank canvas.
-- Renaming the legacy shape ids inside the content contract and the shape tables.
-- Widening the content verification probes and inspection scenarios beyond the
-  legacy shape ranges (a 32-player duel is allowed by the host but not probed).
-- A "last played" lobby default and a Recent filter in the game picker.
-- A Discord party asking for a starter when it opens (the activity route passes no
-  tags, so a party waits for a game like any other lobby).
-- Per-team sizes that differ between teams, team names chosen by the game, and
-  more than 16 teams. Cross-field schema rules (teams × teamSize within the
-  players): the contract checks them and the form shows its message.
-- Registering an engine version from host-only engine changes: a version is
-  registered when the canvas bundle changes, which host-side code does not alter.
-- A hunger indicator. Candidate tags for a later set: `respawn`, `hardcore`,
-  `sudden-death`, `chat` (host text chat without the social shape).

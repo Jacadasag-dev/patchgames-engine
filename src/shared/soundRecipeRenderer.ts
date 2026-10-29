@@ -41,7 +41,7 @@ function lowpass(samples: Float32Array, frequency: number, sampleRate: number): 
   for (let i = 0; i < samples.length; i++) { previous += alpha * (samples[i] - previous); samples[i] = previous; }
 }
 
-/** The same deterministic CPU mix is used for connector previews and game playback. */
+/** The same deterministic CPU mix is used for host previews and game playback. */
 export function renderSoundRecipe(input: SoundRecipeInput, options: SoundRenderOptions = {}): RenderedSound {
   const recipe = soundRecipeSchema.parse(input), sampleRate = recipe.sampleRate;
   const count = Math.ceil(recipe.duration * sampleRate);

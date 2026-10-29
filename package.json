@@ -1,6 +1,6 @@
 {
   "name": "@patchgames/engine",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "description": "Sandboxed multiplayer game runtime, authoring helpers and browser presentation for PatchGames.",
@@ -31,8 +31,11 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check": "npm run typecheck && npm test",
-    "demo": "node --no-liftoff --no-wasm-lazy-compilation --v8-pool-size=1 examples/headless.ts"
+    "check": "npm run check:boundary && npm run typecheck && npm test && npm run check:package",
+    "demo": "node --no-liftoff --no-wasm-lazy-compilation --v8-pool-size=1 examples/headless.ts",
+    "check:boundary": "node tools/check-public-boundary.mjs",
+    "check:package": "node tools/check-public-boundary.mjs --pack",
+    "prepack": "node tools/check-public-boundary.mjs"
   },
   "dependencies": {
     "zod": "^4.6.5",

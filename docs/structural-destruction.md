@@ -2,8 +2,6 @@
 
 The destruction helpers turn an authored support graph into persistent damage and moving compound debris. The same pieces supply structural properties, collision and rendering. They support buildings, bridges, props and custom structures; they do not infer a safe building from its appearance or fracture arbitrary triangle meshes. This integration is opt-in: existing buildings remain unchanged until their bindings, state, physics and view are wired.
 
-AI authors can discover the API with `get_creation_catalog({query:'destruction'})`, read `get_authoring_guide({topic:'destruction'})`, and retrieve these references:
-
 - `src/sandbox/destruction.ts`: compile the graph, create/update damage state, prepare collision and step debris.
 - `src/sandbox/buildingDestruction.ts`: bind compiled building or asset parts to authored structural members.
 - `src/sandbox/destructionView.ts`: render intact pieces and detached groups from the same state.

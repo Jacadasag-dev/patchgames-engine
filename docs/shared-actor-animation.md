@@ -150,16 +150,6 @@ humanoid foot IK. Apply optional contact work through `afterApply` using real
 limb supports. Terrain replacement and teleports must reset presentation continuity
 using `epoch` or `reset`; ordinary repeated frames must not.
 
-Return a bounded sample of `result.diagnostics` from `inspection()` alongside
-`terrainInspection(manifest)` (or the view's terrain inspection). Diagnostics now
-include `rig.mapped`, up to eight `rig.unmapped` joint names and `unmappedCount`
-when the rig returns a mapping report. An `unmapped-rig-joints` warning means the
-body needs a binding or explicit pose adaptation. Custom rigs can return the same
-`{mapped, unmapped}` report; strict shared skeletons reject unmapped joints.
-Use `inspect_game` with movement, turns/stops and terrain changes, then compare
-actual captures and authoritative state with those diagnostics. A static image or
-reported selected clip alone does not prove correct movement or foot contact.
-
 The [Wayfarer fixture](../tests/fixtures/shared-actor-mod/view.ts) demonstrates a
 single appearance feature with the detailed humanoid skeleton, shared motion
 matching, custom geometry and attack/posture clips. Its logic registers a model
@@ -283,20 +273,6 @@ unloaded and at all three weights. Switch the holding hand, slow playback, or
 stop running to inspect settling and grip error. It is a presentation comparison;
 use the game's inspection recipes for actual terrain, combat and overlap evidence.
 
-Normal `inspect_game` runs collect this automatically. `captures[].equipment`
-includes weight metadata, world points, directions and point velocities; `trace.equipment`
-summarizes the motion. `motionPoint` chooses the point whose travel is compared
-with a direction, for example the tip's travel against a blade edge's outward
-direction. Owner-relative movement removes character travel when an owner is
-available. The summary includes a descriptive peak direction, its authored tags,
-alignment and velocity. There is no automatic error or review flag for which
-surface leads. The AI interprets these measurements against the requested
-animation: an axe may cut with its edge, stun with its back, or perform another
-intentional action. If the pose is wrong for that action, correct it and repeat
-the scenario. Missing semantics or motion
-coverage remains explicit. Shared attachment validates required metadata;
-arbitrary Three.js attachments cannot be statically recognized as held items.
-
 For an optional visual aid, `createEquipmentOrientationMarkers(itemRoot)` returns
 an overlay root plus `update()` and `dispose()`. Add its root under the item and
 update after animated subparts move. Built-in sword/bow `{markers:true}` options
@@ -343,23 +319,6 @@ and showing the real arms. Custom avatars may tag separable branches with
 `userData.firstPersonHidden = true`; unknown indivisible meshes fall back to
 hiding the selected body. Inspection and other cameras retain the complete
 model. Do not build a disconnected pair of overlay arms for a normal humanoid.
-
-The normal builder starts with `inspect_game` and its compact focused observations,
-then retrieves an original frame or full report only when needed. Brief geometric
-contacts are retained even without promoted findings. The actual gameplay camera
-also reports bounded near-eye ray and item-landmark occlusion samples through
-the shared renderer, including during focused inspection when its adapter is
-available. First-person masks are honored; unsupported custom draws expose
-coverage limits. Omit focus to inspect actual gameplay-camera images. A blocked ray,
-offscreen item or contact is information, not a rule about creative intent.
-
-Use `assess_inspection` to retain useful `expected`, `unwanted` or `unresolved`
-judgments for a specific check and observed time window. An intentional needle
-touching an arm during injection does not permit a needle/head contact or contact
-while carrying. Tags remain author-defined, and the AI decides from the intended
-animation without an extra approval step. Reuse the inspection ID after a repair;
-source changes keep earlier judgments as needing reassessment. Measurements are
-never hidden by those judgments, and unassessed windows remain unresolved.
 
 ## Verification and remaining work
 

@@ -2,8 +2,6 @@
 
 The world planner composes authored terrain, roads, building recipes and asset manifests into one editable spatial plan. It is a general authoring API: the AI chooses the world's purpose, composition, routes, elevations, materials, landmarks and individual structures. A demonstration town or hillside scene is not a required style or the only entrypoint.
 
-Discover the same public helpers from connected builders and workspace AI with `get_creation_catalog({query:'world-planning'})`, `get_authoring_guide({topic:'world-planning'})`, and these source references:
-
 - `src/sandbox/worldPlan.ts`: compile an authored plan, create its shared terrain host and inspect diagnostics.
 - `src/sandbox/worldRoads.ts`: road planning over authored terrain and road-grade diagnostics.
 - `src/sandbox/worldPlanView.ts`: render the compiled plan using the accepted terrain snapshot.

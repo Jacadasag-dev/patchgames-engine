@@ -13,7 +13,7 @@ export interface ModStarterOptions {
 export interface ModStarter {
   template: ModStarterTemplate;
   feature: FeatureManifest;
-  /** Complete files relative to src/game/features/<feature.id>/; feature.json is supplied by upsert_feature. */
+  /** Complete files relative to src/game/features/<feature.id>/; the host writes feature.json from the returned manifest. */
   files: Record<string, string>;
   requiredCapabilities: string[];
   guidance: string[];
@@ -182,7 +182,7 @@ export default defineFeature({apiVersion: 1,
     ? {color: '#8a94a6', scale: 1} : {count: 4, speed: 1.8, radius: 1.2, contactDamage: 0, color: '#8a94a6'};
   return {template, feature: {api: 1, id, name: title, requires: [], config}, files, requiredCapabilities,
     guidance: [
-      'Keep this feature ID for edits. Independent new mods need distinct IDs. Save the manifest and every returned file together with upsert_feature, or write the complete feature directory.',
+      'Keep this feature ID for edits. Independent new mods need distinct IDs. Write the manifest and every returned file together as a complete feature directory.',
       'The builder discovers native features automatically. Package dependencies use manifest.requires feature IDs; logic.requires lists shared gameplay capabilities. Do not import or register against season implementation files.',
       'These sources target shared contracts in Duel, Arena, RPG and Just Chatting. Build and exercise the unchanged package on the actual target bases, including solo sessions, 5 RPG players and 32 Arena/social slots, before claiming compatibility. Older bases can require a foundation update.',
       ...(template === 'creatures' ? ['Companions register stable local inspection targets automatically. Use a returned ID from capture.focusDiagnostics.data.targets as focus.target to inspect one creature with automatic framing/following. Registrations are namespaced by the feature host and released with removed creatures; older bases can omit this optional capability.'] : []),

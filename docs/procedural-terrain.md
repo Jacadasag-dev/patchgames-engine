@@ -20,28 +20,7 @@ structures. See
 
 ## The AI's normal workflow
 
-1. Read `terrainWorld.ts`, `terrainPresets.ts` and `terrainView.ts` from the API
-   references. Built-in agents also receive the terrain handbook for relevant
-   requests; `findCode` locates compiler and rendering APIs.
-2. Save a `TerrainRecipe` in an owned game world file or feature helper. Choose a
-   seed, bounds, biome regions, scatter layers and asset metadata. The
-   `forestMeadowTerrain()` preset is editable source data, not a fixed biome menu.
-3. Add a route or placement to that recipe. Routes reserve width, shoulders and
-   clearance; placements reserve their footprint and optional entrance corridors.
-   Grading can shape paths and blend foundations into the surrounding surface.
-4. Attach one `createTerrainWorld()` host to the game logic and view. The runtime
-   prepares required chunks before play. Refuse invalid results; read issues,
-   counts and loaded coverage. Use `compileTerrain()` directly for a bounded
-   eager manifest or an offline recipe comparison.
-5. Save the exact revision and use the existing `inspect_game` tool. Read the
-   contact sheet and compact `viewDiagnostics`. Compare the same seed, camera,
-   roster and legal input scenario before and after the edit.
-6. Tune the responsible density, asset footprint, route or foundation and inspect
-   again. Exercise important paths and entrances with real movement. Counts and
-   screenshots alone cannot establish traversability.
-
-This uses the same editable TypeScript/JSON and inspection tools available to a
-connected AI. It does not require a separate generative service or external
+This uses the same editable TypeScript/JSON and engine diagnostics available to any host application. It does not require a separate generative service or external
 game editor. The browser terrain lab makes the effects easier for a person to
 explore; ordinary game revisions remain the AI's authoring and inspection unit.
 
@@ -291,8 +270,8 @@ recipe.assets[0].environment = {
 Choose the actual region/asset IDs; these indices only illustrate the fields.
 `EnvironmentSound.recipe` accepts a built-in recipe ID or a complete editable
 `SoundRecipeInput`. Inline recipes travel inside a portable feature's terrain
-contribution without a separate registry. Use `get_media_catalog` for ingredients
-and `inspect_media_recipe` to audition the chosen recipe. Forest, meadow, tree
+contribution without a separate registry. Use the installed media catalog for ingredients
+and audition the chosen recipe through the host application. Forest, meadow, tree
 and bush presets are starting points, not mandatory sounds.
 
 `TerrainView` and `TerrainWorldView` automatically connect profiles to the shared

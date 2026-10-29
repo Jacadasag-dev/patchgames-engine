@@ -1,12 +1,6 @@
 # Water surfaces and simulated water
 
-## Preferred engine workflow for AI authors
-
-Use `get_creation_catalog({query:'water'})`, then
-`get_authoring_guide({topic:'water'})`. Connected builders, the OpenAI plugin and
-cloud workspace agents receive the same guide and approved engine declarations.
-Author an editable recipe in ordinary game/feature source; do not copy the
-workshop's simulation loop. The following facade is the normal starting point:
+## Engine integration
 
 ```ts
 import { compileTerrain, terrainPhysicsScene } from '../sandbox/terrain.ts';

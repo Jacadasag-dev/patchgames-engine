@@ -137,5 +137,5 @@ worlds, fluid simulation, networking correctness or a complete Minecraft game.
 Validate different seeds, ordinary traversal/jumping/landing, mining a tunnel,
 placing a block and landing on it, native side/ceiling contact, negative chunk
 seams, multiple players, edit budget failure and unload/revisit. Compare visible
-geometry with actual collision. Retain rendered evidence from the connector;
+geometry with actual collision. Retain rendered evidence from the host renderer;
 a compile or a block count alone cannot establish quality.
