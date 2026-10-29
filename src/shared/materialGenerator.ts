@@ -24,7 +24,7 @@ export const materialGeneratorSchema=z.object({
     z.object({family:z.literal('metal'),brushing:unit.default(0.4),oxidation:unit.default(0.1),metalness:unit.default(0.95)}).strict(),
     z.object({family:z.literal('plaster'),grainMeters:length.default(0.02),cracks:unit.default(0.15)}).strict(),
     z.object({family:z.literal('bark'),ridgeMeters:length.default(.04),fissures:unit.default(.7),peeling:unit.default(.2),knots:unit.default(.3),direction:z.enum(['vertical','horizontal']).default('vertical')}).strict(),
-    z.object({family:z.literal('leaf'),lengthMeters:length.default(.18),widthMeters:length.default(.08),veinSpacingMeters:length.default(.015),veins:unit.default(.7),edgeSerration:unit.default(.2),damage:unit.default(.05),outline:z.enum(['pointed','oval','lobed']).default('pointed')}).strict(),
+    z.object({family:z.literal('leaf'),lengthMeters:length.default(.18),widthMeters:length.default(.08),veinSpacingMeters:length.default(.015),veins:unit.default(.7),edgeSerration:unit.default(.2),damage:unit.default(.05),outline:z.enum(['pointed','oval','lobed','palmate']).default('pointed')}).strict(),
     z.object({family:z.literal('needle'),lengthMeters:length.default(.12),widthMeters:length.default(.006),taper:unit.default(.8),veins:unit.default(.5),damage:unit.default(0)}).strict(),
     z.object({family:z.literal('exposed-wood'),ringMeters:length.default(.008),grain:unit.default(.6),knots:unit.default(.2),cut:z.enum(['end','lengthwise']).default('end')}).strict(),
   ]),
@@ -119,6 +119,9 @@ export function sampleMaterialOpacity(r:ResolvedMaterialGenerator,u:number,v:num
   if(t<=0||t>=1)return 0;
   let width=p.widthMeters*.5*(p.family==='needle'?Math.pow(Math.sin(t*Math.PI),.25+p.taper*1.5):p.outline==='oval'?Math.sqrt(Math.max(0,1-(2*t-1)**2)):Math.sin(t*Math.PI));
   if(p.family==='leaf'){width*=1-p.edgeSerration*.15*(.5+.5*Math.sin(t*90));if(p.outline==='lobed')width*=.65+.35*Math.sin(t*5*Math.PI)**2;}
+  if(p.family==='leaf'&&p.outline==='palmate'){
+    const profile=[[0,.025],[.18,.08],[.28,.75],[.4,.42],[.62,1],[.68,.38],[.82,.48],[1,0]];let k=1;while(k<profile.length-1&&t>profile[k][0])k++;const a=profile[k-1],b=profile[k],f=(t-a[0])/(b[0]-a[0]);width=p.widthMeters*.5*(a[1]+(b[1]-a[1])*f)*(1-p.edgeSerration*.1*(.5+.5*Math.sin(t*110)));
+  }
   if(x>width)return 0;
   if(p.damage>0&&noise(u,v,24,24,r.seed+887)>1-p.damage*.3)return 0;
   return 1;

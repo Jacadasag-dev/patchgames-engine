@@ -35,7 +35,7 @@ export function parseMaterialGeneratorData(input:unknown):ResolvedMaterialGenera
   for(const[key,value]of Object.entries(result.pattern)){
     if(key==='family')continue;
     if(key==='blockMeters'){result.pattern[key]=pair(value,key);continue;}
-    const choices:Record<string,string[]>={shape:['rectangle','square','triangle'],bond:['stack','staggered'],direction:['vertical','horizontal'],outline:['pointed','oval','lobed'],cut:['end','lengthwise']};
+    const choices:Record<string,string[]>={shape:['rectangle','square','triangle'],bond:['stack','staggered'],direction:['vertical','horizontal'],outline:['pointed','oval','lobed','palmate'],cut:['end','lengthwise']};
     if(choices[key]){if(!choices[key].includes(String(value)))throw Error('Invalid '+key);continue;}
     num(value,key.endsWith('Meters')&&!['mortarMeters','gapMeters'].includes(key)?0.002:0,key==='mortarMeters'?0.1:key==='gapMeters'?0.05:key.endsWith('Meters')?100:1,key);
   }

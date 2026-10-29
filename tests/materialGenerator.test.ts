@@ -37,3 +37,5 @@ describe('material generator',()=>{
     expect(mixed.diagnostics.sourceIds).toEqual([]);expect(new Set(mixed.color.data).size).toBeGreaterThan(4);
   });
 });
+
+it('palmate leaf masks agree across data and baking schemas and retain distinct lobes',async()=>{const {parseMaterialGeneratorData}=await import('../src/shared/materialGeneratorData.ts'),{sampleMaterialOpacity}=await import('../src/shared/materialGenerator.ts'),input={pattern:{family:'leaf',outline:'palmate',lengthMeters:.2,widthMeters:.2,damage:0,edgeSerration:0},tileMeters:[.24,.24]},r=materialGeneratorSchema.parse(input);expect(parseMaterialGeneratorData(input)).toEqual(r);const at=(t:number)=>sampleMaterialOpacity(r,.5+.06/.24,.5+(t-.5)*.2/.24);expect(at(.28)).toBe(1);expect(at(.4)).toBe(0);expect(at(.62)).toBe(1);expect(at(.68)).toBe(0);});

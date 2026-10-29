@@ -129,3 +129,9 @@ Woody paths render as welded swept tubes: bend rings share positions and smooth 
 trunkCurve (0–1) bends the central stem progressively toward the seeded lean direction, independently of its initial trunkLean. Combine with rootFlare and trunkTaper for a curved coconut or a stout upright fan palm. Palm presets use the existing horizontal bark direction for leaf scars, not deep vertical woodland fissures.
 
 Crown width is measured relative to the stem axis, so lean does not consume frond spread. Crown proposal height follows crownStart, and its centre follows the stem axis; high-crowned plants retain foliage on both sides of a bent trunk.
+
+## Willow, evergreen and maple
+
+The willow, evergreen and maple presets share the same recipe compiler. terminalDroop (0–1) adds bending only to terminal twig paths, while terminalLength (.25–3) scales their length independently of supporting limbs. Willow combines long hanging twigs with narrow pointed leaves. Evergreen spruce combines conical reach, low crown start, layered limbs and needle materials. Maple uses the material generator leaf outline palmate: a broad serrated lobed silhouette, also available in Material Lab. Change leaf colors for seasonal variants. Foliage Lab exposes both terminal controls; all presets remain discoverable in FOLIAGE_PRESETS.
+
+branchWhorls (integer 1–4) places multiple radial limbs at each trunk tier, useful for layered evergreens. It multiplies trunk child count and remains subject to the shared branch budget.
