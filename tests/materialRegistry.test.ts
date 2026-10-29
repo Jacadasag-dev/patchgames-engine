@@ -7,7 +7,12 @@ import {createRecipeMaterial} from '../src/sandbox/materialRecipes.ts';
 import {SurfaceMaterialCache} from '../src/sandbox/surfaceMaterialView.ts';
 import {resolveSurfaceMaterial} from '../src/sandbox/surfaceMaterials.ts';
 import {MEDIA_ASSETS} from '../src/shared/mediaAssets.ts';
+import {resolveTextureSource,settleMediaSources,mediaSourceInfo} from '../src/sandbox/media.ts';
 afterEach(()=>replaceMaterialRecipes({}));
+it('waits for procedural source preparation before a first-frame inspection',async()=>{
+  const source=resolveTextureSource('texture.stone');expect(mediaSourceInfo().mediaPending).toBe(1);
+  await settleMediaSources();expect(mediaSourceInfo().mediaPending).toBe(0);expect((await source).color.width).toBe(128);
+});
 const generator=(color:string)=>materialGeneratorSchema.parse({pattern:{family:'plaster'},color,secondaryColor:color,output:{resolution:32}});
 const recipe={kind:'texture' as const,version:1 as const,name:'Live stone',resolution:16,layers:[{source:{kind:'asset' as const,id:'custom.stone'}}]};
 it('stores recipes only and validates generator sources without a renderer dependency',()=>{
