@@ -39,7 +39,7 @@ primitive defaults are unchanged; choose this generator for authored foliage.
 ## One set of controls
 
 `kind:'foliage', version:1` is required. Start with `FOLIAGE_PRESETS`:
-oak, birch, longleaf pine, woodland bush or dry scrub. All are editable recipes,
+oak, birch, longleaf pine, woodland bush, dry scrub, flowering magnolia, jungle canopy, winding woodland tree, coconut palm and fan palm. All are editable recipes,
 not species restrictions. Custom branching and material choices are supported.
 
 | Control | Meaning and bounds |
@@ -50,7 +50,7 @@ not species restrictions. Custom branching and material choices are supported.
 | crownRadiusMeters | maximum woody radial reach, .1–10; leaves add their own extent |
 | trunkRadiusMeters | .005–1, constrained to fit height and crown |
 | crownShape | round or conical |
-| branchLevels / branches | 1–4 recursive levels, 2–7 child branches per level |
+| branchLevels / branches | 1–4 recursive levels, 2–12 child branches per level |
 | branchAngle / taper | .15–1.5 radians of spread, .35–.85 branch end radius ratio; central stems taper to tips |
 | density | same pattern units: 0–256 centres/m³ in the crown domain; zero makes bare wood |
 | clumping / groupSizeMeters | shared parent/offspring groups; 0–1 strength, .02–20 m; large finite groups stay inside the crown |
@@ -115,3 +115,11 @@ amount/size controls, large groups, quality subsets, renderer winding, cutouts,
 GPU disposal, named material updates and real sandbox compiler imports. Use the
 lab for appearance and inspect actual games for lighting, scale, collision and
 scene performance. A valid graph is not proof of photorealism or frame rate.
+
+## Architecture and flowers
+
+All presets use the same compiler, not species-specific mesh builders. Mix crownStart (.05–.98), trunkTaper (.04–1 end/start radius), trunkLean and rootFlare (0–1), branchRadiusRatio (.1–.75), branchSegments (4–16), winding, branchDroop and leafDroop (0–1). Higher segment counts resolve smooth winding and drooping limbs; large recursive recipes still enforce the 8192 woody-segment budget. Crown start controls the first trunk fork as a fraction of trunk length.
+
+leafArrangement is scattered, pinnate (paired leaflets along each terminal rachis), or fan (radiating blades anchored near terminal tips). Density still controls the number of leaf proposals; frond arrangement then positions them along their connected path. Palms use one branching level, a high crown start, a persistent trunk radius and drooping terminal paths.
+
+flowers has independent density (0–32 centres/m³), sizeMeters (.03–.6) and petals (3–12). Zero leaf density can produce a flowering bare tree. Optional materials.flower uses the same material generator or named registry reference; the default is a pale petal cutout. Blooms attach to twigs and add one draw batch. Quality limits bloom centres to 48/128/256 and reports thinning. Petals and leaves support merged terrain prototypes and live material updates. These are species-inspired procedural forms, not botanical simulations.
