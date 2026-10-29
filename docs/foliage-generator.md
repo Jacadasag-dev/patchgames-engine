@@ -137,3 +137,5 @@ The willow, evergreen and maple presets share the same recipe compiler. terminal
 branchWhorls (integer 1–4) places multiple radial limbs at each trunk tier, useful for layered evergreens. It multiplies trunk child count and remains subject to the shared branch budget.
 
 Conical crown reach now follows attachment height along the trunk, then propagates through the child branches without repeatedly shrinking every recursive level. crownTaper (.25–3, default 1) controls its narrowing curve; tipLeafScale (.1–1, default 1) reduces leaf/needle length progressively toward the crown tip. Combine radial tiers, downward branch droop and smaller tip needles for a layered pointed evergreen. Both controls are exposed in Foliage Lab.
+
+tierSpacingBias (-1–1, default 0) redistributes existing trunk tiers: positive values progressively compress gaps toward the tip, negative values compress toward the crown base, and zero keeps uniform spacing. It preserves tier/branch counts and crown attachment endpoints. The evergreen preset uses +.45. Foliage Lab exposes the same live control; combine it with branchWhorls for denser upper layers without increasing geometry budgets.
