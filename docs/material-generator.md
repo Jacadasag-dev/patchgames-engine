@@ -1,5 +1,41 @@
 # Material generator
 
+## Physical mapping and inspection
+
+For a generated box, prefer `createGeneratedMaterialBox(recipe, [width, height, depth])`
+from `sandbox/materialGenerator`. Add its `.mesh` to the scene and release it with
+`.dispose()`. Dimensions are metres. Every face, including narrow edges, uses the
+same physical tile scale across color, normals, roughness, metalness and AO.
+
+For an existing `THREE.BoxGeometry`, pass `{geometry}` to `createGeneratedMaterial`
+or `createGeneratedMaterialFromPixels`. This writes metre UVs idempotently. For
+terrain/buildings already using metre UVs, pass `{uvSpace:'metres'}`. Use
+`surfaceMeters` only for a single normalized UV plane. Bake nonuniform scale into
+geometry dimensions before mapping; changing mesh scale afterward changes density.
+These helpers do not repair arbitrary curved-asset UVs. The sphere preview exposes
+the usual polar UV compression, which the diagnostic views deliberately reveal.
+
+`inspectTextureDensity(geometry, [textureWidth, textureHeight], [repeatU, repeatV])`
+reports the minimum/maximum texels per model metre and worst directional ratio
+using the triangle UV Jacobian. A ratio of 1 means equal density along both axes;
+different tile dimensions on a square source image can intentionally produce
+different densities. Missing UVs throw; collapsed UVs report zero density and
+infinite distortion. These are model-space measurements, not screen resolution.
+
+The lab's **Surface inspection** menu provides a 0.25-metre checker grid and a
+texture-density overlay. Red is below the editable target, green at target, blue
+above, and magenta indicates greater than 2× directional distortion. Change the
+preview width/height/depth to test long walls and narrow sides. Inspection changes
+only the preview, never the exported recipe. `createMaterialMappingDebug` exposes
+the WebGL debug overlay; own and dispose it independently of the PBR material.
+
+Object surfaces bake rectangular images, with resolution capping the longest
+model axis, to keep approximately equal density across all faces. Rounding uses
+a one-pixel minimum. Local damage remains clamped to its selected face; never
+repeat these baked face maps. Grass/slash inspection measures the model, regardless
+of the lab's display-only fit scale. Source map dimensions and byte diagnostics
+reflect the actual rectangular images.
+
 ## Recipe-only storage and live edits
 
 The engine stores named material recipes rather than baked image assets. The

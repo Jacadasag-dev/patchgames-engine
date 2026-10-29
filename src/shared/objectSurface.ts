@@ -102,26 +102,30 @@ export function sampleObjectSurface(r:ResolvedObjectSurface,name:BoxSurface,u:nu
   return result;
 }
 export interface ObjectSurfaceBake {recipe:ResolvedObjectSurface;faces:Record<BoxSurface,GeneratedMaterialPixels>;diagnostics:{bytes:number;warnings:string[]}}
-/** Authoring bake, intended for a worker. 6 faces × 6 maps, bounded to 512 per face. */
+/** Authoring bake, intended for a worker. Resolution caps the longest model axis;
+ * rectangular faces keep approximately equal texels/metre (one-pixel minimum).
+ */
 export async function generateObjectSurface(input:ObjectSurfaceDocument,options:{resolution?:number;signal?:AbortSignal;yieldControl?:()=>Promise<void>}={}):Promise<ObjectSurfaceBake>{
   const recipe=resolveObjectSurfaceDocument(input),size=options.resolution??recipe.output.resolution;
   if(!Number.isInteger(size)||size<16||size>512)throw Error('Object surfaces support 16–512 pixels per face.');
-  const faces={} as ObjectSurfaceBake['faces'];
+  const faces={} as ObjectSurfaceBake['faces'];let bytes=0;const pixelsPerMeter=size/Math.max(...recipe.sizeMeters);
   for(const name of BOX_SURFACES){
-    const image=()=>({width:size,height:size,data:new Uint8Array(size*size*4)}),color=image(),normal=image(),height=image(),roughness=image(),metalness=image(),ao=image(),heights=new Float32Array(size*size),span=boxSurfaceFrame(recipe.sizeMeters,name).span;
-    for(let y=0;y<size;y++){
+    const span=boxSurfaceFrame(recipe.sizeMeters,name).span,width=Math.max(1,Math.round(span[0]*pixelsPerMeter)),rows=Math.max(1,Math.round(span[1]*pixelsPerMeter));
+    const image=()=>({width,height:rows,data:new Uint8Array(width*rows*4)}),color=image(),normal=image(),height=image(),roughness=image(),metalness=image(),ao=image(),heights=new Float32Array(width*rows);
+    for(let y=0;y<rows;y++){
       if(y%16===0){options.signal?.throwIfAborted();await(options.yieldControl?.()??Promise.resolve());}
-      for(let x=0;x<size;x++){const index=y*size+x,k=index*4,sample=sampleObjectSurface(recipe,name,(x+0.5)/size,(y+0.5)/size);heights[index]=sample.height;
+      for(let x=0;x<width;x++){const index=y*width+x,k=index*4,sample=sampleObjectSurface(recipe,name,(x+0.5)/width,(y+0.5)/rows);heights[index]=sample.height;
         for(let c=0;c<3;c++)color.data[k+c]=Math.round(sample.color[c]);color.data[k+3]=255;
         for(const[map,value]of[[height,clamp(0.5+sample.height/0.4)],[roughness,sample.roughness],[metalness,sample.metalness],[ao,sample.ao]]as const){map.data[k]=map.data[k+1]=map.data[k+2]=Math.round(value*255);map.data[k+3]=255;}
       }
     }
-    for(let y=0;y<size;y++)for(let x=0;x<size;x++){const at=(dx:number,dy:number)=>heights[Math.max(0,Math.min(size-1,y+dy))*size+Math.max(0,Math.min(size-1,x+dx))],dx=(at(1,0)-at(-1,0))*size/(2*span[0]),dy=(at(0,1)-at(0,-1))*size/(2*span[1]),len=Math.hypot(dx,dy,1),k=(y*size+x)*4;normal.data.set([Math.round((1-dx/len)*127.5),Math.round((1-dy/len)*127.5),Math.round((1+1/len)*127.5),255],k);}
-    faces[name]={recipe:{...recipe.base,output:{...recipe.output,resolution:size as ResolvedMaterialGenerator['output']['resolution']}},color,normal,height,roughness,metalness,ao,diagnostics:{resolution:size,bytes:size*size*24,tileMeters:span,warnings:[]}};
+    for(let y=0;y<rows;y++)for(let x=0;x<width;x++){const at=(dx:number,dy:number)=>heights[Math.max(0,Math.min(rows-1,y+dy))*width+Math.max(0,Math.min(width-1,x+dx))],dx=(at(1,0)-at(-1,0))*width/(2*span[0]),dy=(at(0,1)-at(0,-1))*rows/(2*span[1]),len=Math.hypot(dx,dy,1),k=(y*width+x)*4;normal.data.set([Math.round((1-dx/len)*127.5),Math.round((1-dy/len)*127.5),Math.round((1+1/len)*127.5),255],k);}
+    faces[name]={recipe:{...recipe.base,output:{...recipe.output,resolution:size as ResolvedMaterialGenerator['output']['resolution']}},color,normal,height,roughness,metalness,ao,diagnostics:{resolution:size,bytes:width*rows*24,tileMeters:span,warnings:[]}};
+    bytes+=width*rows*24;
   }
   const warnings=['Box surfaces use model-local metres and +Y up. Unsupported scale/mirror/world-space fields are rejected.'];
   if(recipe.effects.some(e=>e.enabled&&e.depthMeters>0))warnings.push('Slash depth is shading relief, not a hole or collision change.');
-  return{recipe,faces,diagnostics:{bytes:size*size*24*6,warnings}};
+  return{recipe,faces,diagnostics:{bytes,warnings}};
 }
 export const OBJECT_SURFACE_EXAMPLES:Record<'grass'|'slash',ObjectSurfaceRecipe>={
   grass:{kind:'object-surface',version:1,name:'Grass-topped dirt block',sizeMeters:[1,1,1],seed:42,base:{pattern:{family:'dirt',clumping:0.8},tileMeters:[1,1],color:'#987044',secondaryColor:'#493324'},layers:[{id:'grass',material:{pattern:{family:'grass',density:1,barePatches:0.05},tileMeters:[1,1],color:'#77a649',secondaryColor:'#36582b'},coverage:{kind:'top-fringe',space:'model',depthMeters:0.24,variation:0.65,featherMeters:0.015}}],output:{resolution:128,style:'pixel',paletteSteps:8}},

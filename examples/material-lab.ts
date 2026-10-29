@@ -1,9 +1,10 @@
-import {objectSurfaceSchema,OBJECT_SURFACE_EXAMPLES,BOX_SURFACES,type ResolvedObjectSurface,type BoxSurface,type ObjectSurfaceBake} from '../src/shared/objectSurface.ts';
+import {objectSurfaceSchema,OBJECT_SURFACE_EXAMPLES,BOX_SURFACES,boxSurfaceFrame,type ResolvedObjectSurface,type BoxSurface,type ObjectSurfaceBake} from '../src/shared/objectSurface.ts';
 import {ObjectSurfaceView} from '../src/sandbox/objectSurface.ts';
 import * as THREE from 'three';
 import {materialGeneratorSchema,MATERIAL_GENERATOR_PRESETS,type ResolvedMaterialGenerator,type GeneratedMaterialPixels} from '../src/shared/materialGenerator.ts';
 import {MATERIAL_LAB_PRESETS} from '../src/shared/materialLabPresets.ts';
 import {createGeneratedMaterialFromPixels} from '../src/sandbox/materialGenerator.ts';
+import {mapBoxMaterialMeters,inspectTextureDensity,createMaterialMappingDebug} from '../src/sandbox/materialMapping.ts';
 import css from './material-lab.css?inline';
 
 const labels:Record<string,string>={baseColor:'Base color',shadowColor:'Shadow color',grassColor:'Grass color',fringeDepthMeters:'Grass fringe depth (metres)',fringeVariation:'Fringe variation',edgeSoftnessMeters:'Edge softness (metres)',grassDensity:'Grass density',showSlash:'Show slash',slashWidthMeters:'Slash width (metres)',slashDepthMeters:'Slash depth (metres)',exposedColor:'Exposed inner color',tileMeters:'Tile size (metres)',blockMeters:'Block size (metres)',mortarMeters:'Mortar width (metres)',plankMeters:'Plank width (metres)',grainMeters:'Grain size (metres)',gapMeters:'Plank gap (metres)',stoneMeters:'Stone size (metres)',bladeMeters:'Blade size (metres)',sizeVariation:'Size variation',secondaryColor:'Shadow color',reliefMeters:'Relief depth (metres)',paletteSteps:'Palette colors'};
@@ -21,8 +22,10 @@ function download(blob:Blob,name:string){const url=URL.createObjectURL(blob),anc
 /** Standalone browser demo. Returns cleanup; no account, network assets or provider calls. */
 export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
   let recipe=structuredClone(MATERIAL_LAB_PRESETS[0].recipe),activeId=MATERIAL_LAB_PRESETS[0].id,disposed=false,sequence=0,debounce=0;
-  let baked:GeneratedMaterialPixels|undefined,handle:Handle|undefined,worker:Worker|undefined,mapTab='3d',shape='sphere',repeat=1,raf=0;
+  let baked:GeneratedMaterialPixels|undefined,worker:Worker|undefined,mapTab='3d',shape='cube',repeat=1,raf=0;
   let mode:Example='material',surfaceRecipe=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.grass),surfaceBake:ObjectSurfaceBake|undefined,surfaceView:ObjectSurfaceView|undefined,inspectFace:BoxSurface='front';
+  let inspection='material';const shapeHandles=new Map<string,Handle>(),debugMaterials:THREE.ShaderMaterial[]=[];
+  let surfaceMaterials:THREE.MeshStandardMaterial[]=[];
   const surfaceDrafts={grass:surfaceRecipe,slash:objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.slash)};
   for(const id of ['grass','slash'] as const)try{const saved=localStorage.getItem('patchgames-object-surface-'+id);if(saved)surfaceDrafts[id]=objectSurfaceSchema.parse(JSON.parse(saved));}catch{}
   const root=node('section','','ml');root.setAttribute('aria-label','Material generator lab');const style=node('style');style.textContent=css;root.append(style);
@@ -43,7 +46,10 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
   shapeChoice.setAttribute('aria-label','Preview geometry');light.setAttribute('aria-label','Lighting');tiling.setAttribute('aria-label','Tile repeats');
   const rotate=node('input');rotate.type='checkbox';rotate.id='ml-rotate';const rotateLabel=node('label','Auto rotate');rotateLabel.prepend(rotate);
   const faceChoice=select([...BOX_SURFACES],inspectFace);faceChoice.setAttribute('aria-label','Inspect geometric face');faceChoice.hidden=true;faceChoice.onchange=()=>{inspectFace=faceChoice.value as BoxSurface;if(surfaceBake)baked=surfaceBake.faces[inspectFace];showMap();};
-  toolbar.append(faceChoice,shapeChoice,light,node('label','Repeats'),tiling,rotateLabel);workspace.append(toolbar);
+  const inspectionChoice=select(['material','checker grid','texture density'],'material');inspectionChoice.setAttribute('aria-label','Surface inspection');
+  const densityTarget=node('input');densityTarget.type='number';densityTarget.min='1';densityTarget.max='8192';densityTarget.value='256';densityTarget.setAttribute('aria-label','Target texels per metre');densityTarget.style.width='75px';
+  toolbar.append(faceChoice,shapeChoice,light,node('label','Density multiplier'),tiling,inspectionChoice,node('label','Target texels/m'),densityTarget,rotateLabel);workspace.append(toolbar);
+  const mappingStatus=node('output','','note');mappingStatus.setAttribute('aria-label','Texture mapping diagnostics');workspace.append(mappingStatus);
   const status=node('output','Preparing the material studio…','status');status.setAttribute('aria-live','polite');root.append(status);
   controls.append(node('h2','Make it yours'));const fields=node('div','','fields');controls.append(fields);
   const actions=node('div','','actions'),save=node('button','Save preset','primary'),exportRecipe=node('button','Recipe JSON'),exportMap=node('button','PNG map');actions.append(save,exportRecipe,exportMap);controls.append(actions);
@@ -56,6 +62,8 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
   scene.add(new THREE.HemisphereLight(0xdce9d7,0x28342a,2));const key=new THREE.DirectionalLight(0xffedcc,4);key.position.set(-3,4,5);scene.add(key);const rim=new THREE.DirectionalLight(0xa9c7dc,2);rim.position.set(3,1,-3);scene.add(rim);
   const fallback=new THREE.MeshStandardMaterial({color:'#b8b29b',roughness:0.8});
   const meshes={sphere:new THREE.Mesh(new THREE.SphereGeometry(1.35,96,64),fallback),cube:new THREE.Mesh(new THREE.BoxGeometry(2.2,2.2,2.2,1,1,1),fallback),plane:new THREE.Mesh(new THREE.BoxGeometry(2.8,2.8,0.08),fallback)};
+  const previewSizes:Record<string,[number,number,number]>={cube:[2.2,2.2,2.2],plane:[2.8,2.8,0.08]};
+  mapBoxMaterialMeters(meshes.cube.geometry);mapBoxMaterialMeters(meshes.plane.geometry);
   for(const[id,mesh]of Object.entries(meshes)){mesh.visible=id===shape;group.add(mesh);}group.rotation.set(-0.12,0.35,0);
   const render=()=>{if(!disposed&&mapTab==='3d')renderer.render(scene,camera);};
   const resize=new ResizeObserver(()=>{const rect=viewport.getBoundingClientRect();renderer.setSize(Math.max(1,rect.width),Math.max(1,rect.height),false);camera.aspect=rect.width/Math.max(1,rect.height);camera.updateProjectionMatrix();render();});resize.observe(viewport);
@@ -74,15 +82,40 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
       if(disposed||event.data.id!==sequence||id!==sequence)return;busy.hidden=true;
       if(event.data.error){announce(event.data.error,true);worker?.terminate();worker=undefined;return;}
       exportMap.disabled=false;
-      if(event.data.surface){surfaceBake=event.data.surface;if(surfaceView)surfaceView.update(surfaceBake!);else{surfaceView=new ObjectSurfaceView(surfaceBake!);group.add(surfaceView.root);}surfaceView.root.scale.setScalar((mode==='grass'?2.2:3.5)/Math.max(...surfaceRecipe.sizeMeters));surfaceView.root.visible=true;for(const mesh of Object.values(meshes))mesh.visible=false;baked=surfaceBake!.faces[inspectFace];}
-      else{baked=event.data.baked;const next=createGeneratedMaterialFromPixels(baked!);for(const mesh of Object.values(meshes))mesh.material=next.material;handle?.dispose();handle=next;}
+      if(event.data.surface){surfaceBake=event.data.surface;if(surfaceView)surfaceView.update(surfaceBake!);else{surfaceView=new ObjectSurfaceView(surfaceBake!);group.add(surfaceView.root);}surfaceMaterials=surfaceView.root.material;surfaceView.root.scale.setScalar((mode==='grass'?2.2:3.5)/Math.max(...surfaceRecipe.sizeMeters));surfaceView.root.visible=true;for(const mesh of Object.values(meshes))mesh.visible=false;baked=surfaceBake!.faces[inspectFace];}
+      else{baked=event.data.baked;for(const h of shapeHandles.values())h.dispose();shapeHandles.clear();for(const[id,mesh]of Object.entries(meshes)){const next=createGeneratedMaterialFromPixels(baked!,id==='sphere'?{surfaceMeters:[2*Math.PI*1.35,Math.PI*1.35]}:{uvSpace:'metres'});shapeHandles.set(id,next);mesh.material=next.material;}}
       setRepeats();showMap();
       const bytes=mode==='material'?baked!.diagnostics.bytes:surfaceBake!.diagnostics.bytes;
       announce(baked!.color.width+' × '+baked!.color.height+' · '+(mode==='material'?'6 maps':'6 faces / 36 maps')+' · '+(bytes/1048576).toFixed(1)+' MiB · '+Math.round(performance.now()-started)+' ms bake'+(mode==='slash'?' · Shading relief; collision unchanged':''));
       worker?.terminate();worker=undefined;
     };worker.postMessage(mode==='material'?{id,recipe}:{id,surfaceRecipe});
   }
-  function setRepeats(){if(mode==='material'&&handle)for(const map of Object.values(handle.maps))map.repeat.set(repeat,repeat);render();}
+  function setRepeats(){if(mode==='material'&&baked)for(const[id,h]of shapeHandles)for(const map of Object.values(h.maps))map.repeat.set(repeat*(id==='sphere'?2*Math.PI*1.35:1)/baked.recipe.tileMeters[0],repeat*(id==='sphere'?Math.PI*1.35:1)/baked.recipe.tileMeters[1]);updateInspection();render();}
+  function updateInspection(){
+    for(const mat of debugMaterials)mat.dispose();debugMaterials.length=0;
+    for(const[id,mesh]of Object.entries(meshes))mesh.material=shapeHandles.get(id)?.material??fallback;
+    if(surfaceView)surfaceView.root.material=surfaceMaterials;
+    if(!baked)return;
+    const target=Number(densityTarget.value);if(!Number.isFinite(target)||target<=0){mappingStatus.textContent='Target density must be positive.';return;}
+    const densities:ReturnType<typeof inspectTextureDensity>[]=[];
+    const debug=(geometry:THREE.BufferGeometry,size:[number,number],repeats:[number,number],uvMeters:[number,number]=[1,1])=>{
+      densities.push(inspectTextureDensity(geometry,size,repeats));
+      const material=createMaterialMappingDebug({mode:inspection==='checker grid'?'checker':'density',textureSize:size,repeat:repeats,uvMeters,targetTexelsPerMeter:target});debugMaterials.push(material);return material;
+    };
+    if(mode==='material'){
+      const mesh=meshes[shape as keyof typeof meshes],h=shapeHandles.get(shape);if(!h)return;
+      const mat=debug(mesh.geometry,[baked.color.width,baked.color.height],h.maps.color.repeat.toArray() as [number,number],shape==='sphere'?[2*Math.PI*1.35,Math.PI*1.35]:[1,1]);
+      if(inspection!=='material')mesh.material=mat as unknown as THREE.MeshStandardMaterial;
+    }else if(surfaceView&&surfaceBake){
+      const materials=BOX_SURFACES.map((face,index)=>{
+        const geometry=surfaceView!.root.geometry.clone();const group=geometry.groups[index];geometry.setIndex(Array.from({length:group.count},(_,i)=>geometry.index!.getX(group.start+i)));
+        const image=surfaceBake!.faces[face].color,mat=debug(geometry,[image.width,image.height],[1,1],boxSurfaceFrame(surfaceRecipe.sizeMeters,face).span);geometry.dispose();return mat;
+      });if(inspection!=='material')surfaceView.root.material=materials as unknown as THREE.MeshStandardMaterial[];
+    }
+    const low=Math.min(...densities.map(d=>d.minimum)),high=Math.max(...densities.map(d=>d.maximum)),stretch=Math.max(...densities.map(d=>d.anisotropy));
+    mappingStatus.textContent=`${low.toFixed(0)}–${high.toFixed(0)} texels/model metre · ${stretch.toFixed(2)}× worst directional ratio · Checker squares: 0.25 m. Density: red below ${target}, green at target, blue above; magenta >2× distortion.`+(shape==='sphere'&&mode==='material'?' Sphere UVs compress at the poles; use authored UVs for curved assets.':'')+(mode!=='material'?' Bounded face maps; preview fit does not change model density.':' Box dimensions are baked into UVs; scale geometry before mapping.');
+  }
+  inspectionChoice.onchange=()=>{inspection=inspectionChoice.value;mapTab='3d';updateInspection();showMap();};densityTarget.onchange=()=>{updateInspection();render();};
   function field(key:string,value:unknown,change:(v:unknown)=>void,range?:[number,number,number]){
     const wrap=node('label','','field');wrap.append(node('span',label(key)));
     if(typeof value==='boolean'){const input=node('input');input.type='checkbox';input.checked=value;input.onchange=()=>change(input.checked);wrap.append(input);}
@@ -100,6 +133,13 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
   }
   function buildFields(){
     fields.replaceChildren();if(mode!=='material'){buildSurfaceFields();return;}field('name',recipe.name,value=>{recipe.name=String(value);showRecipe();});
+    if(shape!=='sphere'){
+      fields.append(node('h3','Preview size / metres'));
+      for(const [axis,name] of ['Width','Height','Depth'].entries())field(name,previewSizes[shape][axis],value=>{
+        const n=Number(value);if(!Number.isFinite(n)||n<0.01||n>5)return;previewSizes[shape][axis]=n;
+        const mesh=meshes[shape as 'cube'|'plane'];mesh.geometry.dispose();mesh.geometry=new THREE.BoxGeometry(...previewSizes[shape]);mapBoxMaterialMeters(mesh.geometry);updateInspection();render();
+      },[0.01,5,0.01]);
+    }
     field('family',recipe.pattern.family,value=>{const preset=MATERIAL_GENERATOR_PRESETS.find(p=>p.recipe.pattern.family===value)!;recipe=materialGeneratorSchema.parse({...recipe,pattern:preset.recipe.pattern});buildFields();schedule();});
     const set=(key:string)=>(value:unknown)=>{recipe={...recipe,[key]:value};schedule();};
     fields.append(node('h3','Palette & surface'));for(const key of ['color','secondaryColor','roughness','variation','weathering','reliefMeters','tileMeters','seed']as const)field(key,recipe[key],set(key));
@@ -161,7 +201,7 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
       fields.append(node('p','Slash coverage is bounded to the front and independent of brick repeats. Surface relief does not cut a hole.','note'));
     }
     fields.append(node('h3','Output quality'));
-    const resolution=node('label','','field');resolution.append(node('span','Resolution per face'));const sizes=select(['32','64','128','256','512'],String(surfaceRecipe.output.resolution));sizes.setAttribute('aria-label','Resolution per face');sizes.onchange=()=>{surfaceRecipe.output.resolution=Number(sizes.value) as ResolvedObjectSurface['output']['resolution'];schedule();};resolution.append(sizes);fields.append(resolution);
+    const resolution=node('label','','field');resolution.append(node('span','Resolution (longest axis)'));const sizes=select(['32','64','128','256','512'],String(surfaceRecipe.output.resolution));sizes.setAttribute('aria-label','Resolution (longest axis)');sizes.onchange=()=>{surfaceRecipe.output.resolution=Number(sizes.value) as ResolvedObjectSurface['output']['resolution'];schedule();};resolution.append(sizes);fields.append(resolution);
     field('style',surfaceRecipe.output.style,value=>{surfaceRecipe.output.style=value as ResolvedObjectSurface['output']['style'];schedule();});
     field('paletteSteps',surfaceRecipe.output.paletteSteps,value=>{surfaceRecipe.output.paletteSteps=Number(value);schedule();});
   }
@@ -172,7 +212,7 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
     for(const item of shown){const button=node('button','','card');button.setAttribute('aria-pressed',String(item.id===activeId));button.setAttribute('aria-label',item.recipe.name);let thumb=thumbs.get(item.id);if(!thumb){thumb=node('canvas');thumbs.set(item.id,thumb);thumbQueue.push(item);}button.append(thumb,node('span',item.recipe.name));button.onclick=()=>{mode='material';syncMode();activeId=item.id;recipe=structuredClone(item.recipe);buildCards();buildFields();schedule();};cards.append(button);}if(!shown.length)cards.append(node('p','No matching materials.','empty'));nextThumb();
   }
   search.oninput=buildCards;filter.onchange=buildCards;shuffle.onclick=()=>{const seed=Math.floor(Math.random()*2147483647);if(mode==='material')recipe.seed=seed;else{surfaceRecipe.seed=seed;surfaceRecipe.base.seed=seed;surfaceRecipe.layers.forEach(layer=>layer.material.seed=seed);}buildFields();schedule();};
-  shapeChoice.onchange=()=>{shape=shapeChoice.value;for(const[id,mesh]of Object.entries(meshes))mesh.visible=id===shape;render();};
+  shapeChoice.onchange=()=>{shape=shapeChoice.value;for(const[id,mesh]of Object.entries(meshes))mesh.visible=id===shape;buildFields();updateInspection();render();};
   light.onchange=()=>{key.color.set(light.value==='warm'?0xffc57c:light.value==='cool'?0xa4caff:0xffedcc);render();};tiling.onchange=()=>{repeat=Number(tiling.value);setRepeats();};
   function animate(){if(disposed||!rotate.checked)return;group.rotation.y+=0.004;render();raf=requestAnimationFrame(animate);}rotate.onchange=()=>{cancelAnimationFrame(raf);if(rotate.checked)animate();};
   let drag:{x:number;y:number}|undefined;canvas.onpointerdown=event=>{canvas.setPointerCapture(event.pointerId);drag={x:event.clientX,y:event.clientY};};canvas.onpointermove=event=>{if(!drag)return;group.rotation.y+=(event.clientX-drag.x)*0.008;group.rotation.x=Math.max(-1.3,Math.min(1.3,group.rotation.x+(event.clientY-drag.y)*0.008));drag={x:event.clientX,y:event.clientY};render();};canvas.onpointerup=canvas.onpointercancel=()=>{drag=undefined;};canvas.onwheel=event=>{event.preventDefault();camera.position.z=Math.max(3.2,Math.min(10,camera.position.z+event.deltaY*0.003));render();};
@@ -181,5 +221,5 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
   save.onclick=()=>{if(mode!=='material'){try{localStorage.setItem('patchgames-object-surface-'+mode,JSON.stringify(objectSurfaceSchema.parse(surfaceRecipe)));announce('Surface recipe saved in this browser. Export JSON for a portable copy.');}catch(error){announce(String(error),true);}return;}try{const parsed=materialGeneratorSchema.parse(recipe),item={id:'saved-'+Date.now(),recipe:parsed};entries.push(item);const saved=entries.filter(item=>item.id.startsWith('saved-')).slice(-50);localStorage.setItem('patchgames-material-lab-v1',JSON.stringify(saved));activeId=item.id;search.value='';filter.value='all';buildCards();announce('Saved in this browser. Export JSON to keep a portable copy.');}catch(error){announce(String(error),true);}};
   apply.onclick=()=>{try{if(mode==='material')recipe=materialGeneratorSchema.parse(JSON.parse(editor.value));else{surfaceRecipe=objectSurfaceSchema.parse(JSON.parse(editor.value));surfaceDrafts[mode]=surfaceRecipe;}buildFields();schedule();}catch(error){announce(String(error),true);}};
   buildCards();buildFields();showMap();schedule();
-  return()=>{disposed=true;clearTimeout(debounce);cancelAnimationFrame(raf);worker?.terminate();thumbWorker.terminate();resize.disconnect();surfaceView?.dispose();handle?.dispose();fallback.dispose();for(const mesh of Object.values(meshes))mesh.geometry.dispose();renderer.dispose();renderer.forceContextLoss();root.remove();};
+  return()=>{disposed=true;clearTimeout(debounce);cancelAnimationFrame(raf);worker?.terminate();thumbWorker.terminate();resize.disconnect();surfaceView?.dispose();for(const h of shapeHandles.values())h.dispose();for(const mat of debugMaterials)mat.dispose();fallback.dispose();for(const mesh of Object.values(meshes))mesh.geometry.dispose();renderer.dispose();renderer.forceContextLoss();root.remove();};
 }
