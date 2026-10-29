@@ -19,10 +19,10 @@ it('stores recipes only and validates generator sources without a renderer depen
 });
 it('hot-swaps texture pixels in place and visibly clears deleted recipe references',async()=>{
   replaceMaterialRecipes({'custom.stone':generator('#ff0000')});
-  const handle=await createRecipeMaterial(recipe),identity=handle.material;
+  const handle=await createRecipeMaterial(recipe),identity=handle.material,oldSource=handle.maps.color.source;let released=0;handle.maps.color.addEventListener('dispose',()=>released++);
   const changed=new Promise<void>(resolve=>{const off=handle.onUpdate(()=>{off();resolve();});});
   replaceMaterialRecipes({'custom.stone':generator('#00ff00')});await changed;
-  expect(handle.material).toBe(identity);expect(handle.maps.color.image.data![1]).toBe(255);expect(handle.maps.color.image.data![0]).toBe(0);
+  expect(handle.material).toBe(identity);expect(handle.maps.color.source).not.toBe(oldSource);expect(released).toBeGreaterThan(0);expect(handle.maps.color.image.data![1]).toBe(255);expect(handle.maps.color.image.data![0]).toBe(0);
   const removed=new Promise<void>(resolve=>{const off=handle.onUpdate(()=>{off();resolve();});});
   replaceMaterialRecipes({});await removed;expect(handle.maps.color.image.width).toBe(1);expect(handle.diagnostics.warnings[0]).toContain('custom.stone');handle.dispose();
 });

@@ -43,13 +43,13 @@ export async function createRecipeMaterial(recipe: TextureRecipe, options: Mater
     const version=++generation;
     void renderMaterialRecipe(recipe,{...options,resolveSource:options.resolveSource??resolveTextureSource}).then(next=>{
       if(disposed||version!==generation)return;
-      for(const name of Object.keys(maps) as (keyof typeof maps)[]){maps[name].image=next[name];maps[name].needsUpdate=true;}
+      for(const name of Object.keys(maps) as (keyof typeof maps)[]){maps[name].dispose();maps[name].source=new THREE.Source(next[name]);maps[name].needsUpdate=true;}
       Object.assign(rendered.diagnostics,next.diagnostics);material.userData.materialRecipe={id:recipe.id,name:recipe.name,...next.diagnostics};
       for(const callback of callbacks)callback();
     },error=>{
       if(disposed||version!==generation)return;
       rendered.diagnostics.warnings=[String(error)];material.userData.materialRecipe.error=String(error);
-      for(const name of Object.keys(maps) as (keyof typeof maps)[]){const rgba=name==='normal'?[128,128,255,255]:name==='metalness'?[0,0,0,255]:[128,128,128,255];maps[name].image={width:1,height:1,data:new Uint8Array(rgba)};maps[name].needsUpdate=true;}
+      for(const name of Object.keys(maps) as (keyof typeof maps)[]){const rgba=name==='normal'?[128,128,255,255]:name==='metalness'?[0,0,0,255]:[128,128,128,255];maps[name].dispose();maps[name].source=new THREE.Source({width:1,height:1,data:new Uint8Array(rgba)});maps[name].needsUpdate=true;}
       for(const callback of callbacks)callback();
     });
   });
