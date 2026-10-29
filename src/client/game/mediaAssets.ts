@@ -26,7 +26,7 @@ async function loadFile(file: MediaFile): Promise<Uint8Array> {
   return result;
 }
 export async function loadTextureAsset(id: string): Promise<MaterialSourcePixels> {
-  const recipe=materialRecipe(id);if(!recipe)throw Error('Unknown material recipe: '+id);return generateMaterial(recipe);
+  const recipe=materialRecipe(id);if(!recipe)throw Error('Unknown material recipe: '+id);const rendered=await generateMaterial(recipe);return {color:rendered.color,height:rendered.height,roughness:rendered.roughness,metalness:rendered.metalness};
 }
 export async function loadSoundAsset(id: string) {
   const asset = mediaAsset(id, 'sound');

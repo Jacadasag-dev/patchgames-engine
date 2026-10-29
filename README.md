@@ -18,6 +18,8 @@ The engine provides:
 
 Run `npm run demo:materials` for the interactive Material Lab: 50 generated
 presets, editable controls, 3D preview, texture maps and PNG/JSON exports.
+It also includes [object surface recipes](docs/object-surfaces.md): a grass-topped
+dirt block and a brick wall with one editable, non-repeating slash.
 
 ## Complete starter games
 
