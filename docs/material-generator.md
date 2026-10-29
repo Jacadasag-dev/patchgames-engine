@@ -15,42 +15,63 @@ texture repeats or image resolution.
 
 Every pattern also accepts `shapeVariation` and `sizeVariation` (0–1). Shape
 variation applies a finer irregular warp to boundaries; size variation applies a
-slower warp to feature spacing and apparent scale. Thus clusters lose perfect
+seeded per-feature size multiplier. Thus clusters lose perfect
 circular outlines, veins wander, stripes become uneven and patches/cells vary.
 These controls are independent of `irregularity` (the original family-specific
 placement/bend control), source texture repeats and output resolution. Both
 default to zero; artistic coverage is still not an exact measured area fraction.
 
-All patterns and gates can use a spatial concentration envelope:
+All patterns and gates can use a generation-time spatial distribution:
 
 ```ts
 concentration: {
-  strength: 1,       // +1 inward, 0 uniform, -1 outward; intermediate strengths blend
+  strength: 1,       // +1 inward, 0 uniform, -1 outward; controls feature generation probability
   space: 'face',    // 'model' for object coordinates
   axes: 'xy',       // x/y/z, xy/xz/yz or xyz
   center: [0,0,0],  // normalized: centre 0, negative/positive boundary -1/+1
   radius: .85,      // fraction of each selected axis's half-span; .01–2
-  softness: .2     // feather width as a fraction of radius; 0 gives a hard edge
+  softness: .2     // probability transition width as a fraction of radius; no opacity fading
 }
 ```
 
-Face XY centres a distribution on each face, leaving a margin around ore blocks.
-Model XZ creates a vertical cross-section envelope: a core on a top cut face, or
-an outer ring with negative strength. Model XYZ uses an ellipsoidal volume and
-can intentionally suppress all exterior faces if the radius stays inside the
-object. Move `center` to offset the focus. Non-square dimensions produce an
-ellipse in metres because the radius is normalized per axis. Concentration
-feathers mask weight; it can fade partial blends near its boundary. Root
-concentration applies after gate composition/inversion, so union gates cannot
-silently refill its excluded region. Gates can have their own concentration.
+Face XY biases feature centres on each face; model XZ biases a vertical
+cross-section. Model XYZ uses an ellipsoidal volume. `center` offsets the bias;
+`radius` is normalized to each selected half-span. Concentration changes the
+binary seeded decision to generate each feature. A surviving feature keeps its
+size, shape and interior opacity; only its geometric edge softness blends.
+Features can extend past the preferred region because their centres, not every
+pixel, follow the distribution. Inversion complements the generated mask; gates
+combine generated masks rather than imposing a shared opacity fade.
 
-`sampleMaterialPattern(pattern, physicalPoint, {face?,model?})` accepts independently
-normalized `MaterialPatternFrame` coordinates. Nonzero concentration requires its
-selected frame; missing frames throw instead of silently choosing an origin.
-Object surfaces provide both frames. Planar TextureRecipe masks provide only the
-face/tile frame, with UV 0.5 as centre; model-space concentration needs an object
-adapter. Focus coordinates are never warped with the pattern or repeated with a
-source texture. This controls a surface mask, not anatomy, geometry or collision.
+`clumping:0..1` groups feature generation around a shared, smooth density field.
+`groupSizeMeters` (.004–20, default .6) sets the physical grouping scale. Start
+around 3–6 feature widths. Clumping correlates nearby feature presence, not their
+color or opacity, and works with inward/outward bias. Feature counts/coverage
+remain artistic rather than exact counts. All six pattern types share the seeded
+proposal system: blobs, speckles and patches; finite stripe/vein strands; and
+cell regions. Strands can join where they overlap. Distribution edits can add or
+remove a whole strand/cell; they do not shorten it with an alpha gradient.
+
+`materialPatternFeatureAtCell(pattern,[cellX,cellY,cellZ],frame)` exposes each
+proposal's physical center, generation probability, accepted flag and size scale
+for diagnostics. Accepted flags are deterministic. Changing concentration or
+clumping leaves a proposal's center/size intact. Shape/size controls are separate.
+
+`sampleMaterialPattern(pattern, physicalPoint, frame)` accepts `MaterialPatternFrame`
+with normalized `face`/`model` points and `faceMeters:[width,height]` or
+`modelMeters:[width,height,depth]`. Generation domains are centred on zero.
+Nonzero concentration requires the corresponding physical dimensions; missing
+ones throw. Object surfaces provide both frames. Planar TextureRecipe masks
+provide the face frame with UV .5 at its centre. Model-space generation requires
+an object adapter. Face generation is two dimensional; model generation is three
+dimensional and shares feature coordinates across faces.
+
+For an explicit fade/crop, use `boundary:{strength,space,axes,center,radius,softness}`.
+This independent optional mask multiplies the finished pattern after gate
+composition/inversion. It does change partial blend opacity near its boundary;
+this is intentionally separate from distribution. The wood-core example uses a
+model XZ boundary to demonstrate a continuous cut section. No anatomy, geometry
+or collision is generated by these surface operations.
 
 For boxes use `OBJECT_SURFACE_EXAMPLES.iron`, `.diamond`, `.gold`, or
 `['moss-bark']` from `shared/objectSurface`. They are editable recipes:
@@ -65,19 +86,20 @@ const layer = {
 };
 ```
 
-Object masks sample continuous 3D model coordinates, so the mask agrees at face
-corners. An optional coverage `selection:{space:'model',faces:['front']}` restricts
+Model-space masks share continuous 3D coordinates at face corners. Face-space
+masks generate separately on each face. An optional coverage `selection:{space:'model',faces:['front']}` restricts
 application. Each source material still uses its own physical face UVs. Pattern
 coverage, source alpha and layer opacity jointly blend color, height, roughness,
 metalness and cavity shading; normals derive from the final height. Positive
 height offsets raise the layer, negative offsets recess it. This is shallow
 shading relief, not a mesh cut. Source texture seams can remain even where mask
-coverage is continuous.
+coverage is continuous. This generator revision changes seeded layouts from the
+old fade-based implementation; rebake recipes when updating the engine.
 
 Ordinary `TextureRecipe` layers use the same masks:
 `mask:{kind:'pattern',tileMeters:[1,1],pattern:{type:'veins',sizeMeters:.12}}`.
 Here tileMeters converts the composition's UV frame to metres; it does not use
-the layer's source repeats. This is a planar slice of the 3D field. Finite patterned
+the layer's source repeats. This is a two-dimensional face generation domain. Finite patterned
 tiles are not guaranteed seamless when subsequently repeated; use model-wide
 object surfaces or inspect the tile boundaries. Existing noise/height/slope masks
 remain available. Authoritative data parsers validate the same bounded recipes.
@@ -105,8 +127,8 @@ example to edit the pattern, source colors/repeats, opacity and recess/raise dep
 add/remove layers, or restrict a pattern to veins. **Blend mask** shows combined
 coverage/opacity before source cutouts; **Opacity** shows final color alpha.
 All pattern types expose shape/size variation and concentration strength, space,
-axes, centre, radius and falloff. Ore presets demonstrate face concentration;
-**Wood core cross-section** demonstrates a model XZ envelope on selected end faces.
+axes, centre, radius and density falloff, plus clumping and group size. Ore presets demonstrate face distribution;
+**Wood core cross-section** demonstrates an explicit model XZ boundary mask on end faces.
 Filter the library by bark, leaf, needle or exposed-wood to edit those generators.
 Leaves/needles select a physical-size card preview. Changes rebake in a cancellable
 worker without resetting the camera. Save/export stores recipe data, not pixels.

@@ -160,7 +160,7 @@ export async function renderMaterialRecipe(input: TextureRecipe, options: Materi
       const g = maps ? linear(sample(maps.color, su, sv, 1)) : solid?.[1] ?? mix(low![1], high![1], n);
       const b = maps ? linear(sample(maps.color, su, sv, 2)) : solid?.[2] ?? mix(low![2], high![2], n);
       let weight = layer.opacity * (maps ? sample(maps.color, su, sv, 3) : 1);
-      if(mask?.kind==='pattern')weight*=sampleMaterialPattern(mask.pattern,[tu*mask.tileMeters[0],tv*mask.tileMeters[1],0],{face:[tu*2-1,tv*2-1,0]});
+      if(mask?.kind==='pattern')weight*=sampleMaterialPattern(mask.pattern,[tu*mask.tileMeters[0],tv*mask.tileMeters[1],0],{face:[tu*2-1,tv*2-1,0],faceMeters:mask.tileMeters});
       else if (mask) {
         let value: number;
         if (mask.kind === 'noise') value = noise(tu, tv, mask.scale, mask.seed ?? recipe.seed + layerIndex + 101);

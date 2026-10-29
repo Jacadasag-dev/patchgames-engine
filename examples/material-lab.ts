@@ -8,7 +8,7 @@ import {mapBoxMaterialMeters,inspectTextureDensity,createMaterialMappingDebug} f
 import {MATERIAL_PATTERN_TYPES,parseMaterialPattern} from '../src/shared/materialPatterns.ts';
 import css from './material-lab.css?inline';
 
-const labels:Record<string,string>={baseColor:'Base color',shapeVariation:'Shape variation',sizeVariation:'Size variation',concentrationSpace:'Concentration space',concentrationAxes:'Concentration axes',type:'Pattern type',sizeMeters:'Pattern size (metres)',heightOffsetMeters:'Layer recess / raise (metres)',angleRadians:'Pattern angle (radians)',lengthMeters:'Length (metres)',widthMeters:'Width (metres)',veinSpacingMeters:'Vein spacing (metres)',ridgeMeters:'Bark ridge spacing (metres)',ringMeters:'Growth-ring spacing (metres)',edgeSerration:'Edge serration',shadowColor:'Shadow color',grassColor:'Grass color',fringeDepthMeters:'Grass fringe depth (metres)',fringeVariation:'Fringe variation',edgeSoftnessMeters:'Edge softness (metres)',grassDensity:'Grass density',showSlash:'Show slash',slashWidthMeters:'Slash width (metres)',slashDepthMeters:'Slash depth (metres)',exposedColor:'Exposed inner color',tileMeters:'Tile size (metres)',blockMeters:'Block size (metres)',mortarMeters:'Mortar width (metres)',plankMeters:'Plank width (metres)',grainMeters:'Grain size (metres)',gapMeters:'Plank gap (metres)',stoneMeters:'Stone size (metres)',bladeMeters:'Blade size (metres)',secondaryColor:'Shadow color',reliefMeters:'Relief depth (metres)',paletteSteps:'Palette colors'};
+const labels:Record<string,string>={baseColor:'Base color',shapeVariation:'Shape variation',clumping:'Clumping',groupSizeMeters:'Group size (metres)',sizeVariation:'Size variation',concentrationSpace:'Concentration space',concentrationAxes:'Concentration axes',type:'Pattern type',sizeMeters:'Pattern size (metres)',heightOffsetMeters:'Layer recess / raise (metres)',angleRadians:'Pattern angle (radians)',lengthMeters:'Length (metres)',widthMeters:'Width (metres)',veinSpacingMeters:'Vein spacing (metres)',ridgeMeters:'Bark ridge spacing (metres)',ringMeters:'Growth-ring spacing (metres)',edgeSerration:'Edge serration',shadowColor:'Shadow color',grassColor:'Grass color',fringeDepthMeters:'Grass fringe depth (metres)',fringeVariation:'Fringe variation',edgeSoftnessMeters:'Edge softness (metres)',grassDensity:'Grass density',showSlash:'Show slash',slashWidthMeters:'Slash width (metres)',slashDepthMeters:'Slash depth (metres)',exposedColor:'Exposed inner color',tileMeters:'Tile size (metres)',blockMeters:'Block size (metres)',mortarMeters:'Mortar width (metres)',plankMeters:'Plank width (metres)',grainMeters:'Grain size (metres)',gapMeters:'Plank gap (metres)',stoneMeters:'Stone size (metres)',bladeMeters:'Blade size (metres)',secondaryColor:'Shadow color',reliefMeters:'Relief depth (metres)',paletteSteps:'Palette colors'};
 const label=(key:string)=>labels[key]??key.charAt(0).toUpperCase()+key.slice(1);
 const choice:Record<string,string[]>={family:MATERIAL_GENERATOR_PRESETS.map(p=>p.recipe.pattern.family),shape:['rectangle','square','triangle'],bond:['stack','staggered'],direction:['vertical','horizontal'],style:['realistic','stylized','pixel'],outline:['pointed','oval','lobed'],cut:['end','lengthwise'],type:[...MATERIAL_PATTERN_TYPES],concentrationSpace:['face','model'],concentrationAxes:['x','y','z','xy','xz','yz','xyz']};
 type SurfaceExample=keyof typeof OBJECT_SURFACE_EXAMPLES;
@@ -197,8 +197,8 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
         field('heightOffsetMeters',layer.heightOffsetMeters,value=>{layer.heightOffsetMeters=Number(value);schedule();},[-.1,.1,.001]);
         if(layer.coverage.kind==='pattern'){
           const pattern=layer.coverage.pattern;
-          for(const key of ['type','coverage','sizeMeters','irregularity','shapeVariation','sizeVariation','edgeSoftnessMeters','angleRadians','seed','invert'] as const){
-            const range=key==='sizeMeters'?[.002,2,.002] as [number,number,number]:key==='edgeSoftnessMeters'?[0,.2,.001] as [number,number,number]:key==='angleRadians'?[-6.28,6.28,.01] as [number,number,number]:undefined;
+          for(const key of ['type','coverage','sizeMeters','irregularity','shapeVariation','sizeVariation','clumping','groupSizeMeters','edgeSoftnessMeters','angleRadians','seed','invert'] as const){
+            const range=key==='sizeMeters'?[.002,2,.002] as [number,number,number]:key==='groupSizeMeters'?[.004,5,.004] as [number,number,number]:key==='edgeSoftnessMeters'?[0,.2,.001] as [number,number,number]:key==='angleRadians'?[-6.28,6.28,.01] as [number,number,number]:undefined;
             field(key==='seed'?'Pattern seed':key,pattern[key],value=>{Object.assign(pattern,{[key]:value});schedule();},range);
           }
           fields.append(node('h3','Pattern concentration'));
@@ -209,7 +209,17 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
           field('Concentration radius',focus.radius,value=>{focus.radius=Number(value);schedule();},[.01,2,.01]);
           field('Concentration falloff',focus.softness,value=>{focus.softness=Number(value);schedule();});
           for(const [axis,name] of ['X','Y','Z'].entries())field('Concentration center '+name,focus.center[axis],value=>{focus.center[axis]=Number(value);schedule();},[-1,1,.01]);
-          fields.append(node('p','Strength: +1 inward, 0 uniform, -1 outward. Center and radius use normalized half-spans. Face XY centers each face; model XZ centers a vertical cross-section.','note'));
+          fields.append(node('p','Concentration changes which whole features generate: +1 inward, 0 uniform, -1 outward. Clumping groups their generation around shared centres; group size sets the grouping scale in metres. Surviving features keep their opacity.','note'));
+          if(pattern.boundary){
+            fields.append(node('h3','Boundary mask / explicit fade'));
+            const boundary=pattern.boundary;
+            field('Boundary strength',boundary.strength,value=>{boundary.strength=Number(value);schedule();},[-1,1,.01]);
+            for(const key of ['space','axes'] as const){const wrap=node('label','','field'),control=select(key==='space'?['face','model']:['x','y','z','xy','xz','yz','xyz'],boundary[key]);wrap.append(node('span','Boundary '+key),control);control.onchange=()=>{Object.assign(boundary,{[key]:control.value});schedule();};fields.append(wrap);}
+            field('Boundary radius',boundary.radius,value=>{boundary.radius=Number(value);schedule();},[.01,2,.01]);
+            field('Boundary falloff',boundary.softness,value=>{boundary.softness=Number(value);schedule();});
+            for(const [axis,name] of ['X','Y','Z'].entries())field('Boundary center '+name,boundary.center[axis],value=>{boundary.center[axis]=Number(value);schedule();},[-1,1,.01]);
+          }
+          const boundaryToggle=node('button',pattern.boundary?'Remove boundary mask':'Add boundary mask');boundaryToggle.onclick=()=>{if(pattern.boundary)delete pattern.boundary;else pattern.boundary={...pattern.concentration,strength:1,center:[...pattern.concentration.center]};buildFields();schedule();};fields.append(boundaryToggle);
           const restrict=node('button',pattern.gates.length?'Remove vein restriction':'Restrict pattern to veins');restrict.onclick=()=>{const {gates,...gate}=parseMaterialPattern({type:'veins',sizeMeters:.3,coverage:.45,seed:pattern.seed});void gates;pattern.gates=pattern.gates.length?[]:[{operation:'intersect',pattern:gate}];buildFields();schedule();};fields.append(restrict);
         }
         const remove=node('button','Remove layer '+layer.id);remove.onclick=()=>{surfaceRecipe.layers=surfaceRecipe.layers.filter(item=>item!==layer);buildFields();schedule();};fields.append(remove);

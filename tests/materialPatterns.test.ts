@@ -1,6 +1,6 @@
 import {it,expect} from 'vitest';
 import {DoubleSide} from 'three';
-import {MATERIAL_PATTERN_TYPES,parseMaterialPattern,sampleMaterialPattern} from '../src/shared/materialPatterns.ts';
+import {MATERIAL_PATTERN_TYPES,parseMaterialPattern,sampleMaterialPattern,materialPatternFeatureAtCell} from '../src/shared/materialPatterns.ts';
 import {materialGeneratorSchema,MATERIAL_GENERATOR_PRESETS,generateMaterial} from '../src/shared/materialGenerator.ts';
 import {parseMaterialGeneratorData} from '../src/shared/materialGeneratorData.ts';
 import {objectSurfaceSchema,OBJECT_SURFACE_EXAMPLES,boxSurfaceFrame,surfaceCoverage,sampleObjectSurface,generateObjectSurface} from '../src/shared/objectSurface.ts';
@@ -26,29 +26,51 @@ it.each(MATERIAL_PATTERN_TYPES)('%s supports independent shape/size variation an
   const points=Array.from({length:144},(_,i)=>[(i%12)*.021,Math.floor(i/12)*.021,.071] as const);
   const original=points.map(p=>sampleMaterialPattern(base,p));
   for(const key of ['shapeVariation','sizeVariation'] as const){const changed={...base,[key]:.9},values=points.map(p=>sampleMaterialPattern(changed,p));expect(values).not.toEqual(original);expect(values).toEqual(points.map(p=>sampleMaterialPattern(parseMaterialPattern(changed),p)));expect(values.every(v=>Number.isFinite(v)&&v>=0&&v<=1)).toBe(true);}
-  const inward=parseMaterialPattern({type,coverage:1,concentration:{strength:1,radius:.8,softness:.2}}),outward=parseMaterialPattern({...inward,concentration:{...inward.concentration,strength:-1}});
-  expect(sampleMaterialPattern(inward,[8,9,10],{face:[0,0,0]})).toBe(1);expect(sampleMaterialPattern(inward,[8,9,10],{face:[1,0,0]})).toBe(0);
-  expect(sampleMaterialPattern(outward,[8,9,10],{face:[0,0,0]})).toBe(0);expect(sampleMaterialPattern(outward,[8,9,10],{face:[1,0,0]})).toBe(1);
+  const inward=parseMaterialPattern({...base,concentration:{strength:1,radius:.8}}),outward=parseMaterialPattern({...base,concentration:{strength:-1,radius:.8}}),frame={faceMeters:[2,2] as const};
+  let innerIn=0,outerIn=0,innerOut=0,outerOut=0,innerCount=0,outerCount=0;
+  for(let y=-5;y<5;y++)for(let x=-5;x<5;x++){const a=materialPatternFeatureAtCell(inward,[x,y,0],frame),b=materialPatternFeatureAtCell(outward,[x,y,0],frame),radius=Math.hypot(a.center[0],a.center[1]);
+    if(radius<.45){innerCount++;innerIn+=Number(a.accepted);innerOut+=Number(b.accepted);}if(radius>.85){outerCount++;outerIn+=Number(a.accepted);outerOut+=Number(b.accepted);}
+  }
+  expect(innerIn/innerCount).toBeGreaterThan(outerIn/outerCount+.4);expect(outerOut/outerCount).toBeGreaterThan(innerOut/innerCount+.4);
 });
 it('keeps model cross-sections distinct from face centres and validates missing frames',()=>{
   const r=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES['wood-core']),layer=r.layers[0];
   expect(surfaceCoverage(r,layer,'top',[0,r.sizeMeters[1]/2,0])).toBe(1);
   expect(surfaceCoverage(r,layer,'top',[r.sizeMeters[0]/2,r.sizeMeters[1]/2,0])).toBe(0);
   expect(surfaceCoverage(r,layer,'front',[0,0,r.sizeMeters[2]/2])).toBe(0); // selected end faces only
-  const p=parseMaterialPattern({type:'patches',coverage:1,concentration:{space:'model',axes:'xz',strength:1,radius:.3,softness:0,center:[.4,0,-.2]}});
+  const p=parseMaterialPattern({type:'patches',coverage:1,boundary:{space:'model',axes:'xz',strength:1,radius:.3,softness:0,center:[.4,0,-.2]}});
   expect(()=>sampleMaterialPattern(p,[0,0,0],{face:[0,0,0]})).toThrow('model coordinates');
   expect(sampleMaterialPattern(p,[0,0,0],{model:[.4,1,-.2]})).toBe(1);expect(sampleMaterialPattern(p,[0,0,0],{model:[0,1,0]})).toBe(0);
 });
-it('applies root concentration after union gates and after inversion',()=>{
-  const r=parseMaterialPattern({type:'cells',coverage:1,invert:true,concentration:{strength:1},gates:[{operation:'union',pattern:{type:'patches',coverage:1}}]});
+it('applies an explicit boundary mask after union gates and inversion',()=>{
+  const r=parseMaterialPattern({type:'cells',coverage:1,invert:true,boundary:{strength:1},gates:[{operation:'union',pattern:{type:'patches',coverage:1}}]});
   expect(sampleMaterialPattern(r,[0,0,0],{face:[0,0,0]})).toBe(1);expect(sampleMaterialPattern(r,[0,0,0],{face:[1,1,0]})).toBe(0);
 });
 it('rejects malformed focus/variation parameters and does not share mutable defaults',()=>{
   for(const bad of [{shapeVariation:2},{sizeVariation:NaN},{concentration:{strength:2}},{concentration:{center:[0,0]}},{concentration:{radius:0}},{concentration:{axes:'yx'}},{concentration:{space:'world'}}])expect(()=>parseMaterialPattern({type:'patches',...bad})).toThrow();
   const a=parseMaterialPattern({type:'patches'}),b=parseMaterialPattern({type:'patches'});a.concentration.center[0]=.5;expect(b.concentration.center[0]).toBe(0);
 });
+it.each(MATERIAL_PATTERN_TYPES)('%s distribution uses whole-feature decisions without fading surviving interiors',type=>{
+  const plain=parseMaterialPattern({type,sizeMeters:.1,coverage:.5,irregularity:0,edgeSoftnessMeters:0}),focused=parseMaterialPattern({...plain,concentration:{strength:1,radius:.8}}),bounds={faceMeters:[2,2] as const};let survivors=0;
+  for(let y=-5;y<5;y++)for(let x=-5;x<5;x++){
+    const a=materialPatternFeatureAtCell(plain,[x,y,0],bounds),b=materialPatternFeatureAtCell(focused,[x,y,0],bounds);expect(b.center).toEqual(a.center);expect(b.sizeScale).toBe(a.sizeScale);
+    if(!a.accepted||!b.accepted)continue;survivors++;const frame={...bounds,face:a.center};
+    expect(sampleMaterialPattern(plain,a.center,frame)).toBe(1);expect(sampleMaterialPattern(focused,a.center,frame)).toBe(1);
+  }expect(survivors).toBeGreaterThan(10);
+});
+it('clumping correlates nearby feature presence without changing their individual shape/size',()=>{
+  const base=parseMaterialPattern({type:'clusters',sizeMeters:.05}),grouped=parseMaterialPattern({...base,clumping:1,groupSizeMeters:.5});
+  function correlation(r:typeof base){const present=new Set<string>();let pairs=0,occupied=0;
+    for(let y=-20;y<20;y++)for(let x=-20;x<20;x++)if(materialPatternFeatureAtCell(r,[x,y,0]).accepted)present.add(x+','+y);
+    for(let y=-20;y<19;y++)for(let x=-20;x<19;x++)if(present.has(x+','+y)){occupied++;if(present.has((x+1)+','+y))pairs++;}
+    return pairs/occupied-present.size/1600;
+  }
+  expect(correlation(grouped)).toBeGreaterThan(correlation(base)+.08);
+  const a=materialPatternFeatureAtCell(base,[3,4,0]),b=materialPatternFeatureAtCell(grouped,[3,4,0]);expect(a.center).toEqual(b.center);expect(a.sizeScale).toBe(b.sizeScale);
+  expect(()=>parseMaterialPattern({type:'patches',clumping:2})).toThrow();expect(()=>parseMaterialPattern({type:'patches',groupSizeMeters:0})).toThrow();
+});
 it('keeps focused planar masks independent of source repeats and validates parser parity',async()=>{
-  const recipe={kind:'texture' as const,version:1 as const,name:'Focused mask',resolution:32,layers:[{source:{kind:'solid' as const,color:'#000000'}},{source:{kind:'solid' as const,color:'#ffffff'},mask:{kind:'pattern' as const,pattern:{type:'patches',coverage:1,shapeVariation:.8,sizeVariation:.4,concentration:{strength:1,radius:.6}}}}]};
+  const recipe={kind:'texture' as const,version:1 as const,name:'Focused mask',resolution:32,layers:[{source:{kind:'solid' as const,color:'#000000'}},{source:{kind:'solid' as const,color:'#ffffff'},mask:{kind:'pattern' as const,pattern:{type:'patches',coverage:1,shapeVariation:.8,sizeVariation:.4,boundary:{strength:1,radius:.6}}}}]};
   expect(parseTextureRecipeData(recipe)).toEqual(textureRecipeSchema.parse(recipe));const a=await renderMaterialRecipe(recipe),b=await renderMaterialRecipe({...recipe,layers:[recipe.layers[0],{...recipe.layers[1],repeat:[4,4]}]});expect(a.color.data).toEqual(b.color.data);
   expect(a.color.data[(16*32+16)*4]).toBe(255);expect(a.color.data[0]).toBe(0);
 });
@@ -59,7 +81,7 @@ it('combines bounded gates and rejects unbounded/ambiguous data',()=>{
   for(const bad of [{type:'missing'},{type:'patches',sizeMeters:0},{type:'patches',coverage:NaN},{type:'veins',seed:.5},{type:'cells',gates:Array(4).fill({})},{type:'cells',gates:[{operation:'intersect',pattern:{type:'veins',gates:[]}}]}])expect(()=>parseMaterialPattern(bad)).toThrow();
 });
 it('uses continuous corner coverage independently of source repeats and semantic orientation',()=>{
-  const r=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.iron),layer=r.layers[0];
+  const r=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.iron),layer=r.layers[0];if(layer.coverage.kind==='pattern'){layer.coverage.pattern.concentration.space='model';layer.coverage.pattern.concentration.strength=0;}
   for(let v=0;v<=1;v+=.1){const a=boxSurfaceFrame(r.sizeMeters,'front').point(1,v),b=boxSurfaceFrame(r.sizeMeters,'right').point(0,v);expect(a).toEqual(b);expect(surfaceCoverage(r,layer,'front',a)).toBe(surfaceCoverage(r,layer,'right',b));}
   const point=boxSurfaceFrame(r.sizeMeters,'front').point(.37,.63),before=surfaceCoverage(r,layer,'front',point);layer.material.tileMeters=[.02,2];expect(surfaceCoverage(r,layer,'front',point)).toBe(before);
 });
@@ -67,7 +89,7 @@ it('blends physical height and material responses with the same mask, including 
   const r=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.gold);r.output.resolution=32;
   const a=await generateObjectSurface(r),clean=await generateObjectSurface({...r,layers:[]});expect(a.faces.front.color.data).not.toEqual(clean.faces.front.color.data);expect(a.faces.front.metalness.data).not.toEqual(clean.faces.front.metalness.data);expect(a.faces.front.normal.data).not.toEqual(clean.faces.front.normal.data);
   r.layers[0].opacity=0;expect((await generateObjectSurface(r)).faces.front.color.data).toEqual(clean.faces.front.color.data);
-  const full=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.iron);if(full.layers[0].coverage.kind==='pattern')full.layers[0].coverage.pattern.coverage=1;
+  const full=objectSurfaceSchema.parse(OBJECT_SURFACE_EXAMPLES.iron);if(full.layers[0].coverage.kind==='pattern'){full.layers[0].coverage.pattern.coverage=1;full.layers[0].coverage.pattern.concentration.strength=0;}
   const before=sampleObjectSurface(full,'front',.2,.7);full.layers[0].heightOffsetMeters-=.02;const after=sampleObjectSurface(full,'front',.2,.7);expect(before.height-after.height).toBeCloseTo(.02);
 });
 it('supports the same pattern masks through texture recipes with data-parser parity',async()=>{
