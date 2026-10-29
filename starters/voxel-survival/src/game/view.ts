@@ -1,3 +1,5 @@
+import {installStarterMedia} from '../sandbox/starterMedia.ts';
+installStarterMedia();
 import {voxelUi} from './ui.ts';
 import * as THREE from 'three';
 import type {CreateView,ReviewCamera,InspectionFocus} from '../shared/gameApi.ts';

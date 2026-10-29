@@ -1,3 +1,5 @@
+import {installStarterMedia} from '../sandbox/starterMedia.ts';
+installStarterMedia();
 import * as THREE from 'three';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import type { CreateView, GameView, InspectionFocus, ReviewCamera, ViewFrame } from '../shared/gameApi.ts';

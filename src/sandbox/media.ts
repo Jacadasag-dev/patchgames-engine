@@ -2,6 +2,10 @@ import type { MaterialSourcePixels } from '../shared/materialRecipeRenderer.ts';
 
 let transport: ((message: unknown) => void) | undefined;
 let sequence = 0, loaded = 0, failed = 0;
+let localResolver:((id:string)=>MaterialSourcePixels|undefined)|undefined;
+/** Register a bounded local source provider for standalone applications. */
+export function setLocalTextureResolver(resolver:(id:string)=>MaterialSourcePixels|undefined):()=>void{const previous=localResolver;localResolver=resolver;return()=>{if(localResolver===resolver)localResolver=previous;};}
+
 const pending = new Map<number, { resolve(value: MaterialSourcePixels): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
 const cache = new Map<string, Promise<MaterialSourcePixels>>();
 export function configureMediaTransport(send: (message: unknown) => void): void {
@@ -9,6 +13,7 @@ export function configureMediaTransport(send: (message: unknown) => void): void 
   pending.clear(); cache.clear(); loaded = 0; failed = 0; transport = send;
 }
 export function resolveTextureSource(id: string): Promise<MaterialSourcePixels> {
+  const local=localResolver?.(id);if(local)return Promise.resolve(local);
   const hit = cache.get(id); if (hit) return hit;
   if (!transport) return Promise.reject(new Error('Material asset transport unavailable. Provide resolveSource for a standalone preview.'));
   if (pending.size >= 16 || typeof id !== 'string' || id.length > 120) return Promise.reject(new Error('Material source request exceeds its budget'));

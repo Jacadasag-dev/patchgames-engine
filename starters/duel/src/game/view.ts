@@ -1,3 +1,5 @@
+import {installStarterMedia} from '../sandbox/starterMedia.ts';
+installStarterMedia();
 import type { CreateView } from '../shared/gameApi.ts';
 import type { FighterState, WorldState } from './shapes.ts';
 import type { GameTuning } from './tuning.ts';

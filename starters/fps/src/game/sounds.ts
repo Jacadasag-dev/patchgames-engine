@@ -1,5 +1,5 @@
 import type {SoundRecipeInput} from '../shared/soundRecipes.ts';
-export const SHOT:SoundRecipeInput={kind:'sound',version:1,duration:.6,layers:[{id:'shot',source:{kind:'asset',id:'sound.gunshot-pistol-1911'},gain:.65,trimEnd:.55,fadeOut:.1}]};
+export const SHOT:SoundRecipeInput={kind:'sound',version:1,duration:.6,layers:[{id:'shot',source:{kind:'noise',color:'white',seed:37},gain:.42,lowpass:4200,fadeIn:.001,fadeOut:.12}]};
 export const RELOAD:SoundRecipeInput={kind:'sound',version:1,duration:.6,layers:[{id:'magazine',source:{kind:'noise',color:'white',seed:41},gain:.16,lowpass:1800,fadeIn:.01,fadeOut:.55}]};
 export const BEEP:SoundRecipeInput={kind:'sound',version:1,duration:.16,layers:[{id:'device',source:{kind:'tone',frequency:960},gain:.15,fadeIn:.01,fadeOut:.04}]};
 

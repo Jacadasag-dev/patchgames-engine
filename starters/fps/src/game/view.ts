@@ -1,3 +1,5 @@
+import {installStarterMedia} from '../sandbox/starterMedia.ts';
+installStarterMedia();
 import {createMapVisuals} from './mapVisuals.ts';
 import {FirearmShotEffects} from '../sandbox/firearmView.ts';
 import * as THREE from 'three';

@@ -1,3 +1,5 @@
+import {installStarterMedia} from '../sandbox/starterMedia.ts';
+installStarterMedia();
 import * as THREE from 'three';
 import type { CreateView, GameView, InspectionFocus, ReviewCamera, ViewFrame } from '../shared/gameApi.ts';
 import { PlayerAppearanceHost } from '../sandbox/playerAppearance.ts';

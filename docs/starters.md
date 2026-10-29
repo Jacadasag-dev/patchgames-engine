@@ -30,3 +30,7 @@ running platform's active season game is separate from these canonical starters.
 
 Starter selection, AI prompts, provider calls and protocol endpoints stay in the
 private integration. Public templates contain gameplay and reference material.
+
+Starter views install local texture pixels through `installStarterMedia()`.
+They do not require the hosted texture service. The FPS gun sounds use editable
+procedural recipes; no account or external sound download is required.
