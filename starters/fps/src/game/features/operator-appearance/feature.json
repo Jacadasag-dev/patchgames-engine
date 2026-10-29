@@ -1,0 +1,11 @@
+{
+  "api": 1,
+  "id": "operator-appearance",
+  "name": "Kestrel operators",
+  "requires": [],
+  "config": {
+    "color": "#46cfc1",
+    "scale": 0.82
+  }
+}
+

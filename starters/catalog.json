@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "starters": [
+    {
+      "id": "duel",
+      "title": "Duel",
+      "description": "Melee combat with guards, parries, dodges and competitive rounds.",
+      "mode": "duel",
+      "tags": [
+        "duel"
+      ],
+      "hostDirectory": "src/gameModes/duel",
+      "keywords": [
+        "melee",
+        "duel",
+        "sword",
+        "fighting"
+      ]
+    },
+    {
+      "id": "arena",
+      "title": "Arena",
+      "description": "Multiplayer survival combat with loot and a shrinking play area.",
+      "mode": "battle-royale",
+      "tags": [
+        "arena"
+      ],
+      "hostDirectory": "src/gameModes/battle-royale",
+      "keywords": [
+        "arena",
+        "battle royale",
+        "last player standing"
+      ]
+    },
+    {
+      "id": "rpg",
+      "title": "Cooperative RPG",
+      "description": "Five classes, enemies, encounters and a cooperative campaign.",
+      "mode": "rpg",
+      "tags": [
+        "rpg"
+      ],
+      "hostDirectory": "src/gameModes/rpg",
+      "keywords": [
+        "rpg",
+        "role playing",
+        "dungeon",
+        "cooperative"
+      ]
+    },
+    {
+      "id": "social",
+      "title": "Social Lounge",
+      "description": "A social space with seating, interactions and minigames.",
+      "mode": "just-chatting",
+      "tags": [
+        "social"
+      ],
+      "hostDirectory": "src/gameModes/just-chatting",
+      "keywords": [
+        "social",
+        "hangout",
+        "lounge",
+        "chat"
+      ]
+    },
+    {
+      "id": "fps",
+      "title": "Kestrel Tactical FPS",
+      "description": "A 5v5 tactical FPS with five operators, abilities, economy, weapons, planting and defusal.",
+      "mode": "just-chatting",
+      "tags": [
+        "team"
+      ],
+      "hostDirectory": "src/gameModes/fps",
+      "keywords": [
+        "fps",
+        "shooter",
+        "valorant",
+        "tactical",
+        "bomb",
+        "defusal"
+      ]
+    },
+    {
+      "id": "voxel-survival",
+      "title": "Blockwild Voxel Survival",
+      "description": "A block world with procedural terrain, mining, placement, inventory and crafting.",
+      "mode": "just-chatting",
+      "tags": [
+        "survival"
+      ],
+      "hostDirectory": "src/gameModes/voxel-survival",
+      "keywords": [
+        "voxel",
+        "minecraft",
+        "mining",
+        "crafting",
+        "block world",
+        "survival"
+      ]
+    },
+    {
+      "id": "blank",
+      "title": "Blank Canvas",
+      "description": "Explicit empty foundation with movement and a camera.",
+      "mode": "just-chatting",
+      "tags": [],
+      "hostDirectory": "src/gameModes/blank",
+      "keywords": [],
+      "blank": true
+    }
+  ]
+}

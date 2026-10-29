@@ -3,7 +3,8 @@ import { existsSync, readFileSync, readdirSync, mkdirSync, writeFileSync, unlink
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 const digest = (text) => createHash("sha256").update(text).digest("hex");
-const owned = (file) => /^src\/(?:sandbox\/[A-Za-z0-9/]+\.(?:ts|js)|client\/game\/[A-Za-z0-9/]+\.(?:ts|js)|client\/ui\/gameUi(?:Style)?\.ts|shared\/[A-Za-z0-9]+\.(?:ts|d\.ts|json))$/.test(file);
+const starterOwned = (file) => /^src\/gameModes\/(?:duel|battle-royale|rpg|just-chatting|blank|fps|voxel-survival)\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|json)$/.test(file);
+const owned = (file) => starterOwned(file) || /^src\/(?:sandbox\/[A-Za-z0-9/]+\.(?:ts|js)|client\/game\/[A-Za-z0-9/]+\.(?:ts|js)|client\/ui\/gameUi(?:Style)?\.ts|shared\/[A-Za-z0-9]+\.(?:ts|d\.ts|json))$/.test(file);
 function receipt(root) {
   const file = resolve(root, ".engine/manifest.json");
   if (!existsSync(file)) return;
@@ -45,6 +46,28 @@ function materializeEngine(options = {}) {
     }
   }
   visit("src");
+  const catalogPath = resolve(engineRoot, "starters/catalog.json");
+  if (existsSync(catalogPath)) {
+    const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
+    for (const starter of catalog.starters) {
+      const sourceRoot = resolve(engineRoot, "starters", starter.id, "src/game");
+      const copy = (directory, relative = "") => {
+        for (const item of readdirSync(directory, { withFileTypes: true })) {
+          if (item.isSymbolicLink()) throw Error("Starter symlinks are not allowed");
+          const part = relative + item.name;
+          if (item.isDirectory()) copy(resolve(directory, item.name), part + "/");
+          else if (/\.(ts|json)$/.test(item.name)) {
+            const target = starter.hostDirectory + "/" + part;
+            if (!starterOwned(target)) throw Error("Invalid starter destination");
+            let source = readFileSync(resolve(directory, item.name), "utf8");
+            source = source.replace(/(['"])((?:\.\.\/)+(?:sandbox|shared|client)\/[^'"\n]+)\1/g, (_all, quote, importPath) => quote + "../" + importPath + quote);
+            files[target] = Buffer.from(source);
+          }
+        }
+      };
+      copy(sourceRoot);
+    }
+  }
   const hostAsset = resolve(root, "src/engineAssets/humanoidLocomotion.ts");
   if (existsSync(hostAsset)) {
     const contents = readFileSync(hostAsset);

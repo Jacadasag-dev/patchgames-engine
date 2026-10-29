@@ -5,7 +5,8 @@ import {fileURLToPath} from 'node:url';
 
 type Receipt={version:1;pin:string;engineVersion:string;files:Record<string,string>};
 const digest=(text:string|Buffer)=>createHash('sha256').update(text).digest('hex');
-const owned=(file:string)=>/^src\/(?:sandbox\/[A-Za-z0-9/]+\.(?:ts|js)|client\/game\/[A-Za-z0-9/]+\.(?:ts|js)|client\/ui\/gameUi(?:Style)?\.ts|shared\/[A-Za-z0-9]+\.(?:ts|d\.ts|json))$/.test(file);
+const starterOwned=(file:string)=>/^src\/gameModes\/(?:duel|battle-royale|rpg|just-chatting|blank|fps|voxel-survival)\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|json)$/.test(file);
+const owned=(file:string)=>starterOwned(file)||/^src\/(?:sandbox\/[A-Za-z0-9/]+\.(?:ts|js)|client\/game\/[A-Za-z0-9/]+\.(?:ts|js)|client\/ui\/gameUi(?:Style)?\.ts|shared\/[A-Za-z0-9]+\.(?:ts|d\.ts|json))$/.test(file);
 function receipt(root:string):Receipt|undefined{
  const file=resolve(root,'.engine/manifest.json');if(!existsSync(file))return;
  const data=JSON.parse(readFileSync(file,'utf8')) as Receipt;
@@ -38,6 +39,24 @@ export function materializeEngine(options:{root?:string;engineRoot?:string;check
   if(item.isDirectory())visit(file);else if(owned(file))files[file]=readFileSync(resolve(engineRoot,file));else throw Error(`Unexpected engine source: ${file}`);
  }}
  visit('src');
+ const catalogPath=resolve(engineRoot,'starters/catalog.json');
+ if(existsSync(catalogPath)){
+  const catalog=JSON.parse(readFileSync(catalogPath,'utf8'));
+  for(const starter of catalog.starters){
+   const sourceRoot=resolve(engineRoot,'starters',starter.id,'src/game');
+   const copy=(directory:string,relative='')=>{for(const item of readdirSync(directory,{withFileTypes:true})){
+    if(item.isSymbolicLink())throw Error('Starter symlinks are not allowed');
+    const part=relative+item.name;
+    if(item.isDirectory())copy(resolve(directory,item.name),part+'/');
+    else if(/\.(ts|json)$/.test(item.name)){
+     const target=starter.hostDirectory+'/'+part;if(!starterOwned(target))throw Error('Invalid starter destination');
+     let source=readFileSync(resolve(directory,item.name),'utf8');
+     source=source.replace(/(['"])((?:\.\.\/)+(?:sandbox|shared|client)\/[^'"\n]+)\1/g,(_all,quote,importPath)=>quote+'../'+importPath+quote);
+     files[target]=Buffer.from(source);
+    }
+   }};copy(sourceRoot);
+  }
+ }
  // This asset remains private. Only its data adapter differs from the OSS starter.
  const hostAsset=resolve(root,'src/engineAssets/humanoidLocomotion.ts');
  if(existsSync(hostAsset)){

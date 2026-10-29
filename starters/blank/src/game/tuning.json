@@ -1,0 +1,10 @@
+{
+  "fighterRadius": 0.38,
+  "fighterHeight": 1.75,
+  "maxHp": 100,
+  "moveSpeed": 5,
+  "gravity": 20,
+  "maxSlopeDegrees": 50,
+  "jumpSpeed": 7,
+  "lookSpeed": 0.003
+}

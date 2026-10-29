@@ -1,0 +1,197 @@
+{
+  "fields": {
+    "arenaRadius": {
+      "exclusiveMinimum": 0,
+      "unit": "m",
+      "description": "Distance from the arena center to its edge."
+    },
+    "fighterRadius": {
+      "exclusiveMinimum": 0,
+      "unit": "m",
+      "description": "Radius of the fighter's collision body."
+    },
+    "spawnOffsetX": {
+      "unit": "m",
+      "description": "Preferred distance of each fighter from the center at spawn."
+    },
+    "maxHp": {
+      "exclusiveMinimum": 0,
+      "description": "Starting health. Changes apply to a fresh preview or match."
+    },
+    "moveSpeed": {
+      "minimum": 0,
+      "unit": "m/s",
+      "description": "Movement speed."
+    },
+    "blockMoveMultiplier": {
+      "minimum": 0,
+      "description": "Movement speed multiplier while blocking."
+    },
+    "attackDamage": {
+      "minimum": 0,
+      "description": "Damage dealt by an attack."
+    },
+    "attackRange": {
+      "exclusiveMinimum": 0,
+      "unit": "m",
+      "description": "Attack reach."
+    },
+    "attackWindupMs": {
+      "minimum": 0,
+      "unit": "ms",
+      "description": "Delay before an attack connects."
+    },
+    "attackRecoveryMs": {
+      "minimum": 0,
+      "unit": "ms",
+      "description": "Recovery time after an attack."
+    },
+    "knockdownMs": {
+      "minimum": 0,
+      "unit": "ms",
+      "description": "How long a knocked-down fighter stays down."
+    },
+    "fighterHeight": {
+      "exclusiveMinimum": 0,
+      "unit": "m",
+      "description": "Height of the fighter's collision body."
+    },
+    "gravity": {
+      "exclusiveMinimum": 0,
+      "unit": "m/s²",
+      "description": "Downward acceleration."
+    },
+    "maxSlopeDegrees": {
+      "exclusiveMinimum": 0,
+      "exclusiveMaximum": 89,
+      "unit": "°",
+      "description": "Steepest slope a fighter can walk on."
+    },
+    "sprintMultiplier": {
+      "minimum": 0,
+      "description": "sprint Multiplier"
+    },
+    "heavyDamage": {
+      "minimum": 0,
+      "description": "heavy Damage"
+    },
+    "heavyChargeDamage": {
+      "minimum": 0,
+      "description": "heavy Charge Damage"
+    },
+    "heavyChargeMs": {
+      "description": "Hold duration needed for maximum heavy damage; release always starts the heavy strike.",
+      "unit": "ms",
+      "exclusiveMinimum": 0
+    },
+    "heavyWindupMs": {
+      "minimum": 0,
+      "description": "heavy Windup Ms",
+      "unit": "ms"
+    },
+    "heavyRecoveryMs": {
+      "minimum": 0,
+      "description": "heavy Recovery Ms",
+      "unit": "ms"
+    },
+    "parryWindowMs": {
+      "minimum": 0,
+      "description": "A fresh matching guard input this close before contact parries the sword.",
+      "unit": "ms"
+    },
+    "parryRearmMs": {
+      "minimum": 0,
+      "description": "Minimum interval between fresh parry windows, preventing rapid guard spam.",
+      "unit": "ms"
+    },
+    "parryStunMs": {
+      "minimum": 0,
+      "description": "parry Stun Ms",
+      "unit": "ms"
+    },
+    "hitStunMs": {
+      "minimum": 0,
+      "description": "hit Stun Ms",
+      "unit": "ms"
+    },
+    "bashRange": {
+      "minimum": 0,
+      "description": "bash Range"
+    },
+    "bashWindupMs": {
+      "minimum": 0,
+      "description": "bash Windup Ms",
+      "unit": "ms"
+    },
+    "bashRecoveryMs": {
+      "minimum": 0,
+      "description": "bash Recovery Ms",
+      "unit": "ms"
+    },
+    "bashCounterMs": {
+      "minimum": 0,
+      "description": "Age of an opposing hilt action eligible to counter a connecting hilt strike.",
+      "unit": "ms"
+    },
+    "bashStunMs": {
+      "minimum": 0,
+      "description": "bash Stun Ms",
+      "unit": "ms"
+    },
+    "sprintHoldMs": {
+      "minimum": 0,
+      "description": "Holding the dodge button this long starts sprinting; shorter releases dodge.",
+      "unit": "ms"
+    },
+    "dodgeDurationMs": {
+      "minimum": 0,
+      "description": "dodge Duration Ms",
+      "unit": "ms"
+    },
+    "dodgeCooldownMs": {
+      "minimum": 0,
+      "description": "dodge Cooldown Ms",
+      "unit": "ms"
+    },
+    "dodgeSpeed": {
+      "minimum": 0,
+      "description": "dodge Speed"
+    },
+    "dodgeInvulnerableStartMs": {
+      "minimum": 0,
+      "description": "dodge Invulnerable Start Ms",
+      "unit": "ms"
+    },
+    "dodgeInvulnerableEndMs": {
+      "minimum": 0,
+      "description": "dodge Invulnerable End Ms",
+      "unit": "ms"
+    }
+  },
+  "relations": [
+    {
+      "field": "arenaRadius",
+      "atLeast": "fighterRadius",
+      "factor": 3,
+      "message": "Arena radius must be at least 3 times the fighter radius."
+    },
+    {
+      "field": "fighterHeight",
+      "atLeast": "fighterRadius",
+      "factor": 2,
+      "message": "Fighter height must be at least twice the fighter radius."
+    },
+    {
+      "field": "dodgeDurationMs",
+      "atLeast": "dodgeInvulnerableEndMs",
+      "factor": 1,
+      "message": "Dodge invulnerability must end during the dodge."
+    },
+    {
+      "field": "dodgeInvulnerableEndMs",
+      "atLeast": "dodgeInvulnerableStartMs",
+      "factor": 1,
+      "message": "Dodge invulnerability must end after it starts."
+    }
+  ]
+}

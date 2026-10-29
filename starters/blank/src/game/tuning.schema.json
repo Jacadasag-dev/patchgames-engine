@@ -1,0 +1,15 @@
+{
+  "fields": {
+    "fighterRadius": { "minimum": 0.2, "maximum": 0.4, "unit": "m", "description": "Body radius of each participant." },
+    "fighterHeight": { "minimum": 1, "maximum": 3, "unit": "m", "description": "Standing participant height." },
+    "maxHp": { "minimum": 1, "maximum": 300, "description": "Health when the selected host rules use damage." },
+    "moveSpeed": { "minimum": 1, "maximum": 15, "unit": "m/s", "description": "Walking speed." },
+    "gravity": { "exclusiveMinimum": 0, "unit": "m/s²", "description": "Shared character gravity." },
+    "maxSlopeDegrees": { "exclusiveMinimum": 0, "exclusiveMaximum": 89, "unit": "°", "description": "Maximum walkable slope." },
+    "jumpSpeed": { "minimum": 1, "maximum": 15, "unit": "m/s", "description": "Jump launch speed." },
+    "lookSpeed": { "minimum": 0.0005, "maximum": 0.02, "unit": "rad/px", "description": "Mouse look sensitivity." }
+  },
+  "relations": [
+    { "field": "fighterHeight", "atLeast": "fighterRadius", "factor": 2, "message": "Player height must be at least twice the body radius." }
+  ]
+}

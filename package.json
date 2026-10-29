@@ -1,6 +1,6 @@
 {
   "name": "@patchgames/engine",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Sandboxed multiplayer game runtime, authoring helpers and browser presentation for PatchGames.",
@@ -17,7 +17,8 @@
     "./install": {
       "types": "./tools/generated/materialize-engine.d.mts",
       "default": "./tools/generated/materialize-engine.mjs"
-    }
+    },
+    "./starters": "./tools/starters.ts"
   },
   "files": [
     "src",
@@ -26,7 +27,8 @@
     "third-party",
     "tools",
     "LICENSE",
-    "THIRD_PARTY_NOTICES.md"
+    "THIRD_PARTY_NOTICES.md",
+    "starters"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",

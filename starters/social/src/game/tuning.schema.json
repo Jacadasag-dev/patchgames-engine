@@ -1,0 +1,21 @@
+{
+  "fields": {
+    "fighterRadius": { "minimum": 0.2, "maximum": 0.4, "unit": "m", "description": "Body radius supported by lounge paths and chair clearances." },
+    "fighterHeight": { "minimum": 1, "maximum": 3, "unit": "m", "description": "Standing avatar height." },
+    "maxHp": { "minimum": 1, "maximum": 300, "description": "Health when this portable lounge uses combat host rules." },
+    "moveSpeed": { "minimum": 1, "maximum": 15, "unit": "m/s", "description": "Walking speed." },
+    "gravity": { "exclusiveMinimum": 0, "unit": "m/s²", "description": "Shared character gravity." },
+    "maxSlopeDegrees": { "exclusiveMinimum": 0, "exclusiveMaximum": 89, "unit": "°", "description": "Maximum walkable terrain slope." },
+    "jumpSpeed": { "minimum": 1, "maximum": 15, "unit": "m/s", "description": "Jump launch speed." },
+    "sitDistance": { "minimum": 0.5, "maximum": 3, "unit": "m", "description": "Distance to interact with an unoccupied seat." },
+    "emoteDurationMs": { "minimum": 1000, "maximum": 15000, "unit": "ms", "description": "Duration of a selected social emote; moving cancels it." },
+    "attackDamage": { "minimum": 1, "maximum": 100, "description": "Punch damage in combat host modes." },
+    "attackReach": { "minimum": 0.5, "maximum": 3, "unit": "m", "description": "Punch reach in combat host modes." },
+    "attackCooldownMs": { "minimum": 200, "maximum": 5000, "unit": "ms", "description": "Time between punches in combat modes." },
+    "attackDurationMs": { "minimum": 30, "maximum": 500, "unit": "ms", "description": "Punch contact duration in combat modes." }
+  },
+  "relations": [
+    { "field": "fighterHeight", "atLeast": "fighterRadius", "factor": 2, "message": "Player height must be at least twice the body radius." },
+    { "field": "attackCooldownMs", "atLeast": "attackDurationMs", "factor": 1, "message": "Attack cooldown must cover the contact duration." }
+  ]
+}

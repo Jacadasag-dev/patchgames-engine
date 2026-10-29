@@ -1,0 +1,11 @@
+{
+  "arenaRadius": 9, "fighterRadius": 0.42, "spawnOffsetX": 3, "maxHp": 100,
+  "moveSpeed": 3.8, "blockMoveMultiplier": 0.83, "sprintMultiplier": 1.85,
+  "attackDamage": 15, "attackRange": 1.65, "attackWindupMs": 400, "attackRecoveryMs": 350,
+  "heavyDamage": 26, "heavyChargeDamage": 19, "heavyChargeMs": 1000, "heavyWindupMs": 520, "heavyRecoveryMs": 650,
+  "parryWindowMs": 140, "parryRearmMs": 240, "parryStunMs": 650, "hitStunMs": 180,
+  "bashRange": 1.0, "bashWindupMs": 280, "bashRecoveryMs": 500, "bashCounterMs": 320, "bashStunMs": 650,
+  "sprintHoldMs": 180, "dodgeDurationMs": 320, "dodgeCooldownMs": 650, "dodgeSpeed": 8,
+  "dodgeInvulnerableStartMs": 0, "dodgeInvulnerableEndMs": 240,
+  "knockdownMs": 3000, "fighterHeight": 1.88, "gravity": 20, "maxSlopeDegrees": 50
+}

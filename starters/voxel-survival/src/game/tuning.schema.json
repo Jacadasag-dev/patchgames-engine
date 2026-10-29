@@ -1,0 +1,42 @@
+{
+  "fields": {
+    "fighterRadius": {
+      "minimum": 0.00001,
+      "maximum": 100
+    },
+    "fighterHeight": {
+      "minimum": 0.00001,
+      "maximum": 100
+    },
+    "maxHp": {
+      "minimum": 0.00001,
+      "maximum": 1000
+    },
+    "moveSpeed": {
+      "minimum": 0.00001,
+      "maximum": 100
+    },
+    "gravity": {
+      "minimum": 0,
+      "maximum": 100
+    },
+    "maxSlopeDegrees": {
+      "minimum": 0.00001,
+      "maximum": 100
+    },
+    "jumpSpeed": {
+      "minimum": 0.00001,
+      "maximum": 100
+    },
+    "lookSpeed": {
+      "minimum": 0.00001,
+      "maximum": 0.02
+    },
+    "worldSeed": {
+      "minimum": 0,
+      "maximum": 2147483647,
+      "integer": true,
+      "description": "Procedural world seed. A new seed changes hills, caves, biomes, trees and ores."
+    }
+  }
+}

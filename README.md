@@ -14,6 +14,13 @@ The engine provides:
 - HTML/CSS game UI with layout validation, moddable themes, inventory presets,
   scene transitions, and round lifecycle contracts.
 
+## Complete starter games
+
+Six editable games ship with the engine: Duel, Arena, RPG, Social Lounge,
+Kestrel Tactical FPS and Blockwild Voxel Survival. See [starters](docs/starters.md)
+for installation and reference systems. Blank is available only as an explicit
+empty template.
+
 ## Quick start
 
 Use Node.js 22.18 or newer and npm:

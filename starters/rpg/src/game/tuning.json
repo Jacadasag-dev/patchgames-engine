@@ -1,0 +1,17 @@
+{
+  "fighterRadius": 0.45,
+  "fighterHeight": 1.6,
+  "maxHp": 100,
+  "moveSpeed": 5.5,
+  "gravity": 20,
+  "maxSlopeDegrees": 50,
+  "enemyHp": 60,
+  "enemyDamage": 13,
+  "enemySpeed": 2.7,
+  "bossHp": 360,
+  "bossDamage": 32,
+  "partyHealthScale": 0.55,
+  "skillCooldownMs": 7000,
+  "healAmount": 30,
+  "healRadius": 6
+}

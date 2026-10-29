@@ -3,7 +3,7 @@ import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 
-const contentRoots=['src','docs','examples','tools','third-party'];
+const contentRoots=['src','docs','examples','tools','third-party','starters'];
 const forbiddenPath=/(?:^|\/)(?:ops|server|mcp|agents?|connectors?|integrations?)(?:\/|$)|(?:^|\/)(?:agentMcp|agentOAuth|agentConnection|builderTools|sourceContext|authoringGuides|changeReview|inspectionCases)\.[cm]?[jt]sx?$/i;
 const provider=/^(?:@modelcontextprotocol\/|@anthropic-ai\/|@aws-sdk\/client-bedrock|openai(?:\/|$)|@google\/genai(?:\/|$))/;
 const privateImport=/(?:from\s*|import\s*\(|require\s*\()\s*['"](?:[^'"]*\/(?:ops|server|mcp|agents|connectors)\/|@modelcontextprotocol\/|@anthropic-ai\/|@aws-sdk\/client-bedrock|openai(?:\/|['"])|@google\/genai)/;
@@ -15,7 +15,7 @@ export function checkPublicBoundary(root,packagePaths){
  for(const section of ['dependencies','devDependencies','peerDependencies','optionalDependencies'])for(const name of Object.keys(pkg[section]??{}))if(provider.test(name))add('package.json',`Private integration dependency: ${name}`);
  const allowedFiles=new Set(['LICENSE','THIRD_PARTY_NOTICES.md','README.md','package.json']);
  for(const entry of pkg.files??[])if(!contentRoots.includes(entry)&&!allowedFiles.has(entry)&&entry!=='third-party')add('package.json',`Unexpected package entry: ${entry}`);
- function visit(dir){for(const item of readdirSync(resolve(root,dir),{withFileTypes:true})){const path=dir+'/'+item.name;if(item.isSymbolicLink()){add(path,'Source tree symlink is not allowed');continue;}if(forbiddenPath.test(path))add(path,'Private integration path in public source');if(item.isDirectory())visit(path);else if(/\.[cm]?[jt]sx?$/.test(path)&&['src','tools','examples'].some(prefix=>dir===prefix||dir.startsWith(prefix+'/'))&&privateImport.test(readFileSync(resolve(root,path),'utf8')))add(path,'Private platform or model-provider import');}}
+ function visit(dir){for(const item of readdirSync(resolve(root,dir),{withFileTypes:true})){const path=dir+'/'+item.name;if(item.isSymbolicLink()){add(path,'Source tree symlink is not allowed');continue;}if(forbiddenPath.test(path))add(path,'Private integration path in public source');if(item.isDirectory())visit(path);else if(/\.[cm]?[jt]sx?$/.test(path)&&['src','tools','examples','starters'].some(prefix=>dir===prefix||dir.startsWith(prefix+'/'))&&privateImport.test(readFileSync(resolve(root,path),'utf8')))add(path,'Private platform or model-provider import');}}
  for(const dir of contentRoots)if(existsSync(resolve(root,dir)))visit(dir);
  for(const path of packagePaths??[])if(forbiddenPath.test(path)||!(allowedFiles.has(path)||contentRoots.some(dir=>path.startsWith(dir+'/'))||path.startsWith('third-party/')))add(path,'Unexpected packaged file');
  return issues;

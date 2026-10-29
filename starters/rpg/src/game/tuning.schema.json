@@ -1,0 +1,20 @@
+{
+  "fields": {
+    "fighterRadius": { "minimum": 0.2, "maximum": 1, "unit": "m", "description": "Shared capsule width; compatible with movement and appearance mods." },
+    "fighterHeight": { "minimum": 0.5, "maximum": 3, "unit": "m", "description": "Shared capsule height." },
+    "maxHp": { "minimum": 1, "maximum": 300, "description": "Starting health for each adventurer." },
+    "moveSpeed": { "minimum": 1, "maximum": 15, "unit": "m/s", "description": "Base movement speed before each class modifier." },
+    "gravity": { "exclusiveMinimum": 0, "unit": "m/s²", "description": "Shared character gravity, available to portable movement mods." },
+    "maxSlopeDegrees": { "exclusiveMinimum": 0, "exclusiveMaximum": 89, "unit": "°", "description": "Steepest walkable surface." },
+    "enemyHp": { "minimum": 1, "maximum": 1000, "description": "Solo enemy health before party scaling." },
+    "enemyDamage": { "minimum": 1, "maximum": 100, "description": "Damage from a telegraphed enemy strike." },
+    "enemySpeed": { "minimum": 0.5, "maximum": 10, "unit": "m/s", "description": "Enemy pursuit speed." },
+    "bossHp": { "minimum": 1, "maximum": 10000, "description": "Solo gatekeeper health before party scaling." },
+    "bossDamage": { "minimum": 1, "maximum": 200, "description": "Damage inside the gatekeeper slam circle." },
+    "partyHealthScale": { "minimum": 0, "maximum": 2, "description": "Extra enemy health per additional adventurer. Damage stays constant." },
+    "skillCooldownMs": { "minimum": 1000, "maximum": 30000, "unit": "ms", "description": "Cooldown for each class's unique skill." },
+    "healAmount": { "minimum": 1, "maximum": 100, "description": "Health restored by the cleric's healing light to living nearby allies." },
+    "healRadius": { "minimum": 1, "maximum": 15, "unit": "m", "description": "Cleric healing light radius. Reviving is a separate held interaction." }
+  },
+  "relations": [{ "field": "fighterHeight", "atLeast": "fighterRadius", "factor": 2, "message": "Player height must be at least twice the body radius." }]
+}

@@ -1,0 +1,241 @@
+{
+  "fields": {
+    "arenaRadius": {
+      "minimum": 24,
+      "maximum": 128,
+      "unit": "m",
+      "description": "Radius of the generated survival map and initial safe zone; layout scales with this value."
+    },
+    "spawnRadius": {
+      "minimum": 8,
+      "maximum": 24,
+      "unit": "m",
+      "description": "Central starting ring radius. Keep enough space for all 32 player bodies."
+    },
+    "fighterRadius": {
+      "minimum": 0.2,
+      "maximum": 1,
+      "unit": "m",
+      "description": "Player body radius."
+    },
+    "fighterHeight": {
+      "minimum": 0.4,
+      "maximum": 3,
+      "unit": "m",
+      "description": "Player body height."
+    },
+    "maxHp": {
+      "minimum": 1,
+      "maximum": 200,
+      "description": "Starting health. Bandages restore living players only."
+    },
+    "moveSpeed": {
+      "minimum": 1,
+      "maximum": 15,
+      "unit": "m/s",
+      "description": "Movement speed; diagonal input is normalized."
+    },
+    "gravity": {
+      "exclusiveMinimum": 0,
+      "unit": "m/s²",
+      "description": "Downward acceleration, shared by character movement and portable mods."
+    },
+    "maxSlopeDegrees": {
+      "exclusiveMinimum": 0,
+      "exclusiveMaximum": 89,
+      "unit": "°",
+      "description": "Steepest walkable character surface."
+    },
+    "attackDamage": {
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Damage per unarmed strike."
+    },
+    "attackReach": {
+      "minimum": 0.5,
+      "maximum": 5,
+      "unit": "m",
+      "description": "Forward reach of an unarmed strike."
+    },
+    "weaponDamage": {
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Sword damage per strike."
+    },
+    "weaponReach": {
+      "minimum": 0.5,
+      "maximum": 8,
+      "unit": "m",
+      "description": "Forward reach after collecting a weapon."
+    },
+    "attackCooldownMs": {
+      "minimum": 200,
+      "maximum": 2000,
+      "unit": "ms",
+      "description": "Time between attacks while the attack button is held."
+    },
+    "attackDurationMs": {
+      "minimum": 34,
+      "maximum": 1500,
+      "unit": "ms",
+      "description": "Melee swing duration. Windup0–25%, checked contact25–65%, recovery65–100%."
+    },
+    "supplyCount": {
+      "minimum": 1,
+      "maximum": 16,
+      "description": "Central weapon count, rounded down and capped below participant count."
+    },
+    "cacheCount": {
+      "minimum": 0,
+      "maximum": 32,
+      "description": "Chest sites inside buildings and along wilderness routes. Blocked sites relocate nearby or are omitted."
+    },
+    "supplyRadius": {
+      "minimum": 1,
+      "maximum": 10,
+      "unit": "m",
+      "description": "Radius of the central weapon ring."
+    },
+    "pickupRadius": {
+      "minimum": 0.5,
+      "maximum": 5,
+      "unit": "m",
+      "description": "Maximum range for opening and looting an aimed chest with clear line of sight."
+    },
+    "zoneDelayMs": {
+      "minimum": 0,
+      "maximum": 60000,
+      "unit": "ms",
+      "description": "Exploration grace period before the safe zone starts shrinking."
+    },
+    "zoneShrinkMs": {
+      "minimum": 10000,
+      "maximum": 225000,
+      "unit": "ms",
+      "description": "Time to close the safe zone after the grace period. Keep total closure below the five-minute match limit."
+    },
+    "zoneDamagePerSecond": {
+      "minimum": 5,
+      "maximum": 100,
+      "description": "Damage per second outside the safe zone; the closed zone hurts everywhere."
+    },
+    "bandageDurationMs": {
+      "description": "Stationary uninterrupted hold time to use one bandage.",
+      "unit": "ms",
+      "minimum": 1000,
+      "maximum": 10000
+    },
+    "bowGravity": {
+      "description": "Arrow drop acceleration.",
+      "unit": "m/s²",
+      "minimum": 0,
+      "maximum": 20
+    },
+    "armorReduction": {
+      "description": "Damage fraction prevented by each equipped armor slot.",
+      "minimum": 0,
+      "maximum": 0.2
+    },
+    "bandageHeal": {
+      "description": "Health restored by one completed bandage channel.",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "bowDamage": {
+      "description": "Damage per arrow before armor.",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "jumpSpeed": {
+      "description": "Jump speed for traversing elevation.",
+      "unit": "m/s",
+      "minimum": 1,
+      "maximum": 15
+    },
+    "bowCooldownMs": {
+      "description": "Recovery delay after releasing an arrow; a new press is required to draw again.",
+      "unit": "ms",
+      "minimum": 300,
+      "maximum": 3000
+    },
+    "terrainSeed": {
+      "description": "Procedural terrain, building and wilderness chest seed.",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "bowSpeed": {
+      "description": "Arrow launch speed.",
+      "unit": "m/s",
+      "minimum": 10,
+      "maximum": 80
+    },
+    "bowDrawDurationMs": {
+      "maximum": 3000,
+      "description": "Time to draw the bow fully while holding attack.",
+      "minimum": 300,
+      "unit": "ms"
+    },
+    "bowMinDrawMs": {
+      "maximum": 1500,
+      "description": "Minimum draw time before release can fire an arrow. Short taps cancel without using ammo.",
+      "minimum": 100,
+      "unit": "ms"
+    },
+    "bowReleaseMs": {
+      "maximum": 600,
+      "description": "Visible release and recovery after a fired arrow.",
+      "minimum": 100,
+      "unit": "ms"
+    }
+  },
+  "relations": [
+    {
+      "field": "arenaRadius",
+      "atLeast": "spawnRadius",
+      "factor": 1.1,
+      "message": "The starting ring needs at least 10% space before the arena edge."
+    },
+    {
+      "field": "spawnRadius",
+      "atLeast": "supplyRadius",
+      "factor": 2,
+      "message": "Starts must be at least twice as far from the center as the supplies."
+    },
+    {
+      "field": "fighterHeight",
+      "atLeast": "fighterRadius",
+      "factor": 2,
+      "message": "Player height must be at least twice the body radius."
+    },
+    {
+      "field": "attackCooldownMs",
+      "atLeast": "attackDurationMs",
+      "factor": 1,
+      "message": "Attack duration cannot exceed its cooldown."
+    },
+    {
+      "field": "weaponDamage",
+      "atLeast": "attackDamage",
+      "factor": 1,
+      "message": "A weapon must deal at least as much damage as an unarmed attack."
+    },
+    {
+      "field": "weaponReach",
+      "atLeast": "attackReach",
+      "factor": 1,
+      "message": "A weapon must reach at least as far as an unarmed attack."
+    },
+    {
+      "message": "Full draw time must be at least the minimum firing draw time.",
+      "field": "bowDrawDurationMs",
+      "atLeast": "bowMinDrawMs",
+      "factor": 1
+    },
+    {
+      "message": "Bow cooldown must cover the release recovery.",
+      "field": "bowCooldownMs",
+      "atLeast": "bowReleaseMs",
+      "factor": 1
+    }
+  ]
+}

@@ -156,20 +156,20 @@ export function gameTagsLabel(tags: readonly GameTagId[]): string {
 /** Starters: the seeded game a new game begins from and a lobby can pick. One per tag
  * (its category's stock content or the game the last season elected) plus the blank
  * canvas. Choosing one pre-fills its game's tags. */
-export const GAME_STARTER_IDS = [...GAME_TAG_IDS, 'blank'] as const;
+export const GAME_STARTER_IDS = [...GAME_TAG_IDS, 'fps', 'voxel-survival', 'blank'] as const;
 export type GameStarterId = typeof GAME_STARTER_IDS[number];
 export function isGameStarter(value: unknown): value is GameStarterId {
   return typeof value === 'string' && (GAME_STARTER_IDS as readonly string[]).includes(value);
 }
 /** The tags a starter's stock content pre-fills; an elected starter pre-fills its game's tags instead. */
 export function starterTags(starter: GameStarterId): GameTagId[] {
-  return starter === 'blank' ? [] : [starter];
+  return starter === 'blank' ? [] : starter === 'fps' ? ['team'] : starter === 'voxel-survival' ? ['survival'] : [starter];
 }
 export function starterLabel(starter: GameStarterId): string {
-  return starter === 'blank' ? 'Blank canvas' : `${tagLabel(starter)} starter`;
+  return starter === 'blank' ? 'Blank canvas' : starter === 'fps' ? 'Tactical FPS starter' : starter === 'voxel-survival' ? 'Voxel survival starter' : `${tagLabel(starter)} starter`;
 }
 /** The starter a legacy `base: season` request means: the archetype's, else the first modifier's, else the canvas. */
-export function starterForTags(tags: readonly GameTagId[]): GameStarterId {
+export function starterForTags(tags: readonly GameTagId[]): GameTagId | 'blank' {
   const archetype = archetypeOf(tags);
   return archetype !== 'free' ? archetype : GAME_TAG_IDS.find(tag => tags.includes(tag) && !isArchetypeTag(tag)) ?? 'blank';
 }

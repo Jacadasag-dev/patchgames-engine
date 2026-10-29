@@ -1,0 +1,15 @@
+{
+  "fighterRadius": 0.38,
+  "fighterHeight": 1.75,
+  "maxHp": 100,
+  "moveSpeed": 5,
+  "gravity": 20,
+  "maxSlopeDegrees": 50,
+  "jumpSpeed": 7,
+  "sitDistance": 2.2,
+  "emoteDurationMs": 5500,
+  "attackDamage": 12,
+  "attackReach": 1.6,
+  "attackCooldownMs": 650,
+  "attackDurationMs": 120
+}

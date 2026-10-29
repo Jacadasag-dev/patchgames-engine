@@ -1,0 +1,33 @@
+{
+  "fields": {
+    "players": {
+      "optional": true,
+      "integer": true,
+      "pair": true,
+      "minimum": 1,
+      "maximum": 32,
+      "default": [
+        2,
+        8
+      ],
+      "description": "How many players the game is for: one count, or a [min, max] range the host picks inside. Leave it out to let the tags decide."
+    },
+    "teams": {
+      "optional": true,
+      "integer": true,
+      "minimum": 0,
+      "maximum": 16,
+      "default": 2,
+      "description": "0 for no teams, or 2–16 teams dealt by seat under the team tag; one team is not allowed."
+    },
+    "teamSize": {
+      "optional": true,
+      "integer": true,
+      "minimum": 1,
+      "maximum": 32,
+      "default": 2,
+      "description": "Players per team. teams × teamSize must fit the declared players, and fixes the count when players is left out."
+    }
+  }
+}
+
