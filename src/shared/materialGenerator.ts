@@ -1,3 +1,4 @@
+import {parseMaterialFracture,createMaterialFractureSampler,type MaterialFracture} from './materialFracture.ts';
 import {z} from 'zod';
 import type {TexturePixels} from './materialRecipeRenderer.ts';
 
@@ -9,6 +10,7 @@ export const materialGeneratorSchema=z.object({
   version:z.literal(1).default(1),seed:z.number().int().min(-2147483648).max(2147483647).default(1),
   name:z.string().min(1).max(120).default('Generated material'),tileMeters:z.tuple([length,length]).default([2,2]),
   color:color.default('#967b60'),secondaryColor:color.default('#514637'),variation:unit.default(0.3),roughness:unit.default(0.8),weathering:unit.default(0.15),
+  fracture:z.unknown().transform((input,ctx)=>{try{return parseMaterialFracture(input);}catch(error){ctx.addIssue({code:'custom',message:String(error)});return z.NEVER;}}).optional(),
   optics:z.object({transmission:unit.default(0),ior:z.number().finite().min(1).max(2.5).default(1.5),thicknessMeters:z.number().finite().min(0).max(2).default(.02),attenuationColor:color.default('#ffffff'),attenuationDistanceMeters:z.number().finite().min(.001).max(100).default(1),envMapIntensity:z.number().finite().min(0).max(4).default(1)}).strict().optional(),
   reliefMeters:z.number().finite().min(0).max(0.2).default(0.008),
   output:z.object({resolution:z.union([z.literal(32),z.literal(64),z.literal(128),z.literal(256),z.literal(512),z.literal(1024),z.literal(2048)]).default(256),style:z.enum(['realistic','stylized','pixel']).default('realistic'),paletteSteps:z.number().int().min(2).max(32).default(8)}).strict().default({resolution:256,style:'realistic',paletteSteps:8}),
@@ -45,8 +47,18 @@ function noise(u:number,v:number,nx:number,ny:number,seed:number){
   return mix(mix(hash(ix,iy,seed),hash((ix+1)%nx,iy,seed),sx),mix(hash(ix,(iy+1)%ny,seed),hash((ix+1)%nx,(iy+1)%ny,seed),sx),sy);
 }
 const cells=(span:number,size:number)=>Math.max(1,Math.min(256,Math.round(span/size)));
+const defaultFracture=parseMaterialFracture({});
+const fractureCache=new Map<string,ReturnType<typeof createMaterialFractureSampler>>();
+/** Shared fracture field for map baking, object surfaces and point probes. */
+export function materialFractureAt(r:ResolvedMaterialGenerator,u:number,v:number,footprintMeters=0){
+  const familyStrength=r.pattern.family==='plaster'?r.pattern.cracks:r.pattern.family==='rock'?r.pattern.fractures:0;
+  const fracture:MaterialFracture|undefined=r.fracture??(familyStrength?{...defaultFracture,strength:familyStrength,spreadMeters:Math.max(...r.tileMeters)}:undefined);
+  if(!fracture)return;
+  const key=JSON.stringify([fracture,r.tileMeters,r.seed]);let sampler=fractureCache.get(key);if(!sampler){if(fractureCache.size>=128)fractureCache.clear();sampler=createMaterialFractureSampler(fracture,r.tileMeters,r.seed);fractureCache.set(key,sampler);}
+  return{fracture,weight:sampler.sample(wrap(u),wrap(v),footprintMeters)};
+}
 /** Periodic fields: colour, height, roughness, metalness and cavity shade describe one surface. */
-export function sampleMaterialGenerator(r:ResolvedMaterialGenerator,u:number,v:number):[number,number,number,number,number]{
+export function sampleMaterialGenerator(r:ResolvedMaterialGenerator,u:number,v:number,footprintMeters=0):[number,number,number,number,number]{
   u=wrap(u);v=wrap(v);const p=r.pattern,s=r.seed,coarse=noise(u,v,8,8,s),fine=noise(u,v,64,64,s+91),micro=noise(u,v,256,256,s+157);
   let h=0.4+0.15*coarse,t=coarse,rough=r.roughness,metal=0,ao=1;
   if(p.family==='masonry'){
@@ -70,8 +82,8 @@ export function sampleMaterialGenerator(r:ResolvedMaterialGenerator,u:number,v:n
     }
     const gap=clamp((second-best)*12);h=clamp(1-best*1.5)*gap;t=(0.3+id*0.55)*(0.6+gap*0.4)+(micro-0.5)*0.1;ao=0.55+0.45*gap;
   }else if(p.family==='rock'){
-    const n=noise(u,v,cells(r.tileMeters[0],p.grainMeters),cells(r.tileMeters[1],p.grainMeters),s+3),vein=1-clamp(Math.abs(coarse-0.5)*35);
-    h=0.3+n*0.4-vein*p.fractures*0.2;t=n*0.7+0.15+Math.sin(v*Math.PI*16+coarse*2)*p.layering*0.1;ao=1-vein*p.fractures*0.3;
+    const n=noise(u,v,cells(r.tileMeters[0],p.grainMeters),cells(r.tileMeters[1],p.grainMeters),s+3);
+    h=0.3+n*0.4;t=n*0.7+0.15+Math.sin(v*Math.PI*16+coarse*2)*p.layering*0.1;ao=1;
   }else if(p.family==='dirt'){
     const n=noise(u,v,cells(r.tileMeters[0],p.grainMeters),cells(r.tileMeters[1],p.grainMeters),s+3);h=0.2+coarse*p.clumping*0.4+n*0.2+(n>0.8?p.stones*0.2:0);t=n*0.3+coarse*0.4-p.moisture*0.2;rough*=1-p.moisture*0.65;
   }else if(p.family==='grass'){
@@ -93,8 +105,9 @@ export function sampleMaterialGenerator(r:ResolvedMaterialGenerator,u:number,v:n
     const phase=(p.cut==='end'?radius:x)/p.ringMeters+coarse*p.knots*2,ring=(Math.sin(phase*Math.PI*2)+1)/2;
     t=.3+ring*p.grain*.35+coarse*.2;h=.4+ring*p.grain*.07;ao=1-(1-ring)*.1;
   }else{
-    const n=noise(u,v,cells(r.tileMeters[0],p.grainMeters),cells(r.tileMeters[1],p.grainMeters),s+3),crack=(1-clamp(Math.abs(coarse-0.5)*60))*p.cracks;h=0.5+n*0.08-crack*0.2;t=0.6+n*0.15-crack*0.25;ao=1-crack*0.3;
+    const n=noise(u,v,cells(r.tileMeters[0],p.grainMeters),cells(r.tileMeters[1],p.grainMeters),s+3);h=0.5+n*0.08;t=0.6+n*0.15;ao=1;
   }
+  const damage=materialFractureAt(r,u,v,footprintMeters);if(damage){rough=mix(rough,damage.fracture.roughness,damage.weight);metal*=1-damage.weight*.95;ao*=1-damage.weight*.25;}
   return[clamp(t+(fine-0.5)*r.variation*0.15+(micro-0.5)*0.06),clamp(h-fine*r.weathering*0.05+(micro-0.5)*0.012),clamp(rough+(fine-0.5)*r.variation*0.12),metal,ao];
 }
 /** Alpha silhouette for individual leaves/needles, centred in their physical tile.
@@ -122,21 +135,24 @@ export async function generateMaterial(input:MaterialGeneratorRecipe,options:{re
   for(let y=0;y<size;y++){
     if(y%32===0){options.signal?.throwIfAborted();await(options.yieldControl?.()??Promise.resolve());}
     for(let x=0;x<size;x++){
-      const i=y*size+x,k=i*4,[value,h,r,m,a]=sampleMaterialGenerator(recipe,(x+0.5)/size,(y+0.5)/size);heights[i]=h;
-      const t=recipe.output.style==='realistic'?value:Math.round(value*(recipe.output.paletteSteps-1))/(recipe.output.paletteSteps-1);
-      for(let c=0;c<3;c++)color.data[k+c]=Math.round(mix(low[c],high[c],t));color.data[k+3]=Math.round(sampleMaterialOpacity(recipe,(x+.5)/size,(y+.5)/size)*255);
-      for(const[map,v]of[[height,h],[roughness,r],[metalness,m],[ao,a]]as const){map.data[k]=map.data[k+1]=map.data[k+2]=Math.round(v*255);map.data[k+3]=255;}
+      const i=y*size+x,k=i*4,[value,h,r,m,a]=sampleMaterialGenerator(recipe,(x+0.5)/size,(y+0.5)/size,Math.max(...recipe.tileMeters)/size);const damage=materialFractureAt(recipe,(x+.5)/size,(y+.5)/size,Math.max(...recipe.tileMeters)/size);heights[i]=h*recipe.reliefMeters-(damage?.weight??0)*(damage?.fracture.depthMeters??0);
+      const crackColor=damage?[1,3,5].map(i=>parseInt(damage.fracture.color.slice(i,i+2),16)):low;
+      const projected=clamp(crackColor.reduce((n,c,i)=>n+(c-low[i])*(high[i]-low[i]),0)/Math.max(1,high.reduce((n,c,i)=>n+(c-low[i])**2,0)));
+      const t=recipe.output.style==='realistic'?value:Math.round(mix(value,projected,damage?.weight??0)*(recipe.output.paletteSteps-1))/(recipe.output.paletteSteps-1);
+      for(let c=0;c<3;c++)color.data[k+c]=Math.round(recipe.output.style==='realistic'?mix(mix(low[c],high[c],t),crackColor[c],damage?.weight??0):mix(low[c],high[c],t));color.data[k+3]=Math.round(sampleMaterialOpacity(recipe,(x+.5)/size,(y+.5)/size)*255);
+      for(const[map,v]of[[height,clamp(h-(damage?.weight??0)*(damage?.fracture.depthMeters??0)/Math.max(.01,recipe.reliefMeters))],[roughness,r],[metalness,m],[ao,a]]as const){map.data[k]=map.data[k+1]=map.data[k+2]=Math.round(v*255);map.data[k+3]=255;}
     }
   }
   for(let y=0;y<size;y++){
     if(y%32===0){options.signal?.throwIfAborted();await(options.yieldControl?.()??Promise.resolve());}
     for(let x=0;x<size;x++){
       const at=(dx:number,dy:number)=>heights[wrap(y+dy,size)*size+wrap(x+dx,size)],k=(y*size+x)*4;
-      const dx=(at(1,0)-at(-1,0))*size*recipe.reliefMeters/(2*recipe.tileMeters[0]),dy=(at(0,1)-at(0,-1))*size*recipe.reliefMeters/(2*recipe.tileMeters[1]),len=Math.hypot(dx,dy,1);
+      const dx=(at(1,0)-at(-1,0))*size/(2*recipe.tileMeters[0]),dy=(at(0,1)-at(0,-1))*size/(2*recipe.tileMeters[1]),len=Math.hypot(dx,dy,1);
       normal.data[k]=Math.round((1-dx/len)*127.5);normal.data[k+1]=Math.round((1-dy/len)*127.5);normal.data[k+2]=Math.round((1+1/len)*127.5);normal.data[k+3]=255;
     }
   }
   const warnings:string[]=[];
+  if(recipe.fracture)warnings.push('Fractures change surface color, physical relief and roughness; they do not create holes or detached shards. Use a pane-sized tile for a single impact.');
   if(recipe.optics)warnings.push('Optical response requires a physical material and scene environment. Mirrors reflect the environment; live planar reflections require a separate scene reflection system. PNG maps alone do not preserve optics.');
   if(recipe.pattern.family==='leaf'||recipe.pattern.family==='needle'){
     if(recipe.pattern.widthMeters>recipe.tileMeters[0]||recipe.pattern.lengthMeters>recipe.tileMeters[1])warnings.push('Plant silhouette exceeds its tile and will be clipped. Increase tileMeters to fit.');

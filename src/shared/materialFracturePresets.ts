@@ -1,0 +1,10 @@
+import {parseMaterialGeneratorData} from './materialGeneratorData.ts';
+import {MATERIAL_OPTICAL_PRESETS} from './materialOpticalPresets.ts';
+const glass=MATERIAL_OPTICAL_PRESETS.find(p=>p.id==='clear-glass')!.recipe,mirror=MATERIAL_OPTICAL_PRESETS.find(p=>p.id==='silver-mirror')!.recipe;
+export const MATERIAL_FRACTURE_PRESETS=[
+ {id:'impact-glass',recipe:parseMaterialGeneratorData({...glass,name:'Impact-cracked glass',tileMeters:[2.8,2.8],seed:481,fracture:{style:'impact',center:[.46,.53],spreadMeters:1.9,widthMeters:.014,depthMeters:.0015,density:.45,branching:.5,irregularity:.45,color:'#dceaf5'},output:{resolution:256}})},
+ {id:'spiderweb-glass',recipe:parseMaterialGeneratorData({...glass,name:'Spiderweb fractured glass',tileMeters:[2.8,2.8],seed:136,fracture:{style:'impact',center:[.54,.48],spreadMeters:2,widthMeters:.016,depthMeters:.002,density:.95,branching:.9,irregularity:.55,color:'#dceaf5'},output:{resolution:256}})},
+ {id:'cracked-mirror',recipe:parseMaterialGeneratorData({...mirror,name:'Cracked silver mirror',tileMeters:[2.8,2.8],seed:481,fracture:{style:'impact',center:[.46,.53],spreadMeters:1.9,widthMeters:.012,depthMeters:.002,density:.55,branching:.7,irregularity:.5,color:'#35404c'},output:{resolution:256}})},
+ {id:'cracked-plaster',recipe:parseMaterialGeneratorData({name:'Branching cracked plaster',pattern:{family:'plaster',grainMeters:.01,cracks:0},tileMeters:[2.8,2.8],color:'#d9d0b8',secondaryColor:'#beb9ad',roughness:.9,reliefMeters:.002,fracture:{style:'network',spreadMeters:2.5,widthMeters:.012,depthMeters:.006,density:.45,branching:.75,irregularity:.8,roughness:1,color:'#403f3c'},output:{resolution:256}})},
+ {id:'fractured-stone',recipe:parseMaterialGeneratorData({name:'Fractured dark stone',pattern:{family:'rock',fractures:0,grainMeters:.04,layering:.15},tileMeters:[2.8,2.8],color:'#6b757d',secondaryColor:'#303940',roughness:.8,reliefMeters:.012,fracture:{style:'network',spreadMeters:2.5,widthMeters:.016,depthMeters:.01,density:.6,branching:.8,irregularity:.7,color:'#20232a'},output:{resolution:256}})},
+] as const;

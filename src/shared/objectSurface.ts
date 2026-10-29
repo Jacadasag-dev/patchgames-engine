@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {materialGeneratorSchema,sampleMaterialGenerator,sampleMaterialOpacity,type ResolvedMaterialGenerator,type GeneratedMaterialPixels} from './materialGenerator.ts';
+import {materialFractureAt,materialGeneratorSchema,sampleMaterialGenerator,sampleMaterialOpacity,type ResolvedMaterialGenerator,type GeneratedMaterialPixels} from './materialGenerator.ts';
 import {materialRecipe} from './materialRegistry.ts';
 import {materialPatternSchema,materialBoundarySchema} from './materialPatternSchema.ts';
 import {materialPatternBoundaryWeight,sampleMaterialPattern,createMaterialPatternSampler,type MaterialPatternSampler} from './materialPatterns.ts';
@@ -113,7 +113,8 @@ export function slashCoverage(r:ResolvedObjectSurface,e:ResolvedObjectSurface['e
 const rgb=(hex:string)=>[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16));
 function materialSample(m:ResolvedMaterialGenerator,u:number,v:number,output:ResolvedObjectSurface['output']){
   const [value,h,roughness,metalness,ao]=sampleMaterialGenerator(m,u,v),t=output.style==='realistic'?value:Math.round(value*(output.paletteSteps-1))/(output.paletteSteps-1),low=rgb(m.secondaryColor),high=rgb(m.color);
-  return{color:low.map((n,i)=>mix(n,high[i],t)),height:h*m.reliefMeters,roughness,metalness,ao,opacity:sampleMaterialOpacity(m,u,v)};
+  const damage=materialFractureAt(m,u,v);
+  return{color:low.map((n,i)=>mix(mix(n,high[i],t),damage?parseInt(damage.fracture.color.slice(1+i*2,3+i*2),16):0,damage?.weight??0)),height:h*m.reliefMeters-(damage?.weight??0)*(damage?.fracture.depthMeters??0),roughness,metalness,ao,opacity:sampleMaterialOpacity(m,u,v)};
 }
 /** Base UVs repeat in metres. Slash coordinates remain bounded to one face and never use those UVs. */
 export function sampleObjectSurface(r:ResolvedObjectSurface,name:BoxSurface,u:number,v:number,samplers?:ReadonlyMap<ResolvedObjectSurface['layers'][number],MaterialPatternSampler>){

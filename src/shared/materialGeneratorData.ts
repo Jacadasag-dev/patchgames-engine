@@ -1,3 +1,4 @@
+import {parseMaterialFracture} from './materialFracture.ts';
 import type {ResolvedMaterialGenerator} from './materialGenerator.ts';
 const common={version:1,seed:1,name:'Generated material',tileMeters:[2,2],color:'#967b60',secondaryColor:'#514637',variation:0.3,roughness:0.8,weathering:0.15,reliefMeters:0.008};
 const patterns:Record<string,Record<string,unknown>>={
@@ -17,12 +18,13 @@ function num(value:unknown,min:number,max:number,where:string,integer=false):num
 function pair(value:unknown,where:string){if(!Array.isArray(value)||value.length!==2)throw Error(where+': expected two dimensions.');return Array.from(value,v=>num(v,0.002,100,where));}
 /** Dependency-free counterpart to materialGeneratorSchema, safe in authoritative game logic. */
 export function parseMaterialGeneratorData(input:unknown):ResolvedMaterialGenerator{
-  const data=object(input,[...Object.keys(common),'output','pattern','optics'],'Material generator');
+  const data=object(input,[...Object.keys(common),'output','pattern','optics','fracture'],'Material generator');
   const raw=object(data.pattern,['family',...new Set(Object.values(patterns).flatMap(p=>Object.keys(p)))],'Pattern'),family=raw.family;
   if(typeof family!=='string'||!Object.hasOwn(patterns,family))throw Error('Unknown material family.');
   object(raw,['family',...Object.keys(patterns[family])],'Pattern');
   const defined=(value:Record<string,unknown>)=>Object.fromEntries(Object.entries(value).filter(([,v])=>v!==undefined));
   const result={...common,...defined(data),pattern:{...patterns[family],...defined(raw)},output:{resolution:256,style:'realistic',paletteSteps:8,...defined(object(data.output===undefined?{}:data.output,['resolution','style','paletteSteps'],'Output'))}};
+  if(data.fracture!==undefined)Object.assign(result,{fracture:parseMaterialFracture(data.fracture)});
   if(data.optics!==undefined){const optics={transmission:0,ior:1.5,thicknessMeters:.02,attenuationColor:'#ffffff',attenuationDistanceMeters:1,envMapIntensity:1,...defined(object(data.optics,['transmission','ior','thicknessMeters','attenuationColor','attenuationDistanceMeters','envMapIntensity'],'Optics'))};
     num(optics.transmission,0,1,'Transmission');num(optics.ior,1,2.5,'IOR');num(optics.thicknessMeters,0,2,'Thickness');num(optics.attenuationDistanceMeters,.001,100,'Attenuation distance');num(optics.envMapIntensity,0,4,'Environment intensity');if(typeof optics.attenuationColor!=='string'||!/^#[0-9a-f]{6}$/i.test(optics.attenuationColor))throw Error('Invalid attenuation color.');Object.assign(result,{optics});
   }

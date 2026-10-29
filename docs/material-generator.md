@@ -356,3 +356,42 @@ Optical response is mesh-wide: texture compositions require one unmasked,
 full-opacity normal-blend source. Object surfaces require one optical base and
 no layers/effects. Use separate meshes for opaque frames and glass/mirror panes.
 PNG maps contain only surface maps; export the recipe to retain optical settings.
+
+## Connected fractures
+
+Use one optional `fracture` descriptor on any generator, including glass/mirrors.
+`shared/materialFracture` exports a dependency-free parser, segment compiler and
+sampler. It replaces the old noise-contour crack treatment: plaster's cracks and
+rock's fractures controls now drive this shared network field. An explicit
+fracture descriptor takes precedence over those family strength controls.
+
+```ts
+fracture: {style:'impact', center:[.5,.5], spreadMeters:1.5,
+  widthMeters:.009, depthMeters:.002, density:.6, branching:.7,
+  irregularity:.5, strength:1, roughness:.95, color:'#dceaf5', seed:1}
+```
+
+Impact mode has a common impact origin, tapered outward spokes, attached branches
+and broken angular ring fragments. Network mode has irregular traversing trunks
+with attached offshoots. Density changes trunk/spoke count; branching changes
+attached offshoots. Irregularity changes path deflection, width is in metres,
+and spread controls reach. Center uses normalized U/V (0–1) and applies to impacts.
+Defaults: network, center [.5,.5], spread 1 m (.002–100), width .006 m (.0002–.1),
+depth .002 m (0–.05), density .5, branching .6, irregularity .6, strength 1,
+roughness .9, dark gray color and seed 1. Unit controls are 0–1. Zero strength or
+density disables the field. Geometry is capped at 512 line segments and the
+compiled field cache is bounded. Seed changes rebuild the geometry.
+
+Color, roughness, metalness and cavity response share the crack field. Physical
+crack depth supplies coherent normals **even when the base relief is zero**;
+object-surface probes use that same depth. Optical transmission/IOR/tint remain
+intact: glass crack roughness scatters light rather than cutting transparent
+holes. It is surface damage, not actual pane breakage, shards or impact physics.
+Pixel/stylized colors quantize crack tint into the base palette. Narrow lines use bake-footprint filtering; very fine cracks need sufficient
+resolution. The generated field occupies one source tile and repeats with that
+material; use a pane-sized tile for a single impact. New fracture layouts change
+existing plaster/stone visuals; rebake those recipes.
+
+The lab and named catalog include `texture.impact-glass`,
+`texture.spiderweb-glass`, `texture.cracked-mirror`,
+`texture.cracked-plaster` and `texture.fractured-stone`.
