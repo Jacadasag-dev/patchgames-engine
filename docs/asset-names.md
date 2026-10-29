@@ -24,3 +24,7 @@ saved asset selections to IDs returned by the current catalog before rebuilding.
 Names are presentation and API identifiers, not authorship claims. Original
 source names, hashes, URLs and licenses remain in asset provenance and
 `THIRD_PARTY_NOTICES.md`; renaming an asset does not change its origin or license.
+
+Host-authored humanoid banks use semantic clip IDs and packed-content hashes.
+Importer file names, exporter versions and original file hashes belong in offline
+import reports, not in the installed runtime bank.
