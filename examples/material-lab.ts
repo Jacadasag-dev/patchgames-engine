@@ -82,7 +82,10 @@ export function mountMaterialLab(parent:HTMLElement,onClose?:()=>void){
   function generate(){
     if(disposed)return;const id=sequence,started=performance.now();
     if(mode==='material'){const parsed=materialGeneratorSchema.safeParse(recipe);if(!parsed.success){busy.hidden=true;announce(parsed.error.issues.map(i=>i.path.join('.')+': '+i.message).join(' · '),true);return;}recipe=parsed.data;}
-    else{const parsed=objectSurfaceSchema.safeParse(surfaceRecipe);if(!parsed.success){busy.hidden=true;announce(parsed.error.issues.map(i=>i.path.join('.')+': '+i.message).join(' · '),true);return;}surfaceRecipe=parsed.data;surfaceDrafts[mode]=surfaceRecipe;}
+    else{const parsed=objectSurfaceSchema.safeParse(surfaceRecipe);if(!parsed.success){busy.hidden=true;announce(parsed.error.issues.map(i=>i.path.join('.')+': '+i.message).join(' · '),true);return;}
+      // Drafts are already resolved when selected/imported. Keep their identity:
+      // controls close over layer/pattern objects, not the validation result.
+      surfaceDrafts[mode]=surfaceRecipe;}
     busy.textContent=mode==='material'?'Generating material…':'Generating six object surfaces…';
     worker=new Worker(new URL('./material-lab-worker.ts',import.meta.url),{type:'module'});
     worker.onerror=()=>{busy.hidden=true;announce('The preview worker failed. Try a lower resolution.',true);};
