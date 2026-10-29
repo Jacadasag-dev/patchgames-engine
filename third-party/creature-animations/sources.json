@@ -2,8 +2,8 @@
   "version": "creature-sources-v1",
   "sources": [
     {
-      "id": "mesh2motion-fox",
-      "label": "Mesh2Motion Fox",
+      "id": "creature-fox-01",
+      "label": "Fox (Variant 1)",
       "family": "quadruped",
       "tags": [
         "fox",
@@ -19,8 +19,8 @@
       "licenseUrl": "https://github.com/Mesh2Motion/mesh2motion-app/blob/653a9698f5f315523072f1c3ff3496100401317b/LICENSE-CC0.MD"
     },
     {
-      "id": "mesh2motion-horse",
-      "label": "Mesh2Motion Horse",
+      "id": "creature-horse-01",
+      "label": "Horse (Variant 1)",
       "family": "quadruped",
       "tags": [
         "horse",
@@ -36,8 +36,8 @@
       "licenseUrl": "https://github.com/Mesh2Motion/mesh2motion-app/blob/653a9698f5f315523072f1c3ff3496100401317b/LICENSE-CC0.MD"
     },
     {
-      "id": "mesh2motion-bird",
-      "label": "Mesh2Motion Bird",
+      "id": "creature-bird-01",
+      "label": "Bird",
       "family": "bird",
       "tags": [
         "bird",
@@ -53,8 +53,8 @@
       "licenseUrl": "https://github.com/Mesh2Motion/mesh2motion-app/blob/653a9698f5f315523072f1c3ff3496100401317b/LICENSE-CC0.MD"
     },
     {
-      "id": "mesh2motion-dragon",
-      "label": "Mesh2Motion Dragon",
+      "id": "creature-dragon-01",
+      "label": "Dragon",
       "family": "winged-quadruped",
       "tags": [
         "dragon",
@@ -70,8 +70,8 @@
       "licenseUrl": "https://github.com/Mesh2Motion/mesh2motion-app/blob/653a9698f5f315523072f1c3ff3496100401317b/LICENSE-CC0.MD"
     },
     {
-      "id": "mesh2motion-kaiju",
-      "label": "Mesh2Motion Kaiju",
+      "id": "creature-kaiju-01",
+      "label": "Kaiju",
       "family": "biped-creature",
       "tags": [
         "kaiju",
@@ -87,8 +87,8 @@
       "licenseUrl": "https://github.com/Mesh2Motion/mesh2motion-app/blob/653a9698f5f315523072f1c3ff3496100401317b/LICENSE-CC0.MD"
     },
     {
-      "id": "mesh2motion-shark",
-      "label": "Mesh2Motion Shark",
+      "id": "creature-shark-01",
+      "label": "Shark",
       "family": "fish",
       "tags": [
         "shark",
@@ -104,8 +104,8 @@
       "licenseUrl": "https://github.com/Mesh2Motion/mesh2motion-app/blob/653a9698f5f315523072f1c3ff3496100401317b/LICENSE-CC0.MD"
     },
     {
-      "id": "mesh2motion-snake",
-      "label": "Mesh2Motion Snake",
+      "id": "creature-snake-01",
+      "label": "Snake",
       "family": "serpentine",
       "tags": [
         "snake",
@@ -121,8 +121,8 @@
       "licenseUrl": "https://github.com/Mesh2Motion/mesh2motion-app/blob/653a9698f5f315523072f1c3ff3496100401317b/LICENSE-CC0.MD"
     },
     {
-      "id": "mesh2motion-spider",
-      "label": "Mesh2Motion Spider",
+      "id": "creature-spider-01",
+      "label": "Spider",
       "family": "arachnid",
       "tags": [
         "spider",
@@ -138,8 +138,8 @@
       "licenseUrl": "https://github.com/Mesh2Motion/mesh2motion-app/blob/653a9698f5f315523072f1c3ff3496100401317b/LICENSE-CC0.MD"
     },
     {
-      "id": "quaternius-alpaca",
-      "label": "Quaternius Alpaca",
+      "id": "creature-alpaca-01",
+      "label": "Alpaca",
       "family": "quadruped",
       "tags": [
         "alpaca",
@@ -155,8 +155,8 @@
       "licenseUrl": "https://quaternius.com/packs/ultimateanimatedanimals.html"
     },
     {
-      "id": "quaternius-bull",
-      "label": "Quaternius Bull",
+      "id": "creature-bull-01",
+      "label": "Bull",
       "family": "quadruped",
       "tags": [
         "bull",
@@ -172,8 +172,8 @@
       "licenseUrl": "https://quaternius.com/packs/ultimateanimatedanimals.html"
     },
     {
-      "id": "quaternius-cow",
-      "label": "Quaternius Cow",
+      "id": "creature-cow-01",
+      "label": "Cow",
       "family": "quadruped",
       "tags": [
         "cow",
@@ -189,8 +189,8 @@
       "licenseUrl": "https://quaternius.com/packs/ultimateanimatedanimals.html"
     },
     {
-      "id": "quaternius-deer",
-      "label": "Quaternius Deer",
+      "id": "creature-deer-01",
+      "label": "Deer",
       "family": "quadruped",
       "tags": [
         "deer",
@@ -206,8 +206,8 @@
       "licenseUrl": "https://quaternius.com/packs/ultimateanimatedanimals.html"
     },
     {
-      "id": "quaternius-donkey",
-      "label": "Quaternius Donkey",
+      "id": "creature-donkey-01",
+      "label": "Donkey",
       "family": "quadruped",
       "tags": [
         "donkey",
@@ -223,8 +223,8 @@
       "licenseUrl": "https://quaternius.com/packs/ultimateanimatedanimals.html"
     },
     {
-      "id": "quaternius-fox",
-      "label": "Quaternius Fox",
+      "id": "creature-fox-02",
+      "label": "Fox (Variant 2)",
       "family": "quadruped",
       "tags": [
         "fox",
@@ -240,8 +240,8 @@
       "licenseUrl": "https://quaternius.com/packs/ultimateanimatedanimals.html"
     },
     {
-      "id": "quaternius-horse-white",
-      "label": "Quaternius Horse White",
+      "id": "creature-horse-white-01",
+      "label": "White Horse",
       "family": "quadruped",
       "tags": [
         "horse-white",
@@ -257,8 +257,8 @@
       "licenseUrl": "https://quaternius.com/packs/ultimateanimatedanimals.html"
     },
     {
-      "id": "quaternius-horse",
-      "label": "Quaternius Horse",
+      "id": "creature-horse-02",
+      "label": "Horse (Variant 2)",
       "family": "quadruped",
       "tags": [
         "horse",
@@ -274,8 +274,8 @@
       "licenseUrl": "https://quaternius.com/packs/ultimateanimatedanimals.html"
     },
     {
-      "id": "quaternius-husky",
-      "label": "Quaternius Husky",
+      "id": "creature-husky-01",
+      "label": "Husky",
       "family": "quadruped",
       "tags": [
         "husky",
@@ -291,8 +291,8 @@
       "licenseUrl": "https://quaternius.com/packs/ultimateanimatedanimals.html"
     },
     {
-      "id": "quaternius-shibainu",
-      "label": "Quaternius ShibaInu",
+      "id": "creature-shiba-inu-01",
+      "label": "Shiba Inu",
       "family": "quadruped",
       "tags": [
         "shibainu",
@@ -308,8 +308,8 @@
       "licenseUrl": "https://quaternius.com/packs/ultimateanimatedanimals.html"
     },
     {
-      "id": "quaternius-stag",
-      "label": "Quaternius Stag",
+      "id": "creature-stag-01",
+      "label": "Stag",
       "family": "quadruped",
       "tags": [
         "stag",
@@ -325,8 +325,8 @@
       "licenseUrl": "https://quaternius.com/packs/ultimateanimatedanimals.html"
     },
     {
-      "id": "quaternius-wolf",
-      "label": "Quaternius Wolf",
+      "id": "creature-wolf-01",
+      "label": "Wolf",
       "family": "quadruped",
       "tags": [
         "wolf",
