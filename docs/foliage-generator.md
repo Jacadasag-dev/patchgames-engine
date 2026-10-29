@@ -125,3 +125,7 @@ leafArrangement is scattered, pinnate (paired leaflets along each terminal rachi
 flowers has independent density (0–32 centres/m³), sizeMeters (.03–.6) and petals (3–12). Zero leaf density can produce a flowering bare tree. Optional materials.flower uses the same material generator or named registry reference; the default is a pale petal cutout. Blooms attach to twigs and add one draw batch. Quality limits bloom centres to 48/128/256 and reports thinning. Petals and leaves support merged terrain prototypes and live material updates. These are species-inspired procedural forms, not botanical simulations.
 
 Woody paths render as welded swept tubes: bend rings share positions and smooth normals, cross sections transport along the path without abrupt frame flips, and only path endpoints are capped. Bark uses continuous path distance. This avoids stacked-cylinder seams without changing growth recipes, anchors or colliders.
+
+trunkCurve (0–1) bends the central stem progressively toward the seeded lean direction, independently of its initial trunkLean. Combine with rootFlare and trunkTaper for a curved coconut or a stout upright fan palm. Palm presets use the existing horizontal bark direction for leaf scars, not deep vertical woodland fissures.
+
+Crown width is measured relative to the stem axis, so lean does not consume frond spread. Crown proposal height follows crownStart, and its centre follows the stem axis; high-crowned plants retain foliage on both sides of a bent trunk.

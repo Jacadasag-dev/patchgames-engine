@@ -60,3 +60,7 @@ it('sweeps welded bend rings with continuous bark UVs and no internal caps',asyn
  for(let i=1;i<=12;i++)expect(uv.getY(i*(sides+1))).toBeGreaterThan(uv.getY((i-1)*(sides+1)));
  for(let i=0;i<=12;i++){const a=i*(sides+1),b=a+sides;expect([n.getX(a),n.getY(a),n.getZ(a)]).toEqual([n.getX(b),n.getY(b),n.getZ(b)]);}view.dispose();
 });
+
+it('curves trunks independently of their initial lean and preserves palm bark recipes',()=>{const straight=compileFoliage({...small,trunkCurve:0,irregularity:0}),curved=compileFoliage({...small,trunkCurve:.7,irregularity:0});expect(curved.branches[0].end).not.toEqual(straight.branches[0].end);for(const id of ['palm','fan-palm']){const r=FOLIAGE_PRESETS.find(p=>p.id===id)!.recipe;expect(r.materials.bark).toHaveProperty('pattern.direction','horizontal');expect(r.rootFlare).toBeGreaterThan(0);}});
+
+it('fits crown radius around a leaning stem rather than shrinking it toward the origin',()=>{const m=compileFoliage({...small,trunkLean:.6,trunkCurve:.4}),tip=m.branches[m.recipe.branchSegments-1].end,sx=tip[0]/tip[1],sz=tip[2]/tip[1];expect(Math.max(...m.branches.map(b=>Math.hypot(b.end[0]-sx*b.end[1],b.end[2]-sz*b.end[1])))).toBeCloseTo(m.recipe.crownRadiusMeters,8);expect(()=>parseFoliageRecipe({...small,trunkCurve:2})).toThrow();});
