@@ -102,7 +102,7 @@ export function mountPlanetLab(parent:HTMLElement):()=>void {
     altitudeMeters=Math.max(5,requested*Math.exp(wheelOffset));
     // Stay near the same landing district during descent. Surface movement is
     // measured in metres, rather than racing degrees of latitude each frame.
-    const metres=seconds*35,longitude=.42+metres/planet.radius,latitude=.48;
+    const metres=seconds*35,longitude=-1.75+metres/planet.radius,latitude=.1;
     direction.set(Math.cos(latitude)*Math.sin(longitude),Math.sin(latitude),Math.cos(latitude)*Math.cos(longitude));
     const sampled=planet.sample(tuple(direction));lastSurface=sampled.heightMeters;lastDirection=tuple(direction);
     lastDisplaySurface=view.displayedSurface(tuple(direction))?.heightMeters;lastClearanceAdjustment=Math.max(0,(lastDisplaySurface??lastSurface)-lastSurface);
