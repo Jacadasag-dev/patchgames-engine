@@ -78,6 +78,7 @@ SANDBOX_NAMES.push('firearms.ts', 'firearmView.ts', 'firearmPose.ts','firearmMod
 SANDBOX_NAMES.push('gameUi.ts');
 SANDBOX_NAMES.push('gameScenes.ts');
 SANDBOX_NAMES.push('scenePresets.ts');
+SANDBOX_NAMES.push('generatedLod.ts','modelLod.ts','terrainLod.ts','terrainInstanceLod.ts','voxelLod.ts');
 const SANDBOX_FILES = new Set(SANDBOX_NAMES.map((name) => real(sandboxFile(name))));
 const GAME_API = real(fileURLToPath(new URL('../../shared/gameApi.ts', import.meta.url)));
 const FEATURE_API = real(fileURLToPath(new URL('../../shared/gameFeatures.ts', import.meta.url)));
@@ -105,7 +106,7 @@ function lockedInputs(root: string): Set<string> {
     // Hosts can retain separately licensed asset banks without forking the engine.
     real(resolve(root, 'src/sandbox/hostAssets.ts')),
     ...SANDBOX_FILES,
-    ...['generationMaps.ts','generationBindings.ts','generationFoliage.ts','foliageGenerator.ts','foliagePresets.ts','materialFracturePresets.ts','materialFracture.ts','materialOpticalPresets.ts','materialPatterns.ts','materialPatternSchema.ts','gameScenes.ts','gameUi.ts','gameUiEvents.ts','objectSurface.ts','materialRegistry.ts','materialRecipeLibrary.ts','materialGeneratorData.ts','materialGenerator.ts','mediaAssets.ts','mediaAssetData.ts','mediaRecipes.ts','materialRecipeData.ts','materialRecipeRenderer.ts','soundRecipes.ts','soundRecipeRenderer.ts','soundPitch.ts','soundBehavior.ts','soundAudition.ts','soundBehaviorPreview.ts','mediaRecipeExamples.ts','pointerLook.ts','roundSeries.ts','statePaths.ts','voicePolicy.ts','fastLane.ts'].flatMap(name => [real(resolve(root, 'src/shared', name)), real(fileURLToPath(new URL('../../shared/'+name, import.meta.url)))]),
+    ...['generationMaps.ts','generationBindings.ts','generationFoliage.ts','foliageLod.ts','materialMipmaps.ts','foliageGenerator.ts','foliagePresets.ts','materialFracturePresets.ts','materialFracture.ts','materialOpticalPresets.ts','materialPatterns.ts','materialPatternSchema.ts','gameScenes.ts','gameUi.ts','gameUiEvents.ts','objectSurface.ts','materialRegistry.ts','materialRecipeLibrary.ts','materialGeneratorData.ts','materialGenerator.ts','mediaAssets.ts','mediaAssetData.ts','mediaRecipes.ts','materialRecipeData.ts','materialRecipeRenderer.ts','soundRecipes.ts','soundRecipeRenderer.ts','soundPitch.ts','soundBehavior.ts','soundAudition.ts','soundBehaviorPreview.ts','mediaRecipeExamples.ts','pointerLook.ts','roundSeries.ts','statePaths.ts','voicePolicy.ts','fastLane.ts'].flatMap(name => [real(resolve(root, 'src/shared', name)), real(fileURLToPath(new URL('../../shared/'+name, import.meta.url)))]),
     GAME_API,
     FEATURE_API,
     SHAPES,

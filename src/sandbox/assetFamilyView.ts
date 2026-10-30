@@ -1,7 +1,8 @@
-import { BoxGeometry, CylinderGeometry, SphereGeometry, Group, Mesh, MeshStandardMaterial, type BufferGeometry } from 'three';
+import { BoxGeometry, Group, Mesh, MeshStandardMaterial, type BufferGeometry } from 'three';
 import { validateAssetManifest, type AssetManifest, type AssetPart } from './assetFamilies.ts';
 import { resolveSurfaceMaterial, type ResolvedSurfaceMaterial } from './surfaceMaterials.ts';
 import { SurfaceMaterialCache, type SurfaceMaterialCacheOptions } from './surfaceMaterialView.ts';
+import {prepareModelSphereLod,prepareModelCylinderLod,type PreparedModelPrimitiveLod} from './modelLod.ts';
 
 export interface AssetFamilyView { object: Group; dispose(): void }
 export interface AssetFamilyViewOptions { materialCache?: SurfaceMaterialCache; materialOptions?: SurfaceMaterialCacheOptions }
@@ -38,6 +39,7 @@ function metricUVs(geometry: BufferGeometry, part: AssetPart): void {
  * Rigid meshes remain eligible for the engine's existing batching pass. */
 export class AssetFamilyViewCache {
   private readonly geometries = new Map<string, BufferGeometry>();
+  private readonly geometryLod = new Map<string,PreparedModelPrimitiveLod>();
   private readonly metricReferences = new Map<string, number>();
   private readonly materials = new Map<string, MaterialEntry>();
   private readonly variants = new Map<string, number>();
@@ -64,7 +66,7 @@ export class AssetFamilyViewCache {
       for (const key of metric) {
         const references = (this.metricReferences.get(key) ?? 1) - 1;
         if (references > 0) this.metricReferences.set(key, references);
-        else { this.metricReferences.delete(key); this.geometries.get(key)?.dispose(); this.geometries.delete(key); }
+        else { this.metricReferences.delete(key);const bank=this.geometryLod.get(key);if(bank)bank.dispose();else this.geometries.get(key)?.dispose();this.geometryLod.delete(key);this.geometries.delete(key); }
       }
     };
     try {
@@ -75,9 +77,11 @@ export class AssetFamilyViewCache {
       let geometry = this.geometries.get(geometryKey);
       if (!geometry) {
         if (this.geometries.size >= 1024) throw new Error('Asset views exceed the shared geometry budget.');
-        geometry = part.shape === 'box' ? new BoxGeometry(1, 1, 1)
-          : part.shape === 'cylinder' ? new CylinderGeometry(.5, .5, 1, 20) : new SphereGeometry(.5, 16, 12);
-        if (surface) metricUVs(geometry, part);
+        const configure=surface?(value:BufferGeometry)=>metricUVs(value,part):undefined;
+        const bank=part.shape==='cylinder'?prepareModelCylinderLod(.5,1,20,configure)
+          :part.shape==='sphere'?prepareModelSphereLod(.5,16,12,configure):undefined;
+        geometry=bank?.geometry??new BoxGeometry(1,1,1);
+        if(bank)this.geometryLod.set(geometryKey,bank);else if(surface)metricUVs(geometry,part);
         this.geometries.set(geometryKey, geometry);
       }
       if (surface && !metric.has(geometryKey)) { metric.add(geometryKey); this.metricReferences.set(geometryKey, (this.metricReferences.get(geometryKey) ?? 0) + 1); }
@@ -120,7 +124,7 @@ export class AssetFamilyViewCache {
   dispose(): void {
     if (this.disposed) return; this.disposed = true;
     for (const instance of this.instances) instance.dispose();
-    for (const geometry of this.geometries.values()) geometry.dispose(); this.geometries.clear();
+    for (const [key,geometry] of this.geometries) {const bank=this.geometryLod.get(key);if(bank)bank.dispose();else geometry.dispose();}this.geometries.clear();this.geometryLod.clear();
     for (const entry of this.materials.values()) entry.material.dispose(); this.materials.clear(); this.variants.clear();
     this.metricReferences.clear(); if (this.ownsSurfaceMaterials) this.surfaceMaterials.dispose();
   }

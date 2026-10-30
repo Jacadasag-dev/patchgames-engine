@@ -7,7 +7,19 @@ import { AssetFamilyViewCache, type AssetFamilyView } from './assetFamilyView.ts
 import { resolveSurfaceMaterial } from './surfaceMaterials.ts';
 import { SurfaceMaterialCache, type SurfaceMaterialCacheOptions, type SurfaceMaterialHandle } from './surfaceMaterialView.ts';
 import { createTerrainMaterialAtlas, hasTerrainMaterials, type TerrainMaterialAtlas, type TerrainMaterialOptions } from './terrainMaterialView.ts';
+import {createTerrainLodGeometry,type TerrainLodGeometry} from './terrainLod.ts';
+import {TerrainInstanceLod,terrainInstanceLodLevels,type TerrainInstanceLodPart} from './terrainInstanceLod.ts';
+import {registerGeneratedGeometryLod,registerGeneratedLodAdapter} from './generatedLod.ts';
 
+/** Cooperative immutable geometry loans. Materials and instance buffers remain
+ * view-owned; the lender retains geometry until the supplied release runs. */
+export interface TerrainAssetFactoryContext {
+  borrowGeometry(geometries:readonly THREE.BufferGeometry[],release:()=>void):void;
+}
+function releaseGeometryLoans(loans:(()=>void)[]):void{
+  let failed=false,failure:unknown;for(const release of loans.splice(0))try{release();}catch(error){if(!failed){failed=true;failure=error;}}
+  if(failed)throw failure;
+}
 export interface TerrainViewOptions {
   /** False when the base already renders the identical accepted ground mesh. */
   surface?: boolean;
@@ -17,13 +29,16 @@ export interface TerrainViewOptions {
    * supported. The view owns and disposes the returned geometry/materials.
    * Return null for an intentional reservation rendered by another system;
    * undefined retains the normal default model or missing-model marker. */
-  assetFactory?: (asset: Readonly<TerrainAsset>) => THREE.Object3D | null | undefined;
+  assetFactory?: (asset: Readonly<TerrainAsset>,context?:TerrainAssetFactoryContext) => THREE.Object3D | null | undefined;
   debug?: TerrainDebugOptions;
   /** Internal chunk views share their parent world's environment registration. */
   registerEnvironment?: boolean;
   materialCache?: SurfaceMaterialCache;
   materialOptions?: SurfaceMaterialCacheOptions;
   terrainMaterials?: TerrainMaterialOptions;
+  /** Prepared geometry and per-instance screen-error LOD are enabled by default.
+   * Disabling affects presentation only; collision always keeps accepted detail. */
+  lod?:boolean;
 }
 export interface TerrainDebugOptions { routes?: boolean; footprints?: boolean; changes?: boolean; regions?: boolean }
 
@@ -225,13 +240,19 @@ export class TerrainView {
   private familyResources = new Set<ViewResource>();
   private contentSignature: string | undefined;
   private immutableGenerated = false;
+  private terrainLod:TerrainLodGeometry|undefined;
+  private instanceLod:TerrainInstanceLod[]=[];
+  private ownedLodGeometries=new Set<THREE.BufferGeometry>();
+  private geometryLoans:(()=>void)[]=[];
+  private releaseLod:()=>void;
 
   constructor(manifest: TerrainManifest, options: TerrainViewOptions = {}) {
     this.materialCache = options.materialCache ?? new SurfaceMaterialCache(options.materialOptions); this.ownsMaterialCache = !options.materialCache;
     this.familyCache = new AssetFamilyViewCache({ materialCache: this.materialCache });
     this.options = options; this.manifest = manifest; this.debug = options.debug ?? {};
     this.root.name = 'procedural-terrain'; this.root.add(this.content, this.overlays);
-    try { this.update(manifest); } catch (error) { this.familyCache.dispose(); if (this.ownsMaterialCache) this.materialCache.dispose(); throw error; }
+    this.releaseLod=registerGeneratedLodAdapter(this.root,{prepare:frame=>{for(const group of this.instanceLod)group.prepare(frame,this.root.matrixWorld);},restore:()=>{for(const group of this.instanceLod)group.restore();}});
+    try { this.update(manifest); } catch (error) { try{this.dispose();}catch{/* Preserve the original construction error after releasing owned resources. */}throw error; }
     if (options.registerEnvironment !== false) this.unregisterEnvironment = registerTerrainEnvironment({
       read: () => ({ recipe: this.manifest.recipe, instances: this.manifest.instances, revision: this.manifest.revision, heights: this.heights }),
       stepWind: (now, listener, budget) => this.stepWind(now, listener, budget),
@@ -253,9 +274,14 @@ export class TerrainView {
     const removed = new Set(manifest.changes.removed);
     this.removed = this.manifest.instances.filter(item => removed.has(item.id));
     disposeObjects(this.content, next.group, this.familyResources);
+    this.terrainLod?.dispose();for(const group of this.instanceLod)group.dispose();
+    for(const geometry of this.ownedLodGeometries)if(!next.ownedLodGeometries.has(geometry)&&!next.familyResources.has(geometry))geometry.dispose();
+    this.ownedLodGeometries=next.ownedLodGeometries;
+    this.terrainLod=next.terrainLod;this.instanceLod=next.instanceLod;
     this.materialHandles.forEach(handle => handle.dispose()); this.materialAtlases.forEach(atlas => atlas.dispose());
     this.materialHandles = next.materialHandles; this.materialAtlases = next.materialAtlases;
     for (const view of this.familyViews) view.dispose();
+    const previousGeometryLoans=this.geometryLoans;this.geometryLoans=next.geometryLoans;
     this.familyViews = next.familyViews; this.familyResources = next.familyResources;
     // Bases may retain their authored floor and have no scattered objects yet.
     // Three's add() treats a zero-argument call as an invalid undefined object.
@@ -264,7 +290,7 @@ export class TerrainView {
     this.wind = next.wind; this.heights = next.heights;
     this.immutableGenerated = immutableData(manifest.heights) && immutableData(manifest.colors) && immutableData(manifest.instances) && immutableData(manifest.recipe);
     this.contentSignature = this.options.assetFactory ? undefined : contentDependencies(manifest, this.options);
-    this.drawDebug();
+    try{this.drawDebug();}finally{releaseGeometryLoans(previousGeometryLoans);}
   }
 
   /** Self-validating preview for transactional world updates. No caller-supplied
@@ -278,12 +304,20 @@ export class TerrainView {
       && this.contentSignature === contentDependencies(manifest, this.options);
   }
 
-  private buildContent(manifest: TerrainManifest): { group: THREE.Group; missing: string[]; batches: number; wind: TerrainWindView; heights: ReadonlyMap<string, number>; familyViews: AssetFamilyView[]; familyResources: Set<ViewResource>; materialHandles: SurfaceMaterialHandle[]; materialAtlases: TerrainMaterialAtlas[] } {
+  private buildContent(manifest: TerrainManifest): { group: THREE.Group; missing: string[]; batches: number; wind: TerrainWindView; heights: ReadonlyMap<string, number>; familyViews: AssetFamilyView[]; familyResources: Set<ViewResource>; materialHandles: SurfaceMaterialHandle[]; materialAtlases: TerrainMaterialAtlas[];terrainLod:TerrainLodGeometry|undefined;instanceLod:TerrainInstanceLod[];ownedLodGeometries:Set<THREE.BufferGeometry>;geometryLoans:(()=>void)[] } {
     const group = new THREE.Group(), missing: string[] = [];
     const wind = new TerrainWindView(manifest.recipe);
     const heights = new Map<string, number>();
     const familyViews: AssetFamilyView[] = [], familyResources = new Set<ViewResource>();
+    const geometryLoans:(()=>void)[]=[],borrowedGeometries=new Set<THREE.BufferGeometry>();
+    let acceptingLoans=true;
+    const factoryContext:TerrainAssetFactoryContext={borrowGeometry(geometries,release){
+      if(!acceptingLoans)throw Error('Terrain geometry loans must be registered synchronously inside assetFactory.');
+      if(!Array.isArray(geometries)||Object.keys(geometries).length!==geometries.length||geometries.length>4096||geometryLoans.length>=256||typeof release!=='function'||geometries.some(g=>!(g instanceof THREE.BufferGeometry))||new Set([...borrowedGeometries,...geometries]).size>4096)throw Error('Terrain geometry loans require bounded prepared geometry and a release callback.');
+      for(const geometry of geometries){borrowedGeometries.add(geometry);familyResources.add(geometry);}let released=false;geometryLoans.push(()=>{if(released)return;released=true;release();});
+    }};
     const materialHandles: SurfaceMaterialHandle[] = [], materialAtlases: TerrainMaterialAtlas[] = [];
+    let terrainLod:TerrainLodGeometry|undefined;const instanceLod:TerrainInstanceLod[]=[];let allocatedSlots=0;const ownedLodGeometries=new Set<THREE.BufferGeometry>();
     let batches = 0;
     try {
     if (this.options.surface !== false) {
@@ -291,7 +325,10 @@ export class TerrainView {
       if (hasTerrainMaterials(manifest.recipe)) {
         const atlas = createTerrainMaterialAtlas(manifest, this.materialCache, this.options.terrainMaterials); materialAtlases.push(atlas); groundMaterial = atlas.material; familyResources.add(groundMaterial);
       } else groundMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .98 });
-      const ground = new THREE.Mesh(terrainGeometry(manifest), groundMaterial);
+      terrainLod=this.options.lod===false?undefined:createTerrainLodGeometry(manifest);
+      const source=terrainLod?.levels[0].geometry??terrainGeometry(manifest);
+      if(terrainLod){const radius=source.boundingSphere?.radius??1;for(const level of terrainLod.levels)familyResources.add(level.geometry);if(terrainLod.levels.length>1)registerGeneratedGeometryLod(source,terrainLod.levels.map(level=>({geometry:level.geometry,error:level.errorMeters/Math.max(.0001,radius)})));}
+      const ground = new THREE.Mesh(source, groundMaterial);
       ground.name = 'terrain-surface'; ground.receiveShadow = true; group.add(ground);
     }
     if (this.options.routeSurfaces) for (const route of manifest.recipe.routes ?? []) {
@@ -346,7 +383,7 @@ export class TerrainView {
     }
     for (const [id, instances] of groups) {
       const asset = assets.get(id)!;
-      const custom = this.options.assetFactory?.(asset);
+      const custom = this.options.assetFactory?.(asset,factoryContext);
       if (custom === null) continue;
       let prototype = custom ?? undefined;
       if (!prototype && asset.model) {
@@ -377,7 +414,7 @@ export class TerrainView {
         if (object instanceof THREE.Mesh) meshes++;
         if (object instanceof THREE.SkinnedMesh || object instanceof THREE.InstancedMesh) unsupported = true;
       });
-      if (prototype && (!meshes || unsupported)) { disposeObjects(prototype, this.content); prototype = undefined; }
+      if (prototype && (!meshes || unsupported)) { disposeObjects(prototype, this.content,familyResources); prototype = undefined; }
       if (!prototype) {
         missing.push(id); prototype = new THREE.Group();
         const radius = asset.footprint.kind === 'circle' ? asset.footprint.radius : Math.max(asset.footprint.width, asset.footprint.depth) / 2;
@@ -391,6 +428,11 @@ export class TerrainView {
         Math.max(Math.abs(bounds.min.y), Math.abs(bounds.max.y)), Math.max(Math.abs(bounds.min.z), Math.abs(bounds.max.z)));
       const transform = new THREE.Matrix4(), orientation = new THREE.Quaternion(), scale = new THREE.Vector3(), position = new THREE.Vector3();
       const up = new THREE.Vector3(0, 1, 0), local = new THREE.Matrix4();
+      const prototypeMeshes:THREE.Mesh[]=[];prototype.traverse(object=>{if(object instanceof THREE.Mesh)prototypeMeshes.push(object);});
+      for(const mesh of prototypeMeshes){const levels=terrainInstanceLodLevels(mesh.geometry);if(levels.length>1)for(const level of levels){familyResources.add(level.geometry);if(custom&&!borrowedGeometries.has(level.geometry))ownedLodGeometries.add(level.geometry);}}
+      const tierCount=Math.max(1,...prototypeMeshes.map(mesh=>terrainInstanceLodLevels(mesh.geometry).length)),slots=tierCount*instances.length*prototypeMeshes.length;
+      const useLod=this.options.lod!==false&&tierCount>1&&allocatedSlots+slots<=32768,instanceParts:TerrainInstanceLodPart[]=[];
+      if(useLod)allocatedSlots+=slots;
       prototype.traverse(object => {
         if (!(object instanceof THREE.Mesh)) return;
         const batch = new THREE.InstancedMesh(object.geometry, object.material, instances.length);
@@ -406,16 +448,32 @@ export class TerrainView {
           orientation.setFromAxisAngle(up, item.yaw); scale.setScalar(item.scale);
           transform.compose(position, orientation, scale).multiply(local); batch.setMatrixAt(i, transform);
         }
-        batch.instanceMatrix.needsUpdate = true; batch.computeBoundingSphere(); group.add(batch);
+        batch.instanceMatrix.needsUpdate = true; batch.computeBoundingSphere();
+        if(useLod){const levels=terrainInstanceLodLevels(object.geometry),tierBatches:THREE.InstancedMesh[]=[];
+          for(let level=0;level<tierCount;level++){
+            const geometry=levels[Math.min(level,levels.length-1)].geometry,tier=new THREE.InstancedMesh(geometry,object.material,instances.length);
+            tier.name=batch.name+':lod'+level;tier.castShadow=batch.castShadow;tier.receiveShadow=batch.receiveShadow;tier.visible=batch.visible;tier.renderOrder=batch.renderOrder;tier.layers.mask=batch.layers.mask;
+            tier.instanceMatrix.setUsage(THREE.DynamicDrawUsage);tier.instanceMatrix.array.set(batch.instanceMatrix.array);tier.instanceMatrix.needsUpdate=true;tier.count=level===0?instances.length:0;tier.boundingSphere=batch.boundingSphere?.clone()??null;
+            group.add(tier);tierBatches.push(tier);
+          }
+          instanceParts.push({source:batch,batches:tierBatches,levels,scale:local.getMaxScaleOnAxis()});
+        }else group.add(batch);
         windParts.push({ mesh: batch, local: local.clone() });
       });
       if (asset.environment?.wind && !missing.includes(id)) wind.add({ asset: id, profile: asset.environment,
         height, radius, instances, parts: windParts });
+      if(useLod){
+        // Wind expands the hidden source bounds for every possible root rotation.
+        // Tier batches use the same conservative placement bounds, not the subset
+        // visible during one frame, so culling remains safe as buckets change.
+        for(const part of instanceParts)for(const batch of part.batches)batch.boundingSphere=part.source.boundingSphere?.clone()??null;
+        instanceLod.push(new TerrainInstanceLod(instances,instanceParts,radius));
+      }
       // The batches now own the prototype's shared resources. Do not dispose them here.
       prototype.clear();
     }
-    return { group, missing, batches, wind, heights, familyViews, familyResources, materialHandles, materialAtlases };
-    } catch (error) { disposeObjects(group, this.content, familyResources); for (const view of familyViews) view.dispose(); materialHandles.forEach(handle => handle.dispose()); materialAtlases.forEach(atlas => atlas.dispose()); throw error; }
+    acceptingLoans=false;borrowedGeometries.clear();return { group, missing, batches, wind, heights, familyViews, familyResources, materialHandles, materialAtlases,terrainLod,instanceLod,ownedLodGeometries,geometryLoans };
+    } catch (error) { acceptingLoans=false;borrowedGeometries.clear();try{disposeObjects(group, this.content, familyResources);terrainLod?.dispose();for(const lod of instanceLod)lod.dispose();for(const geometry of ownedLodGeometries)if(!this.ownedLodGeometries.has(geometry))geometry.dispose(); for (const view of familyViews) view.dispose(); materialHandles.forEach(handle => handle.dispose()); materialAtlases.forEach(atlas => atlas.dispose());}finally{releaseGeometryLoans(geometryLoans);}throw error; }
   }
 
   setDebug(debug: TerrainDebugOptions): void {
@@ -425,7 +483,8 @@ export class TerrainView {
 
   /** Normal game views are advanced by the shared environment frame lifecycle. */
   stepWind(nowSeconds: number, listener?: TerrainWindInterest, budget = 512): number {
-    return this.disposed ? 0 : this.wind?.step(nowSeconds, listener, budget) ?? 0;
+    if(this.disposed)return 0;const count=this.wind?.step(nowSeconds,listener,budget)??0;
+    for(const group of this.instanceLod)group.syncSource();return count;
   }
 
   windDistance(listener?: TerrainWindInterest): number { return this.wind?.interestDistance(listener) ?? Infinity; }
@@ -503,6 +562,7 @@ export class TerrainView {
       instances: m.instances.length, drawBatches: this.batches, triangles: m.rows * m.columns * 2,
       overlays: { segments: this.overlaySegments, truncated: this.overlayTruncated },
       environment: { wind: this.wind?.inspection() ?? null },
+      lod:{enabled:this.options.lod!==false,terrain:this.terrainLod?.levels.map(level=>({stride:level.stride,triangles:level.triangles,errorMeters:level.errorMeters}))??[],instanceGroups:this.instanceLod.map(group=>group.inspection()),maxTierInstanceSlots:32768},
       materials: { cache: this.materialCache.inspection(), atlases: this.materialAtlases.map(atlas => atlas.inspection()) },
       assets: Object.fromEntries(assetCounts.slice(0, 16)), assetCount: assetCounts.length,
       missingAssets: this.missing.slice(0, 8), missingAssetCount: this.missing.length,
@@ -514,12 +574,18 @@ export class TerrainView {
 
   dispose(): void {
     if (this.disposed) return;
+    this.disposed=true;
+    try{
     this.unregisterEnvironment?.(); this.unregisterEnvironment = undefined;
+    this.releaseLod();for(const group of this.instanceLod)group.dispose();this.instanceLod=[];
     disposeObjects(this.content, undefined, this.familyResources); disposeObjects(this.overlays);
+    this.terrainLod?.dispose();this.terrainLod=undefined;
+    for(const geometry of this.ownedLodGeometries)geometry.dispose();this.ownedLodGeometries.clear();
     this.materialHandles.forEach(handle => handle.dispose()); this.materialAtlases.forEach(atlas => atlas.dispose()); this.materialHandles = []; this.materialAtlases = [];
     for (const view of this.familyViews) view.dispose(); this.familyViews = []; this.familyResources.clear(); this.familyCache.dispose();
     if (this.ownsMaterialCache) this.materialCache.dispose();
-    this.root.removeFromParent(); this.root.clear(); this.disposed = true;
+    this.root.removeFromParent(); this.root.clear();
+    }finally{releaseGeometryLoans(this.geometryLoans);}
   }
 }
 

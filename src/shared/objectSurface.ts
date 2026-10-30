@@ -1,7 +1,7 @@
 import {z} from 'zod';
 import {compileGenerationMaps,type GenerationMapRecipe} from './generationMaps.ts';
 import {compileGenerationBindings,type GenerationTarget,type GenerationBinding} from './generationBindings.ts';
-import {materialFractureAt,materialGeneratorSchema,sampleMaterialGenerator,sampleMaterialOpacity,type ResolvedMaterialGenerator,type GeneratedMaterialPixels} from './materialGenerator.ts';
+import {materialFractureAt,materialGeneratorSchema,sampleMaterialGenerator,sampleMaterialOpacity,prepareGeneratedMaterialMipmaps,type ResolvedMaterialGenerator,type GeneratedMaterialPixels} from './materialGenerator.ts';
 import {materialRecipe} from './materialRegistry.ts';
 import {materialPatternSchema,materialBoundarySchema} from './materialPatternSchema.ts';
 import {materialPatternBoundaryWeight,sampleMaterialPattern,createMaterialPatternSampler,type MaterialPatternSampler} from './materialPatterns.ts';
@@ -176,8 +176,8 @@ export async function generateObjectSurface(input:ObjectSurfaceDocument,options:
       }
     }
     for(let y=0;y<rows;y++)for(let x=0;x<width;x++){const at=(dx:number,dy:number)=>heights[Math.max(0,Math.min(rows-1,y+dy))*width+Math.max(0,Math.min(width-1,x+dx))],dx=(at(1,0)-at(-1,0))*width/(2*span[0]),dy=(at(0,1)-at(0,-1))*rows/(2*span[1]),len=Math.hypot(dx,dy,1),k=(y*width+x)*4;normal.data.set([Math.round((1-dx/len)*127.5),Math.round((1-dy/len)*127.5),Math.round((1+1/len)*127.5),255],k);}
-    faces[name]={recipe:{...recipe.base,output:{...recipe.output,resolution:size as ResolvedMaterialGenerator['output']['resolution']}},color,normal,height,roughness,metalness,ao,diagnostics:{resolution:size,bytes:width*rows*24,tileMeters:span,warnings:[]}};
-    bytes+=width*rows*24;
+    faces[name]=prepareGeneratedMaterialMipmaps({recipe:{...recipe.base,output:{...recipe.output,resolution:size as ResolvedMaterialGenerator['output']['resolution']}},color,normal,height,roughness,metalness,ao,diagnostics:{resolution:size,bytes:width*rows*24,tileMeters:span,warnings:[]}});
+    bytes+=faces[name].diagnostics.bytes;
   }
   const warnings=['Box surfaces use model-local metres and +Y up. Unsupported scale/mirror/world-space fields are rejected.'];
   if(recipe.effects.some(e=>e.enabled&&e.depthMeters>0))warnings.push('Slash depth is shading relief, not a hole or collision change.');

@@ -4,6 +4,7 @@ import { RenderBatching } from './renderBatching.ts';
 import { RenderVisibility, type RenderSceneItems } from './renderVisibility.ts';
 import { isEngineCameraMaskCallback } from './playerAppearance.ts';
 import { forgetRendererCompletion, recordRendererSubmission } from './renderCompletion.ts';
+import {GeneratedLodAdapters,hasGeneratedLodAdapter} from './generatedLod.ts';
 
 // One renderer may draw a world, HUD, minimap and recursive reflection. Keep
 // their buffers independent, but bound the number of retained scene contexts.
@@ -15,15 +16,17 @@ interface Context {
   batching: RenderBatching;
   visibility: RenderVisibility;
   items: RenderSceneItems;
+  generatedLod:GeneratedLodAdapters;
   matrixUpdates?: boolean;
 }
-interface DrawScope { context: Context; camera: Camera; height: number; prepared: boolean; scanned: boolean }
+interface DrawScope { context: Context; camera: Camera; height: number; prepared: boolean; scanned: boolean;lodEnabled:boolean }
 interface RendererState {
   contexts: Context[];
   stack: (DrawScope | null)[];
   viewport: Vector4;
   draws: number;
   disposed: boolean;
+  lodEnabled:boolean;
   last?: Context;
 }
 const states = new WeakMap<WebGLRenderer, RendererState>();
@@ -43,6 +46,7 @@ function collectScene(object: Object3D, items: RenderSceneItems, checkCallbacks:
   if (checkCallbacks && hasMatrixCallbacks(object)) return true;
   visible = visible && object.visible;
   if (visible) {
+    if(hasGeneratedLodAdapter(object))items.generatedLodRoots?.push(object);
     // Three chooses authored LOD children during render-list construction,
     // after proxies would have captured the previous level's visibility.
     if (checkCallbacks && object instanceof LOD && object.autoUpdate) return true;
@@ -66,6 +70,7 @@ function collectScene(object: Object3D, items: RenderSceneItems, checkCallbacks:
 }
 function scan(context: Context, checkCallbacks: boolean, camera: Camera): boolean {
   const items = context.items; items.meshes.length = items.groupOrders.length = items.shadowLights.length = 0;
+  if(items.generatedLodRoots)items.generatedLodRoots.length=0;
   return collectScene(context.scene, items, checkCallbacks, camera.layers.mask);
 }
 
@@ -74,8 +79,10 @@ function restore(context: Context): void {
   finally {
     try { context.visibility.restore(); }
     finally {
-      if (context.matrixUpdates !== undefined) context.scene.matrixWorldAutoUpdate = context.matrixUpdates;
-      context.matrixUpdates = undefined;
+      try{context.generatedLod.restore();}finally{
+        if (context.matrixUpdates !== undefined) context.scene.matrixWorldAutoUpdate = context.matrixUpdates;
+        context.matrixUpdates = undefined;
+      }
     }
   }
 }
@@ -85,7 +92,10 @@ function prepare(scope: DrawScope): void {
   // Nested draws can change the hierarchy. Recollect when resuming an outer
   // pass; the initial scan already performed the authored callback guard.
   if (!scope.scanned) { scan(scope.context, false, scope.camera); scope.scanned = true; }
-  scope.context.visibility.prepare(scope.context.scene, scope.camera, scope.height, scope.context.items);
+  const enabled=scope.lodEnabled;
+  scope.context.generatedLod.prepare(scope.context.scene,scope.camera,scope.height,enabled,scope.context.items.generatedLodRoots,scope.context.items.shadowLights);
+  if(scope.context.generatedLod.count)scan(scope.context,false,scope.camera);
+  scope.context.visibility.prepare(scope.context.scene, scope.camera, scope.height, scope.context.items,enabled,scope.context.generatedLod.count>0);
   // Visibility just performed the same scene update as Three. The batching
   // stage updates its own proxy roots; avoid traversing the authored tree twice.
   scope.context.matrixUpdates = scope.context.scene.matrixWorldAutoUpdate;
@@ -97,7 +107,7 @@ function restoreScope(scope: DrawScope): void {
   try { restore(scope.context); } finally { scope.prepared = false; scope.scanned = false; }
 }
 function disposeContext(context: Context): void {
-  try { context.batching.dispose(); } finally { context.visibility.dispose(); }
+  try { context.batching.dispose(); } finally {try{context.visibility.dispose();}finally{context.generatedLod.dispose();}}
 }
 function contextFor(state: RendererState, scene: Object3D): Context {
   const depth = state.stack.length - 1;
@@ -112,7 +122,7 @@ function contextFor(state: RendererState, scene: Object3D): Context {
         finally { state.contexts.splice(state.contexts.indexOf(oldest), 1); }
       }
     }
-    context = { scene, depth, used: state.draws, batching: new RenderBatching(), visibility: new RenderVisibility(), items: { meshes: [], groupOrders: [], shadowLights: [] } };
+    context = { scene, depth, used: state.draws, batching: new RenderBatching(), visibility: new RenderVisibility(),generatedLod:new GeneratedLodAdapters(), items: { meshes: [], groupOrders: [], shadowLights: [],generatedLodRoots:[] } };
     state.contexts.push(context);
   }
   context.used = state.draws;
@@ -126,7 +136,7 @@ export function configureRenderPerformance(renderer: WebGLRenderer): void {
   // must be installed immediately but only uses those methods when drawn.
   if (states.has(renderer) || typeof renderer.render !== 'function') return;
   const draw = renderer.render, dispose = renderer.dispose;
-  const state: RendererState = { contexts: [], stack: [], viewport: new Vector4(), draws: 0, disposed: false };
+  const state: RendererState = { contexts: [], stack: [], viewport: new Vector4(), draws: 0, disposed: false,lodEnabled:true };
   states.set(renderer, state);
   renderer.render = function(scene, camera) {
     state.draws++;
@@ -157,7 +167,7 @@ export function configureRenderPerformance(renderer: WebGLRenderer): void {
         renderer.getViewport(state.viewport);
         height = state.viewport.w * (renderer.getRenderTarget() ? 1 : renderer.getPixelRatio());
       }
-      scope = { context, camera, height: Math.max(1, height), prepared: false, scanned: true };
+      scope = { context, camera, height: Math.max(1, height), prepared: false, scanned: true,lodEnabled:state.lodEnabled };
       state.stack[state.stack.length - 1] = scope;
       prepare(scope);
       return draw.call(this, scene, camera);
@@ -191,8 +201,11 @@ export function configureRenderPerformance(renderer: WebGLRenderer): void {
 export function renderPerformanceStats(renderer: WebGLRenderer) {
   const state = states.get(renderer);
   return { draws: state?.draws ?? 0, retainedScenes: state?.contexts.length ?? 0,
-    visibility: state?.last?.visibility.stats ?? null, batching: state?.last?.batching.stats ?? null };
+    visibility: state?.last?.visibility.stats ?? null, batching: state?.last?.batching.stats ?? null,
+    generatedLod:{enabled:state?.lodEnabled??true,adapters:state?.last?.generatedLod.count??0} };
 }
+/** Diagnostic A/B switch; ordinary engine games retain automatic LOD by default. */
+export function setGeneratedLodEnabled(renderer:WebGLRenderer,enabled:boolean){if(typeof enabled!=='boolean')throw Error('LOD diagnostic switch requires a boolean.');configureRenderPerformance(renderer);const state=states.get(renderer);if(state)state.lodEnabled=enabled;}
 
 /** Three assigns render during construction. Compose with the existing audio
  * hook so every authored sandbox renderer receives the policy automatically. */

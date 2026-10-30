@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type {VoxelField,VoxelSurfaceCache} from './voxels.ts';
 import {isInspectionCameraFrameActive} from './inspectionCamera.ts';
+import {coalesceVoxelSurfaceSteps,voxelMaterialCanMerge,markVoxelCoalescedGeometry} from './voxelLod.ts';
+import {registerGeneratedGeometryLod} from './generatedLod.ts';
 
 /** One culled chunk mesh, with shared caller-owned materials. Only changed chunks
  * are replaced. Caller selects a bounded horizon and owns lights/camera/palette. */
@@ -46,7 +48,17 @@ export class VoxelWorldView {
     if(!this.jobs.size&&wanted.size)this.initialized=true;
   }
   private *build(field:VoxelField,x:number,z:number,cache:VoxelSurfaceCache):Generator<void,THREE.BufferGeometry>{
-      const data=yield* field.surfaceSteps(x,z,cache,true),counts=new Map<number,number>();
+      const data=yield* field.surfaceSteps(x,z,cache,true),eligible=this.materials.map(material=>voxelMaterialCanMerge(material)),reduced=yield*coalesceVoxelSurfaceSteps(data,id=>eligible[id]??false);
+      const geometry=yield*this.geometry(data,field,x,z);
+      if(reduced!==data){const lower=yield*this.geometry(reduced,field,x,z),release=registerGeneratedGeometryLod(geometry,[{geometry,error:0},{geometry:lower,error:0}]);let disposed=false;
+        markVoxelCoalescedGeometry(geometry);
+        geometry.addEventListener('dispose',()=>{if(disposed)return;disposed=true;release();lower.dispose();});
+        geometry.userData.voxelLod={sourceTriangles:data.materials.length*2,reducedTriangles:reduced.materials.length*2,method:'exact-coplanar-perimeter-coalescing'};
+      }
+      return geometry;
+  }
+  private *geometry(data:ReturnType<VoxelField['surface']>,field:VoxelField,x:number,z:number):Generator<void,THREE.BufferGeometry>{
+      const counts=new Map<number,number>();
       for(let face=0;face<data.materials.length;face++){
         const id=data.materials[face];if(!this.materials[id])throw new Error('Missing voxel material.');
         counts.set(id,(counts.get(id)??0)+1);if(face%128===127)yield;
@@ -78,6 +90,6 @@ export class VoxelWorldView {
       if(old){old.mesh.removeFromParent();old.mesh.geometry.dispose();}
       this.root.add(mesh);this.chunks.set(key,{mesh,revision});
   }
-  inspection(){return{chunks:this.chunks.size,pendingChunks:this.jobs.size,triangles:[...this.chunks.values()].reduce((n,item)=>n+item.mesh.geometry.getAttribute('position').count/3,0)};}
+  inspection(){return{chunks:this.chunks.size,pendingChunks:this.jobs.size,triangles:[...this.chunks.values()].reduce((n,item)=>n+item.mesh.geometry.getAttribute('position').count/3,0),lod:{method:'exact-coplanar-perimeter-coalescing',preparedChunks:[...this.chunks.values()].filter(item=>item.mesh.geometry.userData.voxelLod).length,reducedTriangles:[...this.chunks.values()].reduce((n,item)=>n+Number(item.mesh.geometry.userData.voxelLod?.reducedTriangles??item.mesh.geometry.getAttribute('position').count/3),0)}};}
   dispose(){for(const item of this.chunks.values())item.mesh.geometry.dispose();this.chunks.clear();this.jobs.clear();this.columnCaches.clear();this.initialized=false;this.root.clear();}
 }

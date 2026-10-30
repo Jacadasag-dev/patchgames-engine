@@ -17,6 +17,8 @@ The engine provides:
   repeatable PBR maps, physical scale and pixel-art through 2048-pixel output.
 - [Shared generation maps](docs/generation-maps.md) for layered terrain, bounded
   foliage variants and directional material variation using Map → Combine → Apply.
+- [Generated LOD](docs/generated-lod.md) for prepared terrain, foliage and analytic
+  model detail levels, filtered material mipmaps and render diagnostics.
 
 Run `npm run demo:materials` for the interactive Material Lab: 50 generated
 presets, editable controls, 3D preview, texture maps and PNG/JSON exports.

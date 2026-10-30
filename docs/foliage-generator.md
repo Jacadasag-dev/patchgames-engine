@@ -89,9 +89,9 @@ recreating the managed handle. GPU maps and materials use shared engine helpers.
 Woody geometry uses overlapping capped tapered segments at junctions; it is
 realtime game geometry, not a watertight boolean CAD solid. Leaves are instanced
 in one mesh and wood merged in another. Shadow/refraction passes add their normal
-rendering costs. This version supplies static plants: no automatic wind, growing
-simulation, severed limbs or distance LOD switching. The terrain adapter supports
-existing per-asset placement batching and terrain environment wind profiles.
+rendering costs. Plants remain static: no growing simulation or severed limbs.
+The terrain adapter supplies root wind and per-instance prepared LOD. See
+[generated LOD](generated-lod.md) for selection, ownership and diagnostics.
 Hook those behaviours into the engine's environment/game systems as needed.
 
 ## Budgets, collisions and checks
@@ -146,7 +146,7 @@ branchPitchVariation (0–1, default 0) adds a deterministic signed elevation ch
 
 ## Procedural worlds and wind
 
-Use prepareFoliageTerrain during loading (or createFoliageTerrainLibrary with worker bakes). It prepares up to 16 named species once, measures conservative placement footprints, and supplies editable wind profiles. Terrain factories clone prepared plain meshes; they never bake materials or grow branches. Every chunk owns its returned geometry, materials and textures, so unloading a neighbor cannot invalidate resident plants. Dispose views and then the library when no longer needed. Missing IDs fall through to other terrain assets.
+Use prepareFoliageTerrain during loading (or createFoliageTerrainLibrary with worker bakes). It prepares up to 16 named species once, measures conservative placement footprints, and supplies editable wind profiles. Terrain factories never bake materials or grow branches. With TerrainView's optional factory context, chunks borrow the same immutable source geometry and all prepared LOD tiers; each view owns its material/texture handles and instance buffers. Unloading a neighbor releases its loan without invalidating resident plants. Calling the factory without a context returns independently owned geometry copies. Dispose views and the library when no longer needed. Missing IDs fall through to other terrain assets.
 
 ```ts
 const forest = await prepareFoliageTerrain([{id:'spruce',recipe:FOLIAGE_PRESETS.find(p=>p.id==='evergreen')!.recipe}]);
@@ -161,6 +161,12 @@ scene.add(view.root);
 // On removal: scene.remove(view.root); view.dispose(); forest.dispose();
 ```
 
-The same assetFactory works with TerrainWorldView for streamed worlds and biome scatter. Override each entry.environment for different wind responses; pass {} to opt out. Terrain uses world-space time/positions for continuous wind across chunk reloads, measured height for size response, distance-prioritized updates, and anchored root sway shared by wood/leaves/flowers. Authoritative colliders stay static; add foliageColliders explicitly if needed. This integration does not add branch physics, leaf flutter deformation or automatic geometry LOD. Choose bounded species quality before preparing the library. The lab grove is a small procedural heightfield and scatter scene using these exact helpers.
+Custom wrappers must forward the context, for example
+`assetFactory:(asset,context)=>forest.assetFactory(asset,context)`, to retain
+geometry sharing. `forest.dispose()` blocks new factory calls immediately; if
+views still hold loans, template geometry stays valid until the final view
+releases it. Updates and failed construction release their scoped loans too.
 
-Foliage cutouts use alpha-to-coverage with a .2 alpha threshold, preserving thin needle coverage as textures minify in world views. Multisample renderers smooth these edges; the threshold also works without multisampling. This is not geometry LOD.
+The same assetFactory works with TerrainWorldView for streamed worlds and biome scatter. Override each entry.environment for different wind responses; pass {} to opt out. Terrain uses world-space time/positions for continuous wind across chunk reloads, measured height for size response, distance-prioritized updates, and anchored root sway shared by wood/leaves/flowers. Authoritative colliders stay static; add foliageColliders explicitly if needed. This integration supplies prepared per-instance geometry LOD; it does not add branch physics or leaf flutter deformation. Choose bounded species quality before preparing the library. The lab grove is a small procedural heightfield and scatter scene using these exact helpers.
+
+Foliage cutouts use alpha-to-coverage with a .2 alpha threshold, preserving thin needle coverage as textures minify in world views. Multisample renderers smooth these edges; the threshold also works without multisampling. Texture minification complements the separately prepared geometry LOD tiers.

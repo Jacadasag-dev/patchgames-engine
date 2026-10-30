@@ -1,6 +1,7 @@
 import { BoxGeometry, SphereGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
 import { defineModel, groundModelPose, sampleModelAnimation, solveModel, type ModelDefinition } from './model.ts';
 import type { RigPose } from './rig.ts';
+import {prepareModelSphereLod,type PreparedModelPrimitiveLod} from './modelLod.ts';
 
 export interface ModelView {
   /** Add to actors, or attach to an existing RigView socket. External transforms aren't inspected. */
@@ -17,8 +18,11 @@ export interface ModelView {
 export function createModelView(definition: ModelDefinition): ModelView {
   const model = defineModel(definition), root = new Group(); root.name = model.name;
   const parts = new Map<string,Mesh<BoxGeometry | SphereGeometry,MeshStandardMaterial>>();
+  const prepared=new Map<string,PreparedModelPrimitiveLod<SphereGeometry>>();
   for (const p of model.parts) {
-    const geometry = p.shape === 'sphere' ? new SphereGeometry(p.size.x/2,24,16) : new BoxGeometry(p.size.x,p.size.y,p.size.z);
+    const bank=p.shape==='sphere'?prepareModelSphereLod(p.size.x/2):undefined;
+    if(bank)prepared.set(p.name,bank);
+    const geometry = bank?.geometry??new BoxGeometry(p.size.x,p.size.y,p.size.z);
     const mesh = new Mesh(geometry,new MeshStandardMaterial({color:p.color ?? 0xffffff,roughness:.8}));
     mesh.name = p.name; mesh.castShadow = true; mesh.receiveShadow = true; mesh.matrixAutoUpdate = false;
     root.add(mesh); parts.set(p.name,mesh);
@@ -38,5 +42,10 @@ export function createModelView(definition: ModelDefinition): ModelView {
     const pose = sampleModelAnimation(model,clip,time-start);
     playing=clip; startedAt=start; lastTime=time; apply(pose);
   };
-  return {root,parts,apply,animate:(clip,time) => apply(sampleModelAnimation(model,clip,time)),play,dispose:() => { for (const mesh of parts.values()) { mesh.geometry.dispose(); mesh.material.dispose(); } root.removeFromParent(); }};
+  let disposed=false;
+  return {root,parts,apply,animate:(clip,time) => apply(sampleModelAnimation(model,clip,time)),play,dispose:() => {
+    if(disposed)return;disposed=true;
+    for (const [name,mesh] of parts) { const bank=prepared.get(name);if(bank)bank.dispose();else mesh.geometry.dispose();mesh.material.dispose(); }
+    root.removeFromParent();
+  }};
 }

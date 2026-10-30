@@ -1,6 +1,8 @@
 # Shared generation maps
 
 Generation maps provide one recipe format for spatial fields and stable variation.
+Generated views also use [prepared LOD](generated-lod.md); map identities and
+authoritative content do not change when the renderer selects a lower tier.
 Use **Map → Combine → Apply**: describe a field, combine named fields, then bind the
 result to a supported generator parameter. Keep topology, placement constraints,
 collision and attachments in the generator that understands them.

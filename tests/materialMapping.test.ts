@@ -31,6 +31,7 @@ it('allocates rectangular face maps at consistent density while preserving bound
   for(const face of BOX_SURFACES){const f=baked.faces[face],span=boxSurfaceFrame(baked.recipe.sizeMeters,face).span;
     expect(Math.abs(f.color.width/span[0]-32)).toBeLessThan(2);expect(Math.abs(f.color.height/span[1]-32)).toBeLessThan(2);
     for(const map of [f.color,f.normal,f.height,f.roughness,f.metalness,f.ao]){expect(map.data.length).toBe(map.width*map.height*4);bytes+=map.data.byteLength;}
+    bytes+=f.diagnostics.mipBytes??0;
   }
   expect(baked.faces.front.color.width).toBe(128);expect(baked.faces.front.color.height).toBe(80);expect(baked.diagnostics.bytes).toBe(bytes);
   expect(baked.faces.front.color.data).not.toEqual(baked.faces.back.color.data);

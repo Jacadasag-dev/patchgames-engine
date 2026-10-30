@@ -2,6 +2,7 @@ import {materialRecipe} from './materialRegistry.ts';
 import { generateMaterial,type MaterialOptics } from './materialGenerator.ts';
 import {createMaterialPatternSampler} from './materialPatterns.ts';
 import { textureRecipeSchema, type ResolvedTextureRecipe, type TextureRecipe } from './mediaRecipes.ts';
+import {generateMaterialMipmaps} from './materialMipmaps.ts';
 
 /** Color images use sRGB RGBA8. Height/roughness/metalness use linear grayscale RGBA8. */
 export interface TexturePixels { width: number; height: number; data: Uint8Array }
@@ -34,10 +35,11 @@ export interface MaterialRecipePixels {
   recipe: ResolvedTextureRecipe;
   optics?:MaterialOptics;
   color: TexturePixels; normal: TexturePixels; roughness: TexturePixels; metalness: TexturePixels; height: TexturePixels;
+  preparedMipmaps?:{normal:TexturePixels[];color?:TexturePixels[];holes:boolean;transparent:boolean;alphaTest:number};
   diagnostics: {
     resolution: number; layerCount: number; sourceIds: string[];
     derivedHeightSourceIds: string[]; heightRange: [number, number]; roughnessRange: [number, number];
-    metalnessRange: [number, number]; warnings: string[];
+    metalnessRange: [number, number]; warnings: string[];mipBytes?:number;
   };
 }
 
@@ -218,8 +220,11 @@ export async function renderMaterialRecipe(input: TextureRecipe, options: Materi
     normal.data[p + 1] = Math.round((-dy / length * 0.5 + 0.5) * 255);
     normal.data[p + 2] = Math.round((1 / length * 0.5 + 0.5) * 255); normal.data[p + 3] = 255;
   }
-  return { recipe,...(optics?{optics}:{}), color, normal, roughness: roughnessMap, metalness: metalnessMap, height,
+  let holes=false,partial=false;for(let i=3;i<color.data.length;i+=4){const a=color.data[i];if(a<255)holes=true;if(a>0&&a<255)partial=true;}
+  const preferCutout=recipe.layers.some(layer=>{const source=layer.source,m=source.kind==='generator'?source.recipe:source.kind==='asset'?materialRecipe(source.id):undefined;return layer.opacity===1&&(m?.pattern.family==='leaf'||m?.pattern.family==='needle');}),alphaTest=holes&&(!partial||preferCutout)?.5:0;
+  const mipNormal=generateMaterialMipmaps(normal,{kind:'normal'}),mipColor=holes?generateMaterialMipmaps(color,{kind:'color',...(alphaTest?{alphaCutoff:alphaTest}:{})}):undefined,mipBytes=[mipNormal,mipColor??[]].flatMap(chain=>chain.slice(1)).reduce((n,map)=>n+map.data.byteLength,0);
+  return { recipe,...(optics?{optics}:{}), color, normal, roughness: roughnessMap, metalness: metalnessMap, height,preparedMipmaps:{normal:mipNormal,...(mipColor?{color:mipColor}:{}),holes,transparent:partial&&!preferCutout,alphaTest},
     diagnostics: { resolution: size, layerCount: recipe.layers.length, sourceIds: [...sources.keys()], derivedHeightSourceIds,
-      heightRange: range(heights), roughnessRange: range(roughness), metalnessRange: range(metalness),
+      heightRange: range(heights), roughnessRange: range(roughness), metalnessRange: range(metalness),mipBytes,
       warnings: derivedHeightSourceIds.length ? ['Color-only source relief is derived from luminance, not measured PBR height. Set heightStrength:0 for flat color, or supply source height maps.'] : [] } };
 }

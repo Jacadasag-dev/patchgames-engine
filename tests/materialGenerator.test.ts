@@ -18,7 +18,7 @@ describe('material generator',()=>{
   });
   it('supports cancellation, 1024 output and palette quantization',async()=>{
     const controller=new AbortController();controller.abort();await expect(generateMaterial({pattern:{family:'wood'}},{signal:controller.signal})).rejects.toThrow();
-    const hd=await generateMaterial({pattern:{family:'metal'},output:{resolution:2048}});expect(hd.color.width).toBe(2048);expect(hd.diagnostics.bytes).toBe(96*1024*1024);
+    const hd=await generateMaterial({pattern:{family:'metal'},output:{resolution:2048}});expect(hd.color.width).toBe(2048);expect(hd.diagnostics.baseBytes).toBe(96*1024*1024);expect(hd.diagnostics.bytes).toBe(hd.diagnostics.baseBytes!+hd.diagnostics.mipBytes!);expect(hd.diagnostics.mipBytes).toBeLessThan(6*1024*1024);
     const pixel=await generateMaterial({pattern:{family:'rock'},output:{resolution:32,style:'pixel',paletteSteps:4}});
     const colors=new Set(Array.from({length:1024},(_,i)=>pixel.color.data.slice(i*4,i*4+3).join(',')));expect(colors.size).toBeLessThanOrEqual(4);
   });

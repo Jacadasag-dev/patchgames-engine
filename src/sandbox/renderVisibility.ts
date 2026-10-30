@@ -1,10 +1,12 @@
 import {
-  ArrayCamera, BatchedMesh, Box3, BoxGeometry, BufferAttribute, BufferGeometry, Camera, ConeGeometry, CylinderGeometry,
+  ArrayCamera, BatchedMesh, Box3, BoxGeometry, BufferAttribute, BufferGeometry, Camera, ConeGeometry, CylinderGeometry,Frustum,Matrix4,
   DirectionalLight, IcosahedronGeometry, InstancedBufferAttribute, InstancedBufferGeometry, InstancedInterleavedBuffer, InstancedMesh, Material, Mesh, MeshBasicMaterial,
   MeshDepthMaterial, MeshDistanceMaterial, MeshLambertMaterial, MeshMatcapMaterial, MeshNormalMaterial,
   MeshPhongMaterial, MeshStandardMaterial, MeshToonMaterial, Object3D, OrthographicCamera,
   PerspectiveCamera, PointLight, SkinnedMesh, Sphere, SphereGeometry, SpotLight, TorusGeometry, Vector3,
 } from 'three';
+import {readGeneratedMeshLod,readGeneratedExplicitMeshLod,selectGeneratedLodLevel,generatedLodMaterialSafe} from './generatedLod.ts';
+import {isVoxelCoalescedGeometry,voxelMaterialCanMerge} from './voxelLod.ts';
 
 type Primitive = SphereGeometry | CylinderGeometry | ConeGeometry | IcosahedronGeometry | TorusGeometry | BoxGeometry;
 type ShadowLight = DirectionalLight | PointLight | SpotLight;
@@ -14,6 +16,7 @@ export interface RenderSceneItems {
   meshes: Mesh[];
   groupOrders: number[];
   shadowLights: ShadowLight[];
+  generatedLodRoots?:Object3D[];
 }
 type AttributeStamp = { attribute: BufferAttribute; version: number; array: ArrayLike<number>; count: number; itemSize: number; normalized: boolean };
 type GeometryStamp = { attributes: AttributeStamp[]; names: string[]; index: BufferAttribute | null; indexVersion: number };
@@ -41,6 +44,7 @@ interface MeshEntry {
   originalGeometry: BufferGeometry | undefined;
   level: number;
   previousSource: BufferGeometry | undefined;
+  originalCount?:number;
 }
 
 const MAX_LOD_GEOMETRIES = 128;
@@ -91,6 +95,24 @@ function rigidMesh(object: Object3D, materialEligible: (material: Material) => b
     || object.onBeforeShadow !== Object3D.prototype.onBeforeShadow
     || object.onAfterShadow !== Object3D.prototype.onAfterShadow || !geometryEligible(object.geometry)) return false;
   return Array.isArray(object.material) ? object.material.every(materialEligible) : materialEligible(object.material);
+}
+
+/** Prepared generator banks explicitly support their own topology. No arbitrary
+ * skinned, shader-deformed or instanced asset is inferred from constructor data. */
+function preparedMaterial(material:Material,voxel=false):boolean{
+  return generatedLodMaterialSafe(material)&&(!voxel||voxelMaterialCanMerge(material));
+}
+function preparedMesh(object:Object3D):object is Mesh{
+  if(!(object instanceof Mesh)||object instanceof SkinnedMesh||object instanceof BatchedMesh
+    ||object instanceof InstancedMesh&&!readGeneratedExplicitMeshLod(object)
+    ||!readGeneratedMeshLod(object)||!object.frustumCulled||object.intersectsFrustum!==baseFrustumTest
+    ||object.customDepthMaterial||object.customDistanceMaterial
+    ||object.onBeforeRender!==Object3D.prototype.onBeforeRender||object.onAfterRender!==Object3D.prototype.onAfterRender
+    ||object.onBeforeShadow!==Object3D.prototype.onBeforeShadow||object.onAfterShadow!==Object3D.prototype.onAfterShadow)return false;
+  const voxel=isVoxelCoalescedGeometry(object.geometry);
+  if(!Array.isArray(object.material))return preparedMaterial(object.material,voxel);
+  const palette=object.material,groups=object.geometry.groups;
+  return groups.length>0&&groups.every((group:{start:number;count:number;materialIndex?:number})=>group.count===0||Number.isInteger(group.materialIndex??0)&&(group.materialIndex??0)>=0&&(group.materialIndex??0)<palette.length&&preparedMaterial(palette[group.materialIndex??0],voxel));
 }
 
 /** Affine center/extents transform avoids transforming eight temporary corners.
@@ -230,8 +252,12 @@ export class RenderVisibility {
   private readonly lights: ShadowLight[] = [];
   private readonly sphere = new Sphere();
   private readonly center = new Vector3();
+  private readonly shadowMatrix=new Matrix4();
+  private readonly shadowVolumes=new WeakMap<DirectionalLight,Frustum>();
   private frame = 0;
   private lodMeshes = 0;
+  private preparedLodMeshes=0;
+  private estimatedTrianglesSaved=0;
   private culledTests = 0;
   private testedMeshes = 0;
   private disposed = false;
@@ -275,8 +301,8 @@ export class RenderVisibility {
     return entry.lod;
   }
 
-  get stats(): Readonly<{ lodMeshes: number; frustumMeshes: number; rejectedFrustumTests: number; cachedGeometries: number }> {
-    return { lodMeshes: this.lodMeshes, frustumMeshes: this.testedMeshes, rejectedFrustumTests: this.culledTests, cachedGeometries: this.lod.size };
+  get stats(): Readonly<{ lodMeshes: number; preparedLodMeshes:number;estimatedTrianglesSaved:number;frustumMeshes: number; rejectedFrustumTests: number; cachedGeometries: number }> {
+    return { lodMeshes: this.lodMeshes,preparedLodMeshes:this.preparedLodMeshes,estimatedTrianglesSaved:this.estimatedTrianglesSaved, frustumMeshes: this.testedMeshes, rejectedFrustumTests: this.culledTests, cachedGeometries: this.lod.size };
   }
 
   private localBounds(geometry: BufferGeometry): BoundsEntry | undefined {
@@ -367,6 +393,7 @@ export class RenderVisibility {
     let diameter = 0;
     for (const light of this.lights) {
       const camera = light.shadow.camera, pixels = Math.max(light.shadow.mapSize.x, light.shadow.mapSize.y);
+      if(light instanceof DirectionalLight&&!this.shadowVolumes.get(light)?.intersectsSphere(sphere))continue;
       if (camera instanceof OrthographicCamera) {
         diameter = Math.max(diameter, sphere.radius * Math.max(Math.abs(camera.projectionMatrix.elements[0]), Math.abs(camera.projectionMatrix.elements[5])) * pixels);
       } else {
@@ -381,23 +408,25 @@ export class RenderVisibility {
     return diameter;
   }
 
-  prepare(scene: Object3D, camera: Camera, viewportHeightPixels: number, items?: RenderSceneItems): void {
+  prepare(scene: Object3D, camera: Camera, viewportHeightPixels: number, items?: RenderSceneItems,lodEnabled=true,matricesReady=false): void {
     if (this.disposed) return;
-    this.restore(); this.frame++; this.lodMeshes = this.culledTests = this.testedMeshes = 0;
+    this.restore(); this.frame++; this.lodMeshes = this.culledTests = this.testedMeshes =this.preparedLodMeshes=this.estimatedTrianglesSaved= 0;
     if (scene.onBeforeRender !== Object3D.prototype.onBeforeRender || !Number.isFinite(viewportHeightPixels) || viewportHeightPixels <= 0) return;
-    if (scene.matrixWorldAutoUpdate) scene.updateMatrixWorld();
-    if (!camera.parent && camera.matrixWorldAutoUpdate) camera.updateMatrixWorld();
+    if (!matricesReady&&scene.matrixWorldAutoUpdate) scene.updateMatrixWorld();
+    if (!matricesReady&&!camera.parent && camera.matrixWorldAutoUpdate) camera.updateMatrixWorld();
     this.candidates.length = 0;
     if (items) {
       for (const light of items.shadowLights) this.lights.push(light);
     } else scene.traverseVisible(object => {
       if (object.castShadow && (object instanceof DirectionalLight || object instanceof PointLight || object instanceof SpotLight)) this.lights.push(object);
-      if (rigidMesh(object, this.materialEligible, this.geometryEligible)) this.candidates.push(object);
+      if (preparedMesh(object)||rigidMesh(object, this.materialEligible, this.geometryEligible)) this.candidates.push(object);
     });
+    for(const light of this.lights)if(light instanceof DirectionalLight){let volume=this.shadowVolumes.get(light);if(!volume){volume=new Frustum();this.shadowVolumes.set(light,volume);}light.shadow.updateMatrices(light);this.shadowMatrix.multiplyMatrices(light.shadow.camera.projectionMatrix,light.shadow.camera.matrixWorldInverse);volume.setFromProjectionMatrix(this.shadowMatrix);}
     // Traverse the bone/socket hierarchy once. The second pass only processes
     // eligible meshes, using the complete set of shadow lights found above.
     for (const object of items?.meshes ?? this.candidates) {
-      if (items && !rigidMesh(object, this.materialEligible, this.geometryEligible)) continue;
+      const prepared=preparedMesh(object);
+      if (items && !prepared&&!rigidMesh(object, this.materialEligible, this.geometryEligible)) continue;
       const source = object.geometry;
       let mesh = this.meshes.get(object);
       if (!mesh) {
@@ -418,10 +447,26 @@ export class RenderVisibility {
       }
       if (mesh.previousSource !== source) mesh.level = -1;
       mesh.previousSource = source;
+      const bank=prepared&&lodEnabled?readGeneratedMeshLod(object):undefined;
+      if(bank){
+        // Instanced leaves use their actual combined bounds, not one card at
+        // object origin. The prepared bounds include the complete near canopy.
+        if(object instanceof InstancedMesh){if(!object.boundingSphere)object.computeBoundingSphere();this.sphere.copy(object.boundingSphere!).applyMatrix4(object.matrixWorld);}
+        else{if(!this.updateBounds(mesh))continue;mesh.bounds.getBoundingSphere(this.sphere);}
+        let diameter=this.diameter(camera,viewportHeightPixels,this.sphere);
+        if(object.castShadow)diameter=Math.max(diameter,this.shadowDiameter(this.sphere));
+        const level=selectGeneratedLodLevel(bank,diameter,Math.max(0,mesh.level),object instanceof InstancedMesh?96:0),selected=bank[level];
+        mesh.level=level;
+        if(level>0){const sourceCount=object instanceof InstancedMesh?object.count:1;mesh.originalGeometry=source;object.geometry=selected.geometry;if(object instanceof InstancedMesh&&selected.instanceCount!==undefined){mesh.originalCount=object.count;object.count=selected.instanceCount;}mesh.boundsFrame=-1;this.lodMeshes++;this.preparedLodMeshes++;this.estimatedTrianglesSaved+=Math.max(0,(indexCount(source)*sourceCount-indexCount(selected.geometry)*(object instanceof InstancedMesh?object.count:1))/3);}
+        // InstancedMesh provides aggregate culling; do not replace it with the
+        // per-geometry tight box used for ordinary rigid meshes.
+        if(!(object instanceof InstancedMesh)){object.intersectsFrustum=mesh.intersects;this.testedMeshes++;}
+        this.changed.push(mesh);continue;
+      }
       // Most rigid primitives already have their minimum topology. Test that
       // once per geometry before touching material state, then share material
       // suitability across all its LOD candidates in this synchronous pass.
-      if (this.geometryCanReduce(source) && !Array.isArray(object.material) && this.materialCanReduce(object.material)) {
+      if (lodEnabled&&!(object instanceof InstancedMesh)&&this.geometryCanReduce(source) && !Array.isArray(object.material) && this.materialCanReduce(object.material)) {
         if (!this.updateBounds(mesh)) continue;
         mesh.bounds.getBoundingSphere(this.sphere);
         let diameter = this.diameter(camera, viewportHeightPixels, this.sphere);
@@ -443,6 +488,7 @@ export class RenderVisibility {
         }
         mesh.level = level;
       }
+      if(object instanceof InstancedMesh)continue;
       object.intersectsFrustum = mesh.intersects;
       this.changed.push(mesh); this.testedMeshes++;
     }
@@ -452,6 +498,7 @@ export class RenderVisibility {
     for (let index = this.changed.length - 1; index >= 0; index--) {
       const entry = this.changed[index];
       if (entry.originalGeometry) { entry.mesh.geometry = entry.originalGeometry; entry.originalGeometry = undefined; }
+      if(entry.originalCount!==undefined&&entry.mesh instanceof InstancedMesh){entry.mesh.count=entry.originalCount;entry.originalCount=undefined;}
       if (entry.mesh.intersectsFrustum === entry.intersects) entry.mesh.intersectsFrustum = baseFrustumTest;
     }
     this.changed.length = 0; this.lights.length = 0; this.candidates.length = 0;
@@ -470,7 +517,7 @@ export class RenderVisibility {
     this.lod.clear(); this.changed.length = this.lights.length = this.candidates.length = 0;
     this.rejected = new WeakMap(); this.bounds = new WeakMap(); this.materialEligibility = new WeakMap();
     this.geometryEligibility = new WeakMap(); this.meshes = new WeakMap();
-    this.lodMeshes = this.culledTests = this.testedMeshes = 0;
+    this.lodMeshes = this.culledTests = this.testedMeshes =this.preparedLodMeshes=this.estimatedTrianglesSaved= 0;
     if (failed) throw failure;
   }
 }
