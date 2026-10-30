@@ -42,3 +42,26 @@ it('makes procedural foliage and collider helpers importable through the real ga
  writeFileSync(logic,readFileSync(logic,'utf8')+"\nexport {compileFoliage,foliageColliders} from '../shared/foliageGenerator.ts';\n");
  expect(buildView(root).length).toBeGreaterThan(100);expect(buildLogic(root).length).toBeGreaterThan(100);
 });
+it('allows deterministic biome and population queries through the planet facade in authoritative game logic',()=>{
+ const root=project('blank'),logic=join(root,'src/game/logic.ts');
+ writeFileSync(logic,readFileSync(logic,'utf8')+`\nimport {compilePlanet,createPlanetRecipe,compilePlanetBiomes,createPlanetBiomeRecipe,planPlanetPopulationCell,resolvePlanetPopulationOptions} from '../sandbox/planet.ts';
+ const surface=compilePlanet(createPlanetRecipe(42,1000));
+ const climate=compilePlanetBiomes(surface,createPlanetBiomeRecipe(42,1000));
+ const landing=climate.sample([1,0,0]);
+ const population=planPlanetPopulationCell({planet:surface,biomes:climate},{face:0,level:4,x:8,y:8},resolvePlanetPopulationOptions({maxTrees:8}));
+ if(!Number.isFinite(landing.heightMeters)||population.instances.length>25)throw Error('Planet query failed');\n`);
+ expect(describeGame(buildLogic(root)).info).toBeTruthy();
+});
+it('allows native generated planet population, water and WebGPU sky views through the game boundary',()=>{
+ const root=project('blank'),view=join(root,'src/game/view.ts');
+ writeFileSync(view,readFileSync(view,'utf8')+`\nexport {PlanetPopulationView,createPreparedPlanetPopulation,bakePlanetPopulation} from '../sandbox/planetPopulationView.ts';
+ export {PlanetWaterView,compilePlanetWater} from '../sandbox/planetWaterView.ts';
+ export {PlanetSkyWebGPUView} from '../sandbox/planetSkyWebGPU.ts';
+ export {preparePlanetSurfacePatch,planetSurfaceMaterialRecipes} from '../shared/planetSurface.ts';\n`);
+ expect(buildView(root).length).toBeGreaterThan(100);
+});
+it('keeps planet material baking and render dependencies out of authoritative game logic',()=>{
+ const root=project('blank'),logic=join(root,'src/game/logic.ts');
+ writeFileSync(logic,readFileSync(logic,'utf8')+"\nexport {bakePlanetSurfaceMaterials} from '../shared/planetSurface.ts';\n");
+ expect(()=>buildLogic(root)).toThrow(/zod|outside the game module/);
+});

@@ -4,4 +4,3 @@ export * from '../shared/planetLod.ts';
 export * from '../shared/planetSky.ts';
 export * from '../shared/planetBiomes.ts';
 export * from '../shared/planetPopulation.ts';
-export * from '../shared/planetSurface.ts';

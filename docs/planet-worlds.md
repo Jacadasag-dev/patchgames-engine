@@ -25,6 +25,24 @@ Three materials and geometry. The water view uses `MeshPhysicalMaterial`, not a
 WebGL-only shader callback. The sky must use the view that matches the renderer.
 Call its `render(renderer, scene, camera, frame)` after updating the world.
 
+## Authored game and host boundaries
+
+Authored game logic can import deterministic planet, climate and population
+queries from `../sandbox/planet.ts`. This facade contains data and pure queries;
+it does not pull rendering libraries or texture validation into authority.
+
+Import surface preparation explicitly from `../shared/planetSurface.ts` in view
+or preparation code. Material baking depends on view-side recipe validation and
+is intentionally unavailable in authoritative game logic. Native population,
+water and sky views are engine-owned sandbox view modules.
+
+The `src/client/game/*Preparation.ts` modules create browser workers and belong
+to the trusted host. They are public engine integration adapters, not authored
+game imports or MCP endpoints. A host integrating a sandboxed planet view must
+supply its prepared asset bank and bounded patch/population sources through the
+view interfaces. Keep worker creation, scheduling and cancellation in that host
+adapter; do not move them into authoritative game code.
+
 ## Shared coordinates and precision
 
 Keep authoritative recipe/query coordinates as absolute metre doubles. Supply
