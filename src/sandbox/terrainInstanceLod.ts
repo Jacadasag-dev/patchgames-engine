@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type {TerrainInstance} from './terrain.ts';
 import {generatedLodDiameter,generatedLodMaterialSafe,readGeneratedGeometryLod,selectGeneratedLodLevel,type GeneratedLodLevel} from './generatedLod.ts';
+import {isGeneratedAlphaShadowMaterial} from './generatedAlpha.ts';
 
 export interface TerrainInstanceLodFrame {
   camera:THREE.Camera;viewportHeight:number;
@@ -56,13 +57,15 @@ export class TerrainInstanceLod {
       if(Array.isArray(material))return false;if(this.checkedMaterials.has(material))return true;
       if(!generatedLodMaterialSafe(material))return false;this.checkedMaterials.add(material);return true;
     };
+    const shadowsSafe=(mesh:THREE.Mesh)=>(!mesh.customDepthMaterial||isGeneratedAlphaShadowMaterial(mesh.customDepthMaterial))&&(!mesh.customDistanceMaterial||isGeneratedAlphaShadowMaterial(mesh.customDistanceMaterial));
     for(const part of this.parts){
       const geometry=part.source.geometry;
       if(geometry!==part.levels[0].geometry||part.source.count!==this.instances.length||Object.keys(geometry.morphAttributes).length
         ||part.levels.length>1&&readGeneratedGeometryLod(geometry)!==part.levels)return'source-bank-changed';
       for(const level of part.levels)if(Object.keys(level.geometry.morphAttributes).length)return'morphed-tier';
       if(!materialSafe(part.source.material))return'unsupported-material';
-      for(const mesh of part.batches)if(!materialSafe(mesh.material))return'unsupported-material';
+      if(!shadowsSafe(part.source))return'unsupported-shadow';
+      for(const mesh of part.batches){if(!materialSafe(mesh.material))return'unsupported-material';if(!shadowsSafe(mesh))return'unsupported-shadow';}
     }
     return null;
   }

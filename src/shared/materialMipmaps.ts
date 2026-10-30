@@ -6,7 +6,10 @@ const linear=(v:number)=>v<=.04045?v/12.92:Math.pow((v+.055)/1.055,2.4);
 const srgb=(v:number)=>v<=.0031308?v*12.92:1.055*Math.pow(v,1/2.4)-.055;
 /** Prepare explicit mip levels once, alongside generated pixels. Color filtering
  * is linear-light and alpha weighted; cutout coverage survives minification.
- * Normals are re-normalized after filtering instead of shrinking toward zero. */
+ * Normals are re-normalized after filtering instead of shrinking toward zero.
+ * Omit alphaCutoff for hashed alpha: raw mean opacity must survive every mip,
+ * including the final fractional 1×1 texel. Binary coverage rescaling is only
+ * appropriate for an actual alpha-test consumer. */
 export function generateMaterialMipmaps(source:TexturePixels,options:MaterialMipOptions={}):TexturePixels[]{
   const {width,height,data}=source,kind=options.kind??'data',cutoff=options.alphaCutoff;
   if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>2048||height>2048
@@ -20,13 +23,13 @@ export function generateMaterialMipmaps(source:TexturePixels,options:MaterialMip
     for(let y=0;y<h;y++)for(let x=0;x<w;x++){
       // Area filtering includes the final row/column of odd-sized images.
       const x0=Math.floor(x*previous.width/w),x1=Math.floor((x+1)*previous.width/w),y0=Math.floor(y*previous.height/h),y1=Math.floor((y+1)*previous.height/h);
-      const total=(x1-x0)*(y1-y0),sum=[0,0,0];let alpha=0,weight=0;
+      const total=(x1-x0)*(y1-y0),sum=[0,0,0],unweighted=[0,0,0];let alpha=0,weight=0;
       for(let sy=y0;sy<y1;sy++)for(let sx=x0;sx<x1;sx++){const k=(sy*previous.width+sx)*4,a=previous.data[k+3]/255;alpha+=a;
-        for(let c=0;c<3;c++){const v=previous.data[k+c]/255;sum[c]+=(kind==='normal'?v*2-1:kind==='color'?linear(v):v)*(kind==='color'?a:1);}weight+=kind==='color'?a:1;
+        for(let c=0;c<3;c++){const v=previous.data[k+c]/255,value=kind==='normal'?v*2-1:kind==='color'?linear(v):v;sum[c]+=value*(kind==='color'?a:1);unweighted[c]+=value;}weight+=kind==='color'?a:1;
       }
       const k=(y*w+x)*4;
       if(kind==='normal'){const length=Math.hypot(...sum);for(let c=0;c<3;c++)next[k+c]=Math.round(((length?sum[c]/length:c===2?1:0)*.5+.5)*255);}
-      else for(let c=0;c<3;c++)next[k+c]=Math.round(clamp(kind==='color'?srgb(weight?sum[c]/weight:0):sum[c]/total)*255);
+      else for(let c=0;c<3;c++)next[k+c]=Math.round(clamp(kind==='color'?srgb(weight?sum[c]/weight:unweighted[c]/total):sum[c]/total)*255);
       next[k+3]=Math.round(alpha/total*255);
     }
     if(cutoff!==undefined&&coverage>0){

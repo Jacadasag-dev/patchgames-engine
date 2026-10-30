@@ -28,6 +28,10 @@ dirt block and a brick wall with one editable, non-repeating slash.
 Run `npm run demo:generation` for the [Generation Lab](examples/generation-lab.html):
 edit one shared graph and preview terrain, four varied trees and wall weathering.
 
+Run `npm run demo:leaf-lod` for the [Leaf Coverage Lab](examples/leaf-lod-lab.html):
+compare full and two-triangle leaf cards at fixed distances, inspect mip opacity,
+and measure the rendered canopy with and without multisampling.
+
 ## Complete starter games
 
 Six editable games ship with the engine: Duel, Arena, RPG, Social Lounge,

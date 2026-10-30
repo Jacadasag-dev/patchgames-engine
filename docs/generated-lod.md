@@ -16,10 +16,10 @@ the existing bounded view-replacement stage, then select prepared data at render
 | --- | --- | --- |
 | Heightfield terrain | Up to five interior grid strides; every source perimeter vertex is retained. | Any neighboring chunk detail levels share exact edge positions. Physics uses the original accepted heightfield. |
 | Editable voxel chunks | Exact coplanar unit faces coalesce into fewer prepared triangles, retaining every integer perimeter vertex. | Caves, block/material boundaries, repeated texture phase, mining/placement and collision remain unchanged. No coarse voxel downsampling. |
-| Foliage | Four prepared wood/leaf tiers; lower tube complexity, simplified branch paths, stable nested leaf subsets and less leaf-card tessellation. | Same tree identities, trunk/branch attachments and full-detail authoritative trunk colliders. Crown coverage is approximated by stable spatial representatives and bounded leaf enlargement. |
+| Foliage | Four prepared wood/leaf tiers; lower tube complexity, simplified branch paths and less leaf-card tessellation. Every accepted leaf and flower remains at its original position and size. | Same crown, tree identities, trunk/branch attachments and full-detail authoritative trunk colliders. Far leaves use two triangles each instead of sixteen. |
 | Terrain foliage/props with prepared banks | Per-instance tier buckets, rather than one tier for a whole forest chunk. | One visible representation per placement. Hidden source matrices retain stable wind identities. |
 | Generated analytic model spheres/cylinders | Lower segment counts of the same analytic shape. | Same dimensions, centres, metric UVs, attachments and physics. Boxes already have minimal useful topology. |
-| Generated materials | Mipmap chains with minification filters and bounded anisotropy. | Physical texture scale; alpha-test coverage for foliage cutouts; normalized filtered normals. |
+| Generated materials | Mipmap chains with minification filters and bounded anisotropy. | Physical texture scale; fractional alpha coverage for foliage; normalized filtered normals. |
 
 Imported arbitrary meshes, skin weights, morph targets and authored shader
 deformation are not automatically decimated. The existing render safety checks
@@ -33,8 +33,8 @@ generic analytic path is insufficient; this is not a universal mesh-remeshing to
 already-created geometry and an error relative to the **source** bounding-sphere
 radius. Source level zero has error zero. Banks contain two through five levels
 with finite nondecreasing errors. Analytic model and terrain error bounds account
-for their supported geometric construction; foliage density tiers additionally
-approximate visual coverage and need scene inspection.
+for their supported geometric construction. Foliage simplifies card curvature;
+distance tiers do not remove leaves or enlarge the remaining leaves.
 
 Selection uses the actual camera projection and viewport pixels, including zoom
 and orthographic cameras. Relevant shadow projections can retain more detail.
@@ -94,6 +94,12 @@ generation. Pixel-art output uses nearest mip selection; other styles use
 trilinear selection. Linear-filtered output requests anisotropy 4 by default,
 bounded to 1–16 and limited by renderer/device capability. Nearest-filtered
 pixel-art output uses anisotropy 1 for backend compatibility.
+
+Foliage uses opacity-preserving color mipmaps and native hashed alpha coverage.
+This keeps fractional leaf coverage visible even when the texture reaches one
+pixel, without sorted transparent cards or a hard alpha-test cutoff. The native
+hash can show fine grain at subpixel edges; inspect moving views as well as still
+images. Ordinary cutout and optical material defaults retain their own policy.
 
 Mipmaps improve distant filtering and sampling behavior. They do **not** unload
 the full-resolution base texture or implement texture residency streaming. A

@@ -1,17 +1,17 @@
 import {applyMaterialOptics} from './materialOptics.ts';
 import * as THREE from 'three';
-import {generateMaterial,type GeneratedMaterialPixels,type MaterialGeneratorRecipe} from '../shared/materialGenerator.ts';
+import {generateMaterial,type GeneratedMaterialPixels,type MaterialGeneratorRecipe,type GeneratedMaterialAlphaMode} from '../shared/materialGenerator.ts';
 import {mapBoxMaterialMeters} from './materialMapping.ts';
 import {generateMaterialMipmaps} from '../shared/materialMipmaps.ts';
 import type {TexturePixels} from '../shared/materialRecipeRenderer.ts';
 export {mapBoxMaterialMeters,inspectTextureDensity,createMaterialMappingDebug} from './materialMapping.ts';
 export {generateMaterial,materialGeneratorSchema,MATERIAL_GENERATOR_PRESETS,MATERIAL_FAMILIES} from '../shared/materialGenerator.ts';
-export type {MaterialGeneratorRecipe,GeneratedMaterialPixels} from '../shared/materialGenerator.ts';
+export type {MaterialGeneratorRecipe,GeneratedMaterialPixels,GeneratedMaterialAlphaMode} from '../shared/materialGenerator.ts';
 export {generateMaterialMipmaps} from '../shared/materialMipmaps.ts';
 const preparedMipmaps=new WeakMap<TexturePixels,Map<string,TexturePixels[]>>();
-function mipmaps(pixels:TexturePixels,kind:'color'|'normal',alphaCutoff?:number){
-  let bank=preparedMipmaps.get(pixels);if(!bank){bank=new Map();preparedMipmaps.set(pixels,bank);}const key=kind+':'+(alphaCutoff??'opaque');
-  let levels=bank.get(key);if(!levels){levels=generateMaterialMipmaps(pixels,{kind,alphaCutoff});bank.set(key,levels);}return levels;
+function mipmaps(pixels:TexturePixels,kind:'color'|'normal',alphaCutoff?:number,alphaMode:GeneratedMaterialAlphaMode='cutout'){
+  let bank=preparedMipmaps.get(pixels);if(!bank){bank=new Map();preparedMipmaps.set(pixels,bank);}const key=kind+':'+alphaMode+':'+(alphaCutoff??'opaque');
+  let levels=bank.get(key);if(!levels){levels=generateMaterialMipmaps(pixels,{kind,...(alphaMode==='cutout'?{alphaCutoff}:{})});bank.set(key,levels);}return levels;
 }
 
 /** Upload a previously baked result. Reuse the returned material; dispose after the last mesh releases it. */
@@ -24,6 +24,8 @@ export interface GeneratedMaterialMapping {
   surfaceMeters?:[number,number];
   /** Cutout alpha threshold, shared by filtering and the material. */
   alphaCutoff?:number;
+  /** Hashed coverage keeps filtered leaf opacity visible at subpixel sizes. */
+  alphaMode?:GeneratedMaterialAlphaMode;
   /** Bounded requested anisotropy. The renderer clamps it to device capability. */
   anisotropy?:number;
 }
@@ -32,7 +34,8 @@ export function createGeneratedMaterialFromPixels(baked:GeneratedMaterialPixels,
   if(options.geometry)mapBoxMaterialMeters(options.geometry);
   if(options.anisotropy!==undefined&&(!Number.isInteger(options.anisotropy)||options.anisotropy<1||options.anisotropy>16))throw Error('Material anisotropy must be an integer from 1–16.');
   if(options.alphaCutoff!==undefined&&(!Number.isFinite(options.alphaCutoff)||options.alphaCutoff<=0||options.alphaCutoff>=1))throw Error('Material alpha cutoff must fit 0..1 exclusively.');
-  const cutout=baked.preparedMipmaps?.cutout??baked.color.data.some((v,i)=>i%4===3&&v<255),alphaCutoff=options.alphaCutoff??baked.preparedMipmaps?.alphaCutoff??.5;
+  if(options.alphaMode!==undefined&&!['cutout','hash'].includes(options.alphaMode))throw Error('Material alpha mode must be cutout or hash.');
+  const cutout=baked.preparedMipmaps?.cutout??baked.color.data.some((v,i)=>i%4===3&&v<255),alphaCutoff=options.alphaCutoff??baked.preparedMipmaps?.alphaCutoff??.5,alphaMode=baked.recipe.optics?'cutout':options.alphaMode??baked.preparedMipmaps?.alphaMode??'cutout';
   if(options.surfaceMeters && !options.surfaceMeters.every(v=>Number.isFinite(v)&&v>0&&v<=20000))throw Error('Surface dimensions must be positive finite metres, up to 20000.');
   const maps=Object.fromEntries((['color','normal','roughness','metalness','height','ao'] as const).map(name=>{
     const pixels=baked[name],map=new THREE.DataTexture(pixels.data,pixels.width,pixels.height,THREE.RGBAFormat,THREE.UnsignedByteType);
@@ -44,15 +47,16 @@ export function createGeneratedMaterialFromPixels(baked:GeneratedMaterialPixels,
     map.minFilter=baked.recipe.output.style==='pixel'?THREE.NearestMipmapNearestFilter:THREE.LinearMipmapLinearFilter;
     map.anisotropy=baked.recipe.output.style==='pixel'?1:options.anisotropy??4;
     if(name==='color'&&cutout||name==='normal'){
-      map.mipmaps=(name==='normal'?baked.preparedMipmaps?.normal:baked.preparedMipmaps?.alphaCutoff===alphaCutoff?baked.preparedMipmaps.color:undefined)
-        ??mipmaps(pixels,name==='normal'?'normal':'color',name==='color'&&cutout?alphaCutoff:undefined);map.generateMipmaps=false;
+      const compatibleColor=(baked.preparedMipmaps?.alphaMode??'cutout')===alphaMode&&(alphaMode==='hash'||baked.preparedMipmaps?.alphaCutoff===alphaCutoff);
+      map.mipmaps=(name==='normal'?baked.preparedMipmaps?.normal:compatibleColor?baked.preparedMipmaps?.color:undefined)
+        ??mipmaps(pixels,name==='normal'?'normal':'color',name==='color'&&cutout?alphaCutoff:undefined,alphaMode);map.generateMipmaps=false;
     }else map.generateMipmaps=true;
     map.needsUpdate=true;
     return[name,map];
   })) as Record<'color'|'normal'|'roughness'|'metalness'|'height'|'ao',THREE.DataTexture>;
   const material=new THREE.MeshPhysicalMaterial({name:baked.recipe.name,map:maps.color,normalMap:maps.normal,roughnessMap:maps.roughness,metalnessMap:maps.metalness,aoMap:maps.ao,roughness:1,metalness:1});
   applyMaterialOptics(material,baked.recipe.optics);
-  if(cutout){material.alphaTest=alphaCutoff;material.side=THREE.DoubleSide;material.alphaToCoverage=true;}
+  if(cutout){material.side=THREE.DoubleSide;if(alphaMode==='hash'){material.alphaHash=true;material.alphaTest=0;material.alphaToCoverage=false;material.transparent=false;}else{material.alphaTest=alphaCutoff;material.alphaToCoverage=true;}}
   material.userData.materialGenerator={recipe:baked.recipe,diagnostics:baked.diagnostics};
   let disposed=false;
   return{material,maps,recipe:baked.recipe,diagnostics:baked.diagnostics,dispose(){if(disposed)return;disposed=true;material.dispose();Object.values(maps).forEach(map=>map.dispose());}};

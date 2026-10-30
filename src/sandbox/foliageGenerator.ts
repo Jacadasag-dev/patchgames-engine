@@ -9,6 +9,7 @@ import {createGeneratedMaterialFromPixels} from './materialGenerator.ts';
 import {compileFoliageGeneration} from '../shared/generationFoliage.ts';
 import {prepareFoliageLod,foliageLodPathIndices,type FoliageLodTier} from '../shared/foliageLod.ts';
 import {registerGeneratedGeometryLod,registerGeneratedMeshLod,readGeneratedGeometryLod} from './generatedLod.ts';
+import {createGeneratedAlphaShadows} from './generatedAlpha.ts';
 export {compileFoliageGeneration,FOLIAGE_GENERATION_TARGETS} from '../shared/generationFoliage.ts';
 export {compileFoliage,parseFoliageRecipe,foliageColliders} from '../shared/foliageGenerator.ts';
 export type {FoliageRecipe,FoliageModel} from '../shared/foliageGenerator.ts';
@@ -26,8 +27,8 @@ export async function bakeFoliageModel(model:FoliageModel,options:{resolution?:n
   const bark=resolve(model.recipe.materials.bark),leaf=resolve(model.recipe.materials.leaf);
   if(!['leaf','needle'].includes(leaf.pattern.family)&&!model.diagnostics.warnings.includes('Leaf material has no plant silhouette; full rectangular cards will render.'))model.diagnostics.warnings.push('Leaf material has no plant silhouette; full rectangular cards will render.');
   const resolution=options.resolution??{low:64,medium:128,high:256}[model.recipe.quality];
-  const pixels=await Promise.all([generateMaterial(bark,{resolution,signal:options.signal}),generateMaterial(leaf,{resolution,signal:options.signal,alphaCutoff:.2})]);
-  return{model,bark:pixels[0],leaf:pixels[1],flower:model.flowers.length?await generateMaterial(resolve(model.recipe.materials.flower),{resolution,signal:options.signal}):undefined};
+  const pixels=await Promise.all([generateMaterial(bark,{resolution,signal:options.signal}),generateMaterial(leaf,{resolution,signal:options.signal,alphaMode:'hash'})]);
+  return{model,bark:pixels[0],leaf:pixels[1],flower:model.flowers.length?await generateMaterial(resolve(model.recipe.materials.flower),{resolution,signal:options.signal,alphaMode:'hash'}):undefined};
 }
 /** Sweep one welded tube per woody path. Shared bend rings prevent stacked cylinders,
  * internal caps and independently rotated cross sections from showing through. */
@@ -65,6 +66,12 @@ function leafLodGeometry(w:number,h:number,leafSize:number,tier:FoliageLodTier){
 function mergedLod(instances:THREE.InstancedMesh,geometry:THREE.BufferGeometry,count:number){
   const previousGeometry=instances.geometry,previousCount=instances.count;try{instances.geometry=geometry;instances.count=count;return mergedLeaves(instances);}finally{instances.geometry=previousGeometry;instances.count=previousCount;}
 }
+/** Native shadow materials borrow the visible maps and are owned by that
+ * visible material, including independently cloned terrain material handles. */
+function leafShadows(mesh:THREE.Mesh,material:THREE.Material){
+  const shadow=material.alphaHash?createGeneratedAlphaShadows(material):undefined;
+  mesh.customDepthMaterial=shadow?.depth;mesh.customDistanceMaterial=shadow?.distance;
+}
 /** Batched tapered wood, curved leaf cards and optional attached petal instances. */
 export class FoliageView {
   readonly root=new THREE.Group();private owned:(()=>void)[]=[];private materialsOwned:(()=>void)[]=[];private geometryKey='';private disposed=false;
@@ -72,14 +79,14 @@ export class FoliageView {
   constructor(bake:FoliageBake,options:{leafMode?:'instanced'|'merged';lod?:boolean}={}){this.options=options;this.update(bake);}
   update(bake:FoliageBake){
     if(this.disposed)throw Error('Foliage view disposed.');
-    const {model}=bake,bark=createGeneratedMaterialFromPixels(bake.bark,{uvSpace:'metres'}),leaf=createGeneratedMaterialFromPixels(bake.leaf,{alphaCutoff:.2});
-    leaf.material.side=THREE.DoubleSide;leaf.material.alphaTest=.2;leaf.material.alphaToCoverage=true;leaf.material.emissive.set(bake.leaf.recipe.color);leaf.material.emissiveIntensity=.08;
+    const {model}=bake,bark=createGeneratedMaterialFromPixels(bake.bark,{uvSpace:'metres'}),leaf=createGeneratedMaterialFromPixels(bake.leaf,{alphaMode:'hash'});
+    leaf.material.side=THREE.DoubleSide;leaf.material.emissive.set(bake.leaf.recipe.color);leaf.material.emissiveIntensity=.08;
     const plant=bake.leaf.recipe.pattern,length=plant.family==='leaf'||plant.family==='needle'?plant.lengthMeters:bake.leaf.recipe.tileMeters[1],scale=model.recipe.leafSizeMeters/length;
-    const flower=bake.flower?createGeneratedMaterialFromPixels(bake.flower):undefined;if(flower){flower.material.side=THREE.DoubleSide;flower.material.alphaTest=.5;}
+    const flower=bake.flower?createGeneratedMaterialFromPixels(bake.flower,{alphaMode:'hash'}):undefined;if(flower)flower.material.side=THREE.DoubleSide;
     const key=JSON.stringify([{...model.recipe,name:undefined,materials:undefined},bake.leaf.recipe.tileMeters,length,bake.flower?.recipe.tileMeters,bake.flower?.recipe.pattern,this.options.lod!==false]);
     const oldMaterials=this.materialsOwned;this.materialsOwned=[()=>bark.dispose(),()=>leaf.dispose(),()=>flower?.dispose()];
     this.root.name=model.recipe.name;this.root.userData.foliage={recipe:model.recipe,diagnostics:model.diagnostics,bounds:model.bounds,...(this.root.userData.foliage?.lod?{lod:this.root.userData.foliage.lod}:{})};
-    if(this.geometryKey===key){(this.root.children[0] as THREE.Mesh).material=bark.material;(this.root.children[1] as THREE.Mesh).material=leaf.material;if(flower&&this.root.children[2])(this.root.children[2] as THREE.Mesh).material=flower.material;oldMaterials.forEach(dispose=>dispose());return;}
+    if(this.geometryKey===key){(this.root.children[0] as THREE.Mesh).material=bark.material;const leaves=this.root.children[1] as THREE.Mesh;leaves.material=leaf.material;leafShadows(leaves,leaf.material);if(flower&&this.root.children[2]){const bloom=this.root.children[2] as THREE.Mesh;bloom.material=flower.material;leafShadows(bloom,flower.material);}oldMaterials.forEach(dispose=>dispose());return;}
     this.geometryKey=key;const lod=this.options.lod===false?undefined:prepareFoliageLod(model),wood=woodGeometry(model),woody=new THREE.Mesh(wood,bark.material);woody.castShadow=woody.receiveShadow=true;
     const w=bake.leaf.recipe.tileMeters[0]*scale,h=bake.leaf.recipe.tileMeters[1]*scale,leafGeometry=new THREE.PlaneGeometry(w,h,2,4),p=leafGeometry.attributes.position;
     for(let i=0;i<p.count;i++){const y=p.getY(i)+model.recipe.leafSizeMeters/2;p.setY(i,y);p.setZ(i,Math.sin(Math.max(0,Math.min(1,y/model.recipe.leafSizeMeters))*Math.PI)*model.recipe.leafSizeMeters*.09);}leafGeometry.computeVertexNormals();
@@ -91,16 +98,17 @@ export class FoliageView {
       const petals=model.recipe.flowers.petals,inst=new THREE.InstancedMesh(g,flower.material,model.flowers.length*petals),up=new THREE.Vector3(0,1,0);
       (lod?lod[0].flowerIndices.map(i=>model.flowers[i]):model.flowers).forEach((b,i)=>{const normal=new THREE.Vector3(...b.normal),orient=new THREE.Quaternion().setFromUnitVectors(up,normal);for(let j=0;j<petals;j++){const angle=j/petals*Math.PI*2,y=new THREE.Vector3(Math.cos(angle),.55,Math.sin(angle)).normalize().applyQuaternion(orient),z=normal.clone().addScaledVector(y,-normal.dot(y)).normalize(),x=y.clone().cross(z).normalize();rotation.makeBasis(x,y,z);q.setFromRotationMatrix(rotation);matrix.compose(new THREE.Vector3(...b.anchor),q,new THREE.Vector3(b.sizeScale,b.sizeScale,b.sizeScale));inst.setMatrixAt(i*petals+j,matrix);}});inst.instanceMatrix.needsUpdate=true;inst.computeBoundingSphere();const mergedBloom=this.options.leafMode==='merged'?mergedLeaves(inst):undefined;blossoms=mergedBloom?new THREE.Mesh(mergedBloom,flower.material):inst;bloomInstances=inst;blossoms.castShadow=true;bloomOwned.push(()=>{g.dispose();mergedBloom?.dispose();inst.dispose();});
     }
+    leafShadows(leafMesh,leaf.material);if(blossoms&&flower)leafShadows(blossoms,flower.material);
     const previous=this.owned;this.root.clear();this.root.add(woody,leafMesh);if(blossoms)this.root.add(blossoms);this.root.userData.foliage={recipe:model.recipe,diagnostics:model.diagnostics,bounds:model.bounds};
     this.owned=[()=>{wood.dispose();leafGeometry.dispose();merged?.dispose();foliage.dispose();},...bloomOwned];previous.forEach(dispose=>dispose());oldMaterials.forEach(dispose=>dispose());
     if(lod){
       const woodLevels=[{geometry:wood,error:0}],leafLevels=[{geometry:leafMesh.geometry,error:0,instanceCount:model.leaves.length}],flowerLevels=blossoms?[{geometry:blossoms.geometry,error:0,instanceCount:model.flowers.length*model.recipe.flowers.petals}]:undefined;
       const lower:THREE.BufferGeometry[]=[];let woodError=0,leafError=0;
-      const leafRadius=Math.max(.001,merged?merged.boundingSphere!.radius:foliage.boundingSphere!.radius),maxLeafScale=Math.max(1,...model.leaves.map(l=>l.sizeScale)),cardExtent=Math.hypot(w/2,(h+model.recipe.leafSizeMeters)/2,model.recipe.leafSizeMeters*.09)*maxLeafScale;
+      const leafRadius=Math.max(.001,merged?merged.boundingSphere!.radius:foliage.boundingSphere!.radius),maxLeafScale=Math.max(1,...model.leaves.map(l=>l.sizeScale));
       for(const tier of lod.slice(1)){
         const g=woodGeometry(model,tier);lower.push(g);woodError=Math.max(woodError,(Math.max(...model.branches.map(b=>b.radiusStart))*(1-Math.cos(Math.PI/tier.radialSegments))+tier.axialToleranceMeters)/Math.max(.001,wood.boundingSphere!.radius));woodLevels.push({geometry:g,error:woodError});
-        const plane=leafLodGeometry(w,h,model.recipe.leafSizeMeters,tier),geometry=merged?mergedLod(foliage,plane,tier.leafIndices.length):plane;lower.push(plane);if(geometry!==plane)lower.push(geometry);leafError=model.leaves.length?Math.max(leafError,(tier.level===1?model.recipe.leafSizeMeters*.09*maxLeafScale:cardExtent*tier.leafScale)/leafRadius):0;leafLevels.push({geometry,error:leafError,instanceCount:tier.leafIndices.length});
-        if(blossoms&&bloomInstances&&flowerLevels){const source=(bloomInstances.geometry as THREE.PlaneGeometry).parameters,g=new THREE.PlaneGeometry(source.width,source.height,1,1);g.translate(0,model.recipe.flowers.sizeMeters/4,0);lower.push(g);const count=tier.flowerIndices.length*model.recipe.flowers.petals,geometry=this.options.leafMode==='merged'?mergedLod(bloomInstances,g,count):g;if(geometry!==g)lower.push(geometry);flowerLevels.push({geometry,error:Math.max(tier.error,model.recipe.flowers.sizeMeters/Math.max(.001,wood.boundingSphere!.radius)),instanceCount:count});}
+        const plane=leafLodGeometry(w,h,model.recipe.leafSizeMeters,tier),geometry=merged?mergedLod(foliage,plane,tier.leafIndices.length):plane;lower.push(plane);if(geometry!==plane)lower.push(geometry);leafError=model.leaves.length?Math.max(leafError,model.recipe.leafSizeMeters*.09*maxLeafScale/leafRadius):0;leafLevels.push({geometry,error:leafError,instanceCount:tier.leafIndices.length});
+        if(blossoms&&bloomInstances&&flowerLevels){const source=(bloomInstances.geometry as THREE.PlaneGeometry).parameters,g=new THREE.PlaneGeometry(source.width,source.height,1,1);g.translate(0,model.recipe.flowers.sizeMeters/4,0);lower.push(g);const count=tier.flowerIndices.length*model.recipe.flowers.petals,geometry=this.options.leafMode==='merged'?mergedLod(bloomInstances,g,count):g;if(geometry!==g)lower.push(geometry);flowerLevels.push({geometry,error:0,instanceCount:count});}
       }
       const releases=[registerGeneratedGeometryLod(wood,woodLevels)];
       if(merged){releases.push(registerGeneratedGeometryLod(leafMesh.geometry,leafLevels.map(({geometry,error})=>({geometry,error}))));if(blossoms&&flowerLevels)releases.push(registerGeneratedGeometryLod(blossoms.geometry,flowerLevels.map(({geometry,error})=>({geometry,error}))));}
@@ -152,7 +160,7 @@ export function createFoliageTerrainLibrary(entries:readonly {id:string;bake:Fol
     root.traverse(object=>{if(!(object instanceof THREE.Mesh))return;const bank=readGeneratedGeometryLod(object.geometry);
       if(context){for(const level of bank??[{geometry:object.geometry}])geometries.add(level.geometry);}
       else{object.geometry=object.geometry.clone();if(bank)registerGeneratedGeometryLod(object.geometry,bank.map((level,index)=>({geometry:index===0?object.geometry:level.geometry.clone(),error:level.error})));}
-      const copies=new Map<THREE.Texture,THREE.Texture>();const clone=(source:THREE.Material)=>{const material=source.clone();for(const [key,value]of Object.entries(material))if(value instanceof THREE.Texture){let texture=copies.get(value);if(!texture){texture=value.clone();copies.set(value,texture);}Object.assign(material,{[key]:texture});}return material;};object.material=Array.isArray(object.material)?object.material.map(clone):clone(object.material);
+      const copies=new Map<THREE.Texture,THREE.Texture>();const clone=(source:THREE.Material)=>{const material=source.clone();for(const [key,value]of Object.entries(material))if(value instanceof THREE.Texture){let texture=copies.get(value);if(!texture){texture=value.clone();copies.set(value,texture);}Object.assign(material,{[key]:texture});}return material;};object.material=Array.isArray(object.material)?object.material.map(clone):clone(object.material);if(!Array.isArray(object.material))leafShadows(object,object.material);
     });
     if(context){source.references++;let released=false;const release=()=>{if(released)return;released=true;source.references--;retire(asset.id,source);};
       try{context.borrowGeometry([...geometries],release);}catch(error){release();root.traverse(object=>{if(object instanceof THREE.Mesh)for(const material of Array.isArray(object.material)?object.material:[object.material]){for(const value of Object.values(material))if(value instanceof THREE.Texture)value.dispose();material.dispose();}});throw error;}

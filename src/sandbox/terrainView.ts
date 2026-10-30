@@ -437,6 +437,7 @@ export class TerrainView {
         if (!(object instanceof THREE.Mesh)) return;
         const batch = new THREE.InstancedMesh(object.geometry, object.material, instances.length);
         batch.name = `terrain:${id}:${batches++}`; batch.castShadow = object.castShadow; batch.receiveShadow = object.receiveShadow;
+        batch.customDepthMaterial=object.customDepthMaterial;batch.customDistanceMaterial=object.customDistanceMaterial;
         for (let ancestor: THREE.Object3D | null = object; ancestor; ancestor = ancestor.parent) {
           if (!ancestor.visible) batch.visible = false;
           if (ancestor === prototype) break;
@@ -453,6 +454,7 @@ export class TerrainView {
           for(let level=0;level<tierCount;level++){
             const geometry=levels[Math.min(level,levels.length-1)].geometry,tier=new THREE.InstancedMesh(geometry,object.material,instances.length);
             tier.name=batch.name+':lod'+level;tier.castShadow=batch.castShadow;tier.receiveShadow=batch.receiveShadow;tier.visible=batch.visible;tier.renderOrder=batch.renderOrder;tier.layers.mask=batch.layers.mask;
+            tier.customDepthMaterial=batch.customDepthMaterial;tier.customDistanceMaterial=batch.customDistanceMaterial;
             tier.instanceMatrix.setUsage(THREE.DynamicDrawUsage);tier.instanceMatrix.array.set(batch.instanceMatrix.array);tier.instanceMatrix.needsUpdate=true;tier.count=level===0?instances.length:0;tier.boundingSphere=batch.boundingSphere?.clone()??null;
             group.add(tier);tierBatches.push(tier);
           }

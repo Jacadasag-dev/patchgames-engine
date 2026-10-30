@@ -6,10 +6,12 @@ import {FoliageView,generateFoliage,createFoliageTerrainLibrary} from '../src/sa
 import {readGeneratedGeometryLod,readGeneratedMeshLod} from '../src/sandbox/generatedLod.ts';
 import {TerrainView} from '../src/sandbox/terrainView.ts';
 import {compileTerrain} from '../src/sandbox/terrain.ts';
+import {FOLIAGE_PRESETS} from '../src/shared/foliagePresets.ts';
 const recipe:FoliageRecipe={kind:'foliage',version:1,seed:8,heightMeters:3,crownRadiusMeters:1,branches:3,branchLevels:2,branchSegments:12,density:80};
-it('prepares nested spatial leaf subsets without rerolling trees or authoritative colliders',()=>{
+it('preserves every leaf and flower at every tier without rerolling trees or authoritative colliders',()=>{
  const model=compileFoliage(recipe),before=structuredClone(model),tiers=prepareFoliageLod(model);expect(model).toEqual(before);expect(tiers).toEqual(prepareFoliageLod(model));expect(tiers).toHaveLength(4);
- for(let i=1;i<tiers.length;i++){expect(tiers[i].leafIndices).toEqual(tiers[0].leafIndices.slice(0,tiers[i].leafIndices.length));expect(tiers[i].leafIndices.length).toBeLessThanOrEqual(tiers[i-1].leafIndices.length);expect(tiers[i].error).toBeGreaterThanOrEqual(tiers[i-1].error);}
+ for(let i=1;i<tiers.length;i++){expect(tiers[i].leafIndices).toEqual(tiers[0].leafIndices);expect(tiers[i].flowerIndices).toEqual(tiers[0].flowerIndices);expect(tiers[i].leafScale).toBe(1);expect(tiers[i].error).toBeGreaterThanOrEqual(tiers[i-1].error);}
+ expect(new Set(tiers[0].leafIndices).size).toBe(model.leaves.length);
  expect(foliageColliders(model)).toEqual(foliageColliders(before));expect(Object.isFrozen(tiers[0].leafIndices)).toBe(true);
 });
 it('simplifies woody paths within a physical deviation bound while retaining endpoints',()=>{
@@ -18,9 +20,17 @@ it('simplifies woody paths within a physical deviation bound while retaining end
 });
 it('prepares much cheaper borrowed geometry banks once and keeps source meshes stable',async()=>{
  const bake=await generateFoliage(recipe,{resolution:32}),view=new FoliageView(bake),[wood,leaves]=view.root.children as [Mesh,InstancedMesh],woodBank=readGeneratedGeometryLod(wood.geometry)!,leafBank=readGeneratedMeshLod(leaves)!,metadata=view.root.userData.foliage.lod;
- expect(woodBank).toHaveLength(4);expect(leafBank).toHaveLength(4);expect(metadata.prepared).toBe(true);expect(metadata.levels[3].woodTriangles).toBeLessThan(metadata.levels[0].woodTriangles*.35);expect(metadata.levels[3].leafTriangles).toBeLessThan(metadata.levels[0].leafTriangles*.1);
+ expect(woodBank).toHaveLength(4);expect(leafBank).toHaveLength(4);expect(metadata.prepared).toBe(true);expect(metadata.levels[3].woodTriangles).toBeLessThan(metadata.levels[0].woodTriangles*.35);expect(metadata.levels[3].leafTriangles).toBe(metadata.levels[0].leafTriangles/8);expect(metadata.levels.every((level:{leaves:number})=>level.leaves===bake.model.leaves.length)).toBe(true);
  const tiers=prepareFoliageLod(bake.model),matrix=new Matrix4();for(let i=0;i<Math.min(20,leaves.count);i++){leaves.getMatrixAt(i,matrix);expect(matrix.elements.slice(12,15)).toEqual(bake.model.leaves[tiers[0].leafIndices[i]].anchor.map(Math.fround));}
  const disposed=woodBank.map(()=>0);woodBank.forEach((entry,i)=>entry.geometry.addEventListener('dispose',()=>disposed[i]++));view.update(bake);expect(readGeneratedGeometryLod(wood.geometry)).toBe(woodBank);expect(view.root.userData.foliage.lod).toBe(metadata);expect(disposed).toEqual([0,0,0,0]);view.dispose();view.dispose();expect(disposed).toEqual([1,1,1,1]);expect(readGeneratedGeometryLod(wood.geometry)).toBeUndefined();
+});
+it.each(['oak','palm','willow','evergreen'])('%s retains its complete crown and frond extent with low-poly distant leaf cards',id=>{
+ const preset=FOLIAGE_PRESETS.find(p=>p.id===id)!,model=compileFoliage(preset.recipe),tiers=prepareFoliageLod(model),all=new Set(model.leaves.map(l=>l.id));
+ const extent=(indices:readonly number[])=>[0,1,2].map(axis=>[Math.min(...indices.map(i=>model.leaves[i].anchor[axis])),Math.max(...indices.map(i=>model.leaves[i].anchor[axis]))]);
+ for(const tier of tiers){expect(new Set(tier.leafIndices.map(i=>model.leaves[i].id))).toEqual(all);expect(extent(tier.leafIndices)).toEqual(extent(tiers[0].leafIndices));expect(tier.leafScale).toBe(1);}
+ expect(tiers[3].leafSegments[0]*tiers[3].leafSegments[1]*2).toBe(2);
+ expect(tiers[3].leafSegments[0]*tiers[3].leafSegments[1]).toBe(tiers[0].leafSegments[0]*tiers[0].leafSegments[1]/8);
+ expect(tiers).toEqual(prepareFoliageLod(model));
 });
 it('clones merged prototype banks with independent ownership across terrain libraries',async()=>{
  const bake=await generateFoliage(recipe,{resolution:32}),library=createFoliageTerrainLibrary([{id:'tree',bake}]),a=library.assetFactory(library.assets[0])!,b=library.assetFactory(library.assets[0])!,am=a.children[0] as Mesh,bm=b.children[0] as Mesh,abank=readGeneratedGeometryLod(am.geometry)!,bbank=readGeneratedGeometryLod(bm.geometry)!;

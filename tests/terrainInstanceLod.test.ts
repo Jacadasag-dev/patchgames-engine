@@ -59,3 +59,7 @@ it('never restores extra instances after the canonical source count is reduced',
  source.count=1;group.prepare({camera,viewportHeight:900,diameter:()=>1},new THREE.Matrix4());expect(near.count).toBe(1);expect(far.count).toBe(0);group.restore();expect(near.count).toBe(1);
  group.dispose();near.dispose();far.dispose();geometries.forEach(geometry=>geometry.dispose());(mesh.material as THREE.Material).dispose();
 });
+it('retains source detail for authored shadow shaders on a prepared tier',()=>{
+ const geometries:THREE.BufferGeometry[]=[],view=new TerrainView(compileTerrain(recipe),{surface:false,registerEnvironment:false,assetFactory:()=>prototype(geometries)}),f=frame();f.scene.add(view.root);const meshes=batches(view),depth=new THREE.MeshDepthMaterial();depth.onBeforeCompile=()=>{};meshes[1].customDepthMaterial=depth;
+ f.adapters.prepare(f.scene,f.camera,900);expect(meshes.map(mesh=>mesh.count)).toEqual([2,0]);expect(view.inspection().lod).toMatchObject({instanceGroups:[{fallbackReason:'unsupported-shadow'}]});f.adapters.restore();view.dispose();depth.dispose();f.adapters.dispose();
+});

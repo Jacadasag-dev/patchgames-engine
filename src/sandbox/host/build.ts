@@ -78,7 +78,7 @@ SANDBOX_NAMES.push('firearms.ts', 'firearmView.ts', 'firearmPose.ts','firearmMod
 SANDBOX_NAMES.push('gameUi.ts');
 SANDBOX_NAMES.push('gameScenes.ts');
 SANDBOX_NAMES.push('scenePresets.ts');
-SANDBOX_NAMES.push('generatedLod.ts','modelLod.ts','terrainLod.ts','terrainInstanceLod.ts','voxelLod.ts');
+SANDBOX_NAMES.push('generatedLod.ts','generatedAlpha.ts','modelLod.ts','terrainLod.ts','terrainInstanceLod.ts','voxelLod.ts');
 const SANDBOX_FILES = new Set(SANDBOX_NAMES.map((name) => real(sandboxFile(name))));
 const GAME_API = real(fileURLToPath(new URL('../../shared/gameApi.ts', import.meta.url)));
 const FEATURE_API = real(fileURLToPath(new URL('../../shared/gameFeatures.ts', import.meta.url)));

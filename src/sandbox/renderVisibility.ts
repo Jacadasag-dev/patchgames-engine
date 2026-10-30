@@ -7,6 +7,7 @@ import {
 } from 'three';
 import {readGeneratedMeshLod,readGeneratedExplicitMeshLod,selectGeneratedLodLevel,generatedLodMaterialSafe} from './generatedLod.ts';
 import {isVoxelCoalescedGeometry,voxelMaterialCanMerge} from './voxelLod.ts';
+import {isGeneratedAlphaShadowMaterial} from './generatedAlpha.ts';
 
 type Primitive = SphereGeometry | CylinderGeometry | ConeGeometry | IcosahedronGeometry | TorusGeometry | BoxGeometry;
 type ShadowLight = DirectionalLight | PointLight | SpotLight;
@@ -89,7 +90,7 @@ function rigidMesh(object: Object3D, materialEligible: (material: Material) => b
   geometryEligible: (geometry: BufferGeometry) => boolean): object is Mesh {
   if (!(object instanceof Mesh) || object instanceof InstancedMesh || object instanceof SkinnedMesh || object instanceof BatchedMesh
     || !object.frustumCulled || object.intersectsFrustum !== baseFrustumTest
-    || object.customDepthMaterial || object.customDistanceMaterial
+    || object.customDepthMaterial&&!isGeneratedAlphaShadowMaterial(object.customDepthMaterial) || object.customDistanceMaterial&&!isGeneratedAlphaShadowMaterial(object.customDistanceMaterial)
     || object.onBeforeRender !== Object3D.prototype.onBeforeRender
     || object.onAfterRender !== Object3D.prototype.onAfterRender
     || object.onBeforeShadow !== Object3D.prototype.onBeforeShadow
@@ -106,7 +107,7 @@ function preparedMesh(object:Object3D):object is Mesh{
   if(!(object instanceof Mesh)||object instanceof SkinnedMesh||object instanceof BatchedMesh
     ||object instanceof InstancedMesh&&!readGeneratedExplicitMeshLod(object)
     ||!readGeneratedMeshLod(object)||!object.frustumCulled||object.intersectsFrustum!==baseFrustumTest
-    ||object.customDepthMaterial||object.customDistanceMaterial
+    ||object.customDepthMaterial&&!isGeneratedAlphaShadowMaterial(object.customDepthMaterial)||object.customDistanceMaterial&&!isGeneratedAlphaShadowMaterial(object.customDistanceMaterial)
     ||object.onBeforeRender!==Object3D.prototype.onBeforeRender||object.onAfterRender!==Object3D.prototype.onAfterRender
     ||object.onBeforeShadow!==Object3D.prototype.onBeforeShadow||object.onAfterShadow!==Object3D.prototype.onAfterShadow)return false;
   const voxel=isVoxelCoalescedGeometry(object.geometry);

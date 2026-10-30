@@ -127,22 +127,26 @@ export function sampleMaterialOpacity(r:ResolvedMaterialGenerator,u:number,v:num
   if(p.damage>0&&noise(u,v,24,24,r.seed+887)>1-p.damage*.3)return 0;
   return 1;
 }
-export interface GeneratedMaterialPixels {recipe:ResolvedMaterialGenerator;color:TexturePixels;normal:TexturePixels;height:TexturePixels;roughness:TexturePixels;metalness:TexturePixels;ao:TexturePixels;preparedMipmaps?:{alphaCutoff:number;cutout:boolean;color?:TexturePixels[];normal:TexturePixels[]};diagnostics:{resolution:number;bytes:number;baseBytes?:number;mipBytes?:number;tileMeters:[number,number];warnings:string[]}}
+export type GeneratedMaterialAlphaMode='cutout'|'hash';
+export interface GeneratedMaterialPixels {recipe:ResolvedMaterialGenerator;color:TexturePixels;normal:TexturePixels;height:TexturePixels;roughness:TexturePixels;metalness:TexturePixels;ao:TexturePixels;preparedMipmaps?:{alphaCutoff:number;alphaMode?:GeneratedMaterialAlphaMode;cutout:boolean;color?:TexturePixels[];normal:TexturePixels[]};diagnostics:{resolution:number;bytes:number;baseBytes?:number;mipBytes?:number;tileMeters:[number,number];warnings:string[]}}
 /** Bake-only data, including mip pixels, stays disposable and out of recipes.
  * Call from a loading/authoring worker before handing pixels to a renderer. */
-export function prepareGeneratedMaterialMipmaps(baked:GeneratedMaterialPixels,alphaCutoff=.5):GeneratedMaterialPixels{
+export function prepareGeneratedMaterialMipmaps(baked:GeneratedMaterialPixels,alphaCutoff=.5,requestedAlphaMode:GeneratedMaterialAlphaMode='cutout'):GeneratedMaterialPixels{
   if(!Number.isFinite(alphaCutoff)||alphaCutoff<=0||alphaCutoff>=1)throw Error('Material alpha cutoff must fit 0..1 exclusively.');
-  if(baked.preparedMipmaps?.alphaCutoff===alphaCutoff)return baked;
-  const cutout=baked.color.data.some((v,i)=>i%4===3&&v<255),normal=baked.preparedMipmaps?.normal??generateMaterialMipmaps(baked.normal,{kind:'normal'}),color=cutout?generateMaterialMipmaps(baked.color,{kind:'color',alphaCutoff}):undefined;
-  baked.preparedMipmaps={alphaCutoff,cutout,normal,...(color?{color}:{})};
+  if(!['cutout','hash'].includes(requestedAlphaMode))throw Error('Material alpha mode must be cutout or hash.');
+  const alphaMode=baked.recipe.optics?'cutout':requestedAlphaMode;
+  if(baked.preparedMipmaps?.alphaCutoff===alphaCutoff&&(baked.preparedMipmaps.alphaMode??'cutout')===alphaMode)return baked;
+  const cutout=baked.color.data.some((v,i)=>i%4===3&&v<255),normal=baked.preparedMipmaps?.normal??generateMaterialMipmaps(baked.normal,{kind:'normal'}),color=cutout?generateMaterialMipmaps(baked.color,{kind:'color',...(alphaMode==='cutout'?{alphaCutoff}:{})}):undefined;
+  baked.preparedMipmaps={alphaCutoff,alphaMode,cutout,normal,...(color?{color}:{})};
   const baseBytes=[baked.color,baked.normal,baked.height,baked.roughness,baked.metalness,baked.ao].reduce((n,map)=>n+map.data.byteLength,0),mipBytes=[normal,color??[]].flatMap(chain=>chain.slice(1)).reduce((n,map)=>n+map.data.byteLength,0);
   baked.diagnostics={...baked.diagnostics,baseBytes,mipBytes,bytes:baseBytes+mipBytes};return baked;
 }
 /** Bake during authoring/loading, not frame updates. Supply a scheduler when rendering on a UI thread. */
-export async function generateMaterial(input:MaterialGeneratorRecipe,options:{resolution?:number;signal?:AbortSignal;yieldControl?:()=>Promise<void>;alphaCutoff?:number}={}):Promise<GeneratedMaterialPixels>{
+export async function generateMaterial(input:MaterialGeneratorRecipe,options:{resolution?:number;signal?:AbortSignal;yieldControl?:()=>Promise<void>;alphaCutoff?:number;alphaMode?:GeneratedMaterialAlphaMode}={}):Promise<GeneratedMaterialPixels>{
   const recipe=materialGeneratorSchema.parse(input),size=options.resolution??recipe.output.resolution;
   if(!Number.isInteger(size)||size<16||size>2048)throw Error('Generator resolution must be an integer from 16 to 2048.');
   if(options.alphaCutoff!==undefined&&(!Number.isFinite(options.alphaCutoff)||options.alphaCutoff<=0||options.alphaCutoff>=1))throw Error('Material alpha cutoff must fit 0..1 exclusively.');
+  if(options.alphaMode!==undefined&&!['cutout','hash'].includes(options.alphaMode))throw Error('Material alpha mode must be cutout or hash.');
   options.signal?.throwIfAborted();
   const image=():TexturePixels=>({width:size,height:size,data:new Uint8Array(size*size*4)});
   const color=image(),normal=image(),height=image(),roughness=image(),metalness=image(),ao=image(),heights=new Float32Array(size*size);
@@ -177,6 +181,6 @@ export async function generateMaterial(input:MaterialGeneratorRecipe,options:{re
   if(recipe.pattern.family==='masonry')warnings.push('Block counts are rounded to whole repeats to keep the tile seamless.');
   if(recipe.reliefMeters>0)warnings.push('Height supplies shading relief, not collision or silhouette geometry.');
   options.signal?.throwIfAborted();await(options.yieldControl?.()??Promise.resolve());
-  return prepareGeneratedMaterialMipmaps({recipe,color,normal,height,roughness,metalness,ao,diagnostics:{resolution:size,bytes:size*size*24,tileMeters:recipe.tileMeters,warnings}},options.alphaCutoff);
+  return prepareGeneratedMaterialMipmaps({recipe,color,normal,height,roughness,metalness,ao,diagnostics:{resolution:size,bytes:size*size*24,tileMeters:recipe.tileMeters,warnings}},options.alphaCutoff,options.alphaMode);
 }
 export const MATERIAL_GENERATOR_PRESETS:ReadonlyArray<{id:string;name:string;recipe:MaterialGeneratorRecipe}>=MATERIAL_FAMILIES.map(family=>({id:'generator-'+family,name:family+' material',recipe:materialGeneratorSchema.parse({name:family+' material',pattern:{family},...({grass:{color:'#658344',secondaryColor:'#384124'},metal:{color:'#bcc2cc',secondaryColor:'#51565e'},plaster:{color:'#e8deca',secondaryColor:'#a89983'},rock:{color:'#a4a6a5',secondaryColor:'#515859'},wood:{color:'#b78045',secondaryColor:'#503322'},dirt:{color:'#94724e',secondaryColor:'#453426'},gravel:{color:'#a8a49b',secondaryColor:'#575a55'},masonry:{color:'#c1aa86',secondaryColor:'#625a4c'},bark:{color:'#866142',secondaryColor:'#30291e',tileMeters:[.4,.8]},leaf:{color:'#689b36',secondaryColor:'#203d15',tileMeters:[.12,.22],reliefMeters:.001},needle:{color:'#3f6936',secondaryColor:'#152d1b',tileMeters:[.016,.15],reliefMeters:.0005},'exposed-wood':{color:'#c99a65',secondaryColor:'#775131',tileMeters:[.2,.2]}}[family])})}));

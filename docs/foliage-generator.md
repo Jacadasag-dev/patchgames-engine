@@ -104,6 +104,12 @@ in diagnostics. Low/medium/high use 5/8/12 radial sides and 64/128/256 pixel
 material bakes by default. Reduce density/crown size or increase group size when
 an authoring budget is exceeded; do not silently hide a failed bake.
 
+Distance LOD preserves every accepted leaf and flower, including its size and
+anchor. It reduces leaf cards from sixteen triangles to four, then two, instead
+of thinning the canopy. Leaf and petal textures use opacity-preserving mipmaps
+and native hashed alpha coverage so tiny distant textures retain visible foliage.
+This distance policy is separate from the explicit generation quality budgets.
+
 `foliageColliders(model,{maxLevel:0,maxColliders:64})` emits coarse trunk
 capsules aligned to the compiled segments. It excludes leaves; wire the capsules
 into the authoritative physics scene and its existing streaming budgets. Collider

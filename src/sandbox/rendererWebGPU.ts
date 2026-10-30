@@ -12,6 +12,7 @@ import { retainRendererPipelines, type PipelineManager } from './rendererPipelin
 import { stabilizeRendererBufferNames, type ShaderBuilderBackend } from './rendererShaderNames.ts';
 import { reuseRendererBundles, type BundleBackend } from './rendererBundles.ts';
 import { reuseRendererUniformUploads, type UniformUploadBackend } from './rendererUniformUploads.ts';
+import {isGeneratedAlphaShadowMaterial} from './generatedAlpha.ts';
 
 export * from 'three/webgpu';
 
@@ -41,6 +42,7 @@ type BackendDiagnostics = {
   };
 };
 type GlobalShadowMap = NativeWebGPURenderer['shadowMap'] & { autoUpdate: boolean; needsUpdate: boolean };
+type GeneratedShadowOverride={material:NodeMaterial;release():void};
 const renderers = new Set<WebGLRenderer>();
 const MAX_FAILURES = 16;
 const MAX_FAILURE_LENGTH = 1024;
@@ -109,6 +111,9 @@ export class WebGLRenderer extends NativeWebGPURenderer {
   private pipelineRetention?: ReturnType<typeof retainRendererPipelines>;
   private commandBundles?: ReturnType<typeof reuseRendererBundles>;
   private uniformUploads?: ReturnType<typeof reuseRendererUniformUploads>;
+  private generatedShadowOverrides?:WeakMap<Material,WeakMap<Material,GeneratedShadowOverride>>;
+  private generatedShadowBases?:WeakMap<Material,Material>;
+  private generatedShadowRecords?:Set<GeneratedShadowOverride>;
 
   constructor(parameters: ParametersWithWebGLOptions = {}) {
     if (parameters.forceWebGL) throw new Error('The WebGPU adapter cannot use a hidden WebGL fallback.');
@@ -421,6 +426,35 @@ export class WebGLRenderer extends NativeWebGPURenderer {
   }
 
   private renderObjectWithCallbacks(...args: Parameters<NativeWebGPURenderer['renderObject']>): void {
+    const [object,scene,, ,source]=args,override=scene.overrideMaterial as (NodeMaterial&{isShadowPassMaterial?:boolean})|null;
+    const mesh=object as Object3D&{customDepthMaterial?:Material;customDistanceMaterial?:Material};
+    const alphaHash=Object.getOwnPropertyDescriptor(source,'alphaHash');
+    if(override?.isShadowPassMaterial===true&&alphaHash&&'value'in alphaHash&&alphaHash.value===true
+      &&isGeneratedAlphaShadowMaterial(mesh.customDepthMaterial)&&isGeneratedAlphaShadowMaterial(mesh.customDistanceMaterial)){
+      const base=(this.generatedShadowBases?.get(override)??override) as NodeMaterial,material=this.generatedShadowOverride(base,source);
+      scene.overrideMaterial=material;
+      try{this.renderObjectWithCallbacksCore(...args);}finally{scene.overrideMaterial=override;}
+      return;
+    }
+    this.renderObjectWithCallbacksCore(...args);
+  }
+
+  /** Native shadow override materials do not inherit source alphaHash. Use a
+   * native node-material variant for this engine-owned source; map/color nodes
+   * capture source references, so each base/source pair needs its own variant. */
+  private generatedShadowOverride(base:NodeMaterial,source:Material):NodeMaterial{
+    const cache=this.generatedShadowOverrides??=new WeakMap(),bases=this.generatedShadowBases??=new WeakMap(),records=this.generatedShadowRecords??=new Set();
+    const opacity=Object.getOwnPropertyDescriptor(source,'opacity');if(!opacity||!('value'in opacity)||typeof opacity.value!=='number'||!Number.isFinite(opacity.value))throw Error('WebGPU compatibility: generated alpha shadow opacity must be native material data.');
+    let sources=cache.get(base);if(!sources){sources=new WeakMap();cache.set(base,sources);}const previous=sources.get(source);
+    if(previous){previous.material.opacity=opacity.value;return previous.material;}
+    if(records.size>=512)throw Error('WebGPU compatibility: generated alpha shadow cache exceeds its 512 material-pair budget.');
+    const material=base.clone();Object.assign(material,{isShadowPassMaterial:true,alphaHash:true,alphaTest:0,alphaToCoverage:false,transparent:false});material.name='GeneratedAlphaShadow';
+    material.opacity=opacity.value;
+    let released=false;const entry:GeneratedShadowOverride={material,release:()=>{if(released)return;released=true;base.removeEventListener('dispose',entry.release);source.removeEventListener('dispose',entry.release);if(sources!.get(source)===entry)sources!.delete(source);records.delete(entry);bases.delete(material);material.dispose();}};
+    sources.set(source,entry);records.add(entry);bases.set(material,base);base.addEventListener('dispose',entry.release);source.addEventListener('dispose',entry.release);return material;
+  }
+
+  private renderObjectWithCallbacksCore(...args: Parameters<NativeWebGPURenderer['renderObject']>): void {
     const [object, scene, camera, geometry, material, group] = args;
     if (!(material as Material & { isShadowPassMaterial?: boolean }).isShadowPassMaterial) {
       if ((material as Material & { isShaderMaterial?: boolean }).isShaderMaterial || material.onBeforeCompile !== Material.prototype.onBeforeCompile)
@@ -429,7 +463,7 @@ export class WebGLRenderer extends NativeWebGPURenderer {
         throw new Error('WebGPU compatibility: material dithering and authored point primitives require WebGL.');
       const mesh = object as Object3D & { customDepthMaterial?: Material; customDistanceMaterial?: Material };
       const shadowPrototype = object instanceof BatchedMesh ? BatchedMesh.prototype : Object3D.prototype;
-      if (mesh.customDepthMaterial || mesh.customDistanceMaterial
+      if (mesh.customDepthMaterial&&!isGeneratedAlphaShadowMaterial(mesh.customDepthMaterial) || mesh.customDistanceMaterial&&!isGeneratedAlphaShadowMaterial(mesh.customDistanceMaterial)
         || object.onBeforeShadow !== shadowPrototype.onBeforeShadow || object.onAfterShadow !== shadowPrototype.onAfterShadow)
         throw new Error('WebGPU compatibility: custom WebGL shadow passes require WebGL.');
     }
@@ -485,6 +519,7 @@ export class WebGLRenderer extends NativeWebGPURenderer {
   }
 
   override async dispose(): Promise<void> {
+    if(this.generatedShadowRecords){for(const entry of this.generatedShadowRecords)entry.release();this.generatedShadowRecords.clear();}
     renderers.delete(this); this.commandBundles?.dispose(); this.uniformUploads?.dispose(); this.pipelineRetention?.dispose();
     await super.dispose();
   }
