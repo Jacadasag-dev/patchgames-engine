@@ -259,12 +259,36 @@ float positiveViewDepth(float depth) {
   return uNear*uFar/max(0.0000001,uFar-depth*(uFar-uNear));
 }
 
-float compatibleDepth(float actual,float candidate) {
+float depthNeighbour(ivec2 texel) {
+  float sampleDepth=texelFetch(tSceneDepth,clamp(texel,ivec2(0),ivec2(uOutputSize)-1),0).r;
+  return sampleDepth>=EMPTY_DEPTH?-1.0:positiveViewDepth(sampleDepth)/uRadius;
+}
+
+float continuousSlope(float expected,float before,float after) {
+  if(before<0.0||after<0.0)return 0.0;
+  float left=expected-before,right=after-expected;
+  // A thin foreground object has background on both sides, so its differences
+  // have opposite signs. A silhouette step keeps the smaller same-side slope.
+  return left*right>0.0?min(abs(left),abs(right)):0.0;
+}
+
+float depthTolerance(float actual,vec2 uv) {
+  if(actual>=EMPTY_DEPTH)return 0.0;
+  float expected=positiveViewDepth(actual)/uRadius;
+  ivec2 texel=ivec2(clamp(floor(uv*uOutputSize),vec2(0.0),uOutputSize-1.0));
+  float sx=continuousSlope(expected,depthNeighbour(texel-ivec2(1,0)),depthNeighbour(texel+ivec2(1,0)));
+  float sy=continuousSlope(expected,depthNeighbour(texel-ivec2(0,1)),depthNeighbour(texel+ivec2(0,1)));
+  // Adjacent volume samples can be a whole low-resolution pixel away. A fixed
+  // relative tolerance creates untreated horizontal rows on smooth horizons.
+  float footprint=2.0*dot(vec2(sx,sy),uOutputSize/uLowSize);
+  return max(max(1.0/uRadius,expected*0.03),footprint);
+}
+
+float compatibleDepth(float actual,float candidate,float tolerance) {
   if(uDiagnostic==5||uDiagnostic==6)return 1.0;
   bool emptyActual=actual>=EMPTY_DEPTH,emptyCandidate=candidate<0.0;
   if(emptyActual||emptyCandidate)return emptyActual&&emptyCandidate?1.0:0.0;
   float expected=positiveViewDepth(actual)/uRadius,difference=abs(candidate-expected);
-  float tolerance=max(1.0/uRadius,expected*0.03);
   if(difference>tolerance)return 0.0;
   return exp(-difference/max(0.000000001,tolerance*0.35));
 }
@@ -274,12 +298,13 @@ void main() {
   if(uPixelStyle)uv=clamp((floor(uv*uOutputSize/max(1.0,uPixelSize))+0.5)*max(1.0,uPixelSize)/uOutputSize,vec2(0.0),vec2(1.0));
   vec4 sceneColor=texture(tSceneColor,uv);
   float actualDepth=texture(tSceneDepth,uv).r;
+  float tolerance=depthTolerance(actualDepth,uv);
   vec3 radiance=vec3(0.0),transmission=vec3(0.0);
   float totalWeight=0.0;
   if(uPixelStyle||uDiagnostic==6) {
     vec2 lowUv=(clamp(floor(uv*uLowSize),vec2(0.0),uLowSize-1.0)+0.5)/uLowSize;
     vec4 candidate=texture(tTransmittance,lowUv);
-    totalWeight=compatibleDepth(actualDepth,candidate.a);
+    totalWeight=compatibleDepth(actualDepth,candidate.a,tolerance);
     radiance=texture(tRadiance,lowUv).rgb*totalWeight;
     transmission=candidate.rgb*totalWeight;
   }else {
@@ -289,7 +314,7 @@ void main() {
       vec2 lowUv=(clamp(base+offset,vec2(0.0),uLowSize-1.0)+0.5)/uLowSize;
       vec4 candidate=texture(tTransmittance,lowUv);
       vec2 factors=mix(vec2(1.0)-fraction,fraction,offset);
-      float weight=factors.x*factors.y*compatibleDepth(actualDepth,candidate.a);
+      float weight=factors.x*factors.y*compatibleDepth(actualDepth,candidate.a,tolerance);
       radiance+=texture(tRadiance,lowUv).rgb*weight;
       transmission+=candidate.rgb*weight;
       totalWeight+=weight;

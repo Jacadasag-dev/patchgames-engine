@@ -39,6 +39,9 @@ before connecting spherical terrain to gameplay.
 
 The same lab includes [atmosphere and volumetric cloud generators](docs/planet-sky.md)
 with live realistic/pixel styles, shared weather fields and bounded quality.
+It also supports native WebGPU, generated terrain materials, nine climate biomes,
+seven forest species, compiled buildings and spherical engine water. Read
+[populated planet integration](docs/planet-worlds.md) for worker setup and budgets.
 
 ## Complete starter games
 

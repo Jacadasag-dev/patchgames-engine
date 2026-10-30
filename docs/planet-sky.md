@@ -32,13 +32,33 @@ buffers. Pass an abort signal when replacing a pending recipe or closing a scene
 Keep the last valid sky visible while preparing a replacement. Do not call the
 shared compiler's synchronous `bake()` from an animation callback.
 
-This renderer currently requires **WebGL 2**, `EXT_color_buffer_float`, a
-perspective camera and an opaque scene clear/background. It composes into a
-canvas viewport; nested render-target output and XR need their own adapters.
-It is not
-a WebGPU implementation; the WebGPU facade does not accept its GLSL postprocess
-materials. Other hosts can use the shared serializable recipe and baked fields
-when implementing another backend.
+`PlanetSkyView` requires **WebGL 2** and `EXT_color_buffer_float`.
+`PlanetSkyWebGPUView` implements the same API with native WGSL and Three node
+materials. Both consume the same prepared recipe and volumes. Choose the view
+that matches the actual renderer:
+
+```ts
+import {WebGPURenderer} from 'three/webgpu';
+import {PlanetSkyWebGPUView} from
+  '@patchgames/engine/sandbox/planetSkyWebGPU';
+
+const renderer=new WebGPURenderer({canvas,logarithmicDepthBuffer:true});
+await renderer.init();
+const sky=new PlanetSkyWebGPUView(bake);
+// render(), setRecipe(), setDiagnostic(), inspection() and dispose() match
+// PlanetSkyView. Native rendering is synchronous after renderer.init().
+```
+
+Use Three's native `WebGPURenderer`, rather than the compatibility facade.
+The native sky rejects uninitialized devices and WebGL fallback explicitly;
+an unavailable WebGPU adapter must be reported by the host. Native perspective
+projection and native near-relative logarithmic depth are decoded separately
+from the WebGL depth curve. Do not copy a WebGL projection into this renderer.
+
+Both paths require a perspective camera, finite positive clip planes,
+conventional or logarithmic depth, and an opaque scene clear/background. They
+compose into a canvas viewport; nested render-target output, reversed depth and
+XR need their own adapters. One view owns resources for one renderer.
 
 ## Live controls and stable fields
 
@@ -71,6 +91,12 @@ remains normal HTML/CSS and stays sharp.
 Clouds are raymarched through occupied spherical-shell intervals, including views
 from inside a cloud layer. They are not a sky-dome cloud texture. Captured terrain
 depth bounds the view ray, and depth-aware compositing protects terrain edges.
+The reconstruction filter measures conservative continuous depth slopes over
+the full-resolution source footprint. This allows smooth grazing-angle ground
+to accept nearby volume samples without introducing untreated horizontal rows.
+Sky/geometry classification and discontinuity rejection remain separate. The
+slope test uses the smaller same-side slope at a depth step and does not widen
+tolerance when a thin foreground object has background on both sides.
 Atmospheric scattering and cloud illumination are bounded real-time
 approximations, not an offline multiple-scattering renderer.
 
@@ -92,9 +118,19 @@ counts. `sky.inspection()` reports the selected resolution, sample budgets and
 resource information; count the scene capture and composite as well as the
 volume pass when measuring cost. Scene buffers, sky buffers and density volumes
 have separate costs. Do not treat one counter as total process or GPU memory.
+Both backends retain RGB transmission independently from radiance. The native
+path uploads a bounded six-level 3D noise mip chain through public texture-copy
+APIs; it does not rely on Three's 2D automatic mip generator for 3D textures.
+Native inspection reports the filtered noise payload separately from the
+original transferred bake bytes. Scene draw and triangle counters exclude the
+sky's fullscreen passes and account for native cumulative renderer statistics.
 
 The lab's 40-second benchmark records the sky recipe, sunlight elevation and sky
 counters alongside terrain residency and the frame trace. Controls remain fixed
 during a run. Compare the same route with both layers disabled, then enabled, at
 the same viewport and quality. Callback CPU includes live telemetry and sampling;
 RAF intervals still are not physical display FPS or completed GPU timings.
+Native reports also collect asynchronous GPU queue completion latency and
+uncaptured GPU errors. Queue completion includes scheduling and already queued
+work; it is not a GPU timestamp measurement. Shader errors must invalidate a
+run even when callback counters continue to advance.

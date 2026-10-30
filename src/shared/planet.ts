@@ -15,6 +15,8 @@ export interface PlanetSample {heightMeters:number; position:PlanetVector; norma
 export interface PlanetPatchData {
   key:string; tile:PlanetTile; revision:string; origin:PlanetVector;
   positions:Float32Array; normals:Float32Array; colors:Float32Array; indices:Uint16Array;
+  /** Optional worker-prepared metre UVs and bounded terrain material groups. */
+  uvs?:Float32Array;groups?:{start:number;count:number;materialIndex:number}[];
   byteLength:number; surfaceTriangles:number; skirtTriangles:number;
   bounds:{center:PlanetVector; radius:number};
 }

@@ -1,5 +1,5 @@
 import { BufferGeometry, Color, DoubleSide, DynamicDrawUsage, Float32BufferAttribute, Group, Mesh, MeshPhysicalMaterial, type Texture } from 'three';
-import { locateWater, sampleWaterWave, waterAppearance, type WaterAppearance, type WaterConditions, type WaterLocation, type WaterManifest, type WaterPoint, type WaterWavePhase } from './water.ts';
+import { locateWater, prepareWaterWaves, samplePreparedWaterWave, waterAppearance, type WaterAppearance, type WaterConditions, type WaterLocation, type WaterManifest, type WaterPoint, type WaterWavePhase } from './water.ts';
 
 export interface WaterViewOptions {
   /** Spatial resolution; bounded to 8–128. Updates do not change topology. */
@@ -140,9 +140,9 @@ export class WaterView {
       this.phases.currentZ[i] += phaseDt * k * this.appearance.currentSpeed * Math.sin(direction);
     }
     const positions = this.geometry.getAttribute('position'), normals = this.geometry.getAttribute('normal'), colors = this.geometry.getAttribute('color');
-    const foamColor = new Color('#e6f6ed');
+    const foamColor = new Color('#e6f6ed'),waves=prepareWaterWaves(this.water,time,this.appearance,this.phases);
     for (let i = 0; i < this.vertices.length; i++) {
-      const vertex = this.vertices[i], sample = sampleWaterWave(this.water, vertex.point, time, this.appearance, vertex.location, this.phases);
+      const vertex = this.vertices[i], sample = samplePreparedWaterWave(waves,vertex.point,vertex.location);
       positions.setXYZ(i, vertex.point.x, sample.height, vertex.point.z); normals.setXYZ(i, sample.normal.x, sample.normal.y, sample.normal.z);
       const depthTint = .65 + .35 * Math.min(1, vertex.location.depth / 3), foam = sample.foam;
       colors.setXYZ(i, sample.color[0] * depthTint * (1 - foam) + foamColor.r * foam,

@@ -34,6 +34,11 @@ export interface WaterSample extends WaterLocation {
   height: number; normal: { x: number; y: number; z: number }; foam: number; roughness: number; color: [number, number, number];
 }
 export interface WaterWavePhase { temporal: number[]; currentX: number[]; currentZ: number[] }
+export interface PreparedWaterWaves {
+  readonly time:number;readonly appearance:WaterAppearance;
+  readonly components:readonly {directionX:number;directionZ:number;k:number;amplitude:number;temporal:number;currentX:number;currentZ:number;seedPhase:number}[];
+}
+export interface WaterWaveSurface {height:number;slopeX:number;slopeZ:number;foam:number}
 const defaults: readonly WaterProfile[] = [
   { id: 'calm', minWindSpeed: 0, amplitude: .045, wavelength: 5, speed: .65, roughness: .12, foam: .015, shoreFoam: .35, color: '#287f91' },
   { id: 'choppy', minWindSpeed: 8, amplitude: .3, wavelength: 3.2, speed: 1.8, roughness: .25, foam: .2, shoreFoam: .65, color: '#347d8d' },
@@ -116,23 +121,42 @@ export function locateWater(water: WaterManifest, point: WaterPoint): WaterLocat
   }
   return { inside: edgeDistance >= -1e-8, level, edgeDistance, depth: water.depth * (water.kind === 'ocean' ? 1 : clamp(edgeDistance / Math.min(2, water.depth))), flow };
 }
-/** Lower-level sampler lets a view cache shoreline/terrain queries once per vertex. */
-export function sampleWaterWave(water: WaterManifest, point: WaterPoint, time: number, appearance: WaterAppearance, location: WaterLocation, phases?: WaterWavePhase): WaterSample {
+/** Resolve one accepted weather/phase snapshot once for an entire surface.
+ * Direction, frequency and temporal work is independent of its vertices. */
+export function prepareWaterWaves(water:WaterManifest,time:number,appearance:WaterAppearance,phases?:WaterWavePhase):PreparedWaterWaves {
   if (!Number.isFinite(time) || Math.abs(time) > 1e9) throw new Error('Water time must be finite and within ±1000000000s.');
+  const components:PreparedWaterWaves['components'][number][]=[];
+  for(let i=0;i<3;i++){
+    const direction=appearance.windDirection+i*1.13,dx=Math.cos(direction),dz=Math.sin(direction),k=Math.PI*2/(appearance.wavelength/(1+i*.8));
+    components.push({directionX:dx,directionZ:dz,k,amplitude:appearance.amplitude/(1+i*2.5),
+      temporal:phases?phases.temporal[i]:-k*time*appearance.speed/(1+i*.3),
+      currentX:phases?phases.currentX[i]:k*time*appearance.currentSpeed*dx,currentZ:phases?phases.currentZ[i]:k*time*appearance.currentSpeed*dz,
+      seedPhase:water.seed*.123+i*2.17});
+  }
+  return{time,appearance:{...appearance,color:[...appearance.color]},components};
+}
+/** Lower-level sampler lets views cache shoreline queries and wave preparation.
+ * This is the same source used by planar and planetary water surfaces. */
+export function samplePreparedWaterWaveSurface(prepared:PreparedWaterWaves,point:WaterPoint,location:WaterLocation):WaterWaveSurface {
+  const {appearance,time}=prepared;
   let displacement = 0, slopeX = 0, slopeZ = 0;
   const attenuation = clamp(location.depth / Math.max(.3, appearance.amplitude * 2));
-  for (let i = 0; i < 3; i++) {
-    const direction = appearance.windDirection + i * 1.13, dx = Math.cos(direction), dz = Math.sin(direction);
-    const k = Math.PI * 2 / (appearance.wavelength / (1 + i * .8));
-    const amplitude = appearance.amplitude * attenuation / (1 + i * 2.5);
-    const advection = appearance.currentSpeed * (location.flow.x * dx + location.flow.z * dz);
-    const temporal = phases ? phases.temporal[i] - phases.currentX[i] * location.flow.x - phases.currentZ[i] * location.flow.z
-      : -k * time * (appearance.speed / (1 + i * .3) + advection);
-    const phase = k * (point.x * dx + point.z * dz) + temporal + water.seed * .123 + i * 2.17;
-    displacement += amplitude * Math.sin(phase); slopeX += amplitude * k * Math.cos(phase) * dx; slopeZ += amplitude * k * Math.cos(phase) * dz;
+  for(const component of prepared.components){
+    const {directionX:dx,directionZ:dz,k}=component,amplitude=component.amplitude*attenuation;
+    const phase=k*(point.x*dx+point.z*dz)+component.temporal-component.currentX*location.flow.x-component.currentZ*location.flow.z+component.seedPhase;
+    const slope=amplitude*k*Math.cos(phase);
+    displacement+=amplitude*Math.sin(phase);slopeX+=slope*dx;slopeZ+=slope*dz;
   }
-  const magnitude = Math.hypot(slopeX, 1, slopeZ), crest = clamp(displacement / Math.max(.001, appearance.amplitude) - .2);
+  const crest = clamp(displacement / Math.max(.001, appearance.amplitude) - .2);
   const shore = clamp(1 - location.depth / 1.2) * (.5 + .5 * Math.sin(time * (1 + appearance.windSpeed * .05) - location.edgeDistance * 4 + point.x * .13));
-  return { ...location, height: location.level + displacement, normal: { x: -slopeX / magnitude, y: 1 / magnitude, z: -slopeZ / magnitude },
-    foam: location.inside ? clamp(crest * appearance.foam + shore * appearance.shoreFoam) : 0, roughness: appearance.roughness, color: appearance.color };
+  return{height:location.level+displacement,slopeX,slopeZ,foam:location.inside?clamp(crest*appearance.foam+shore*appearance.shoreFoam):0};
+}
+export function samplePreparedWaterWave(prepared:PreparedWaterWaves,point:WaterPoint,location:WaterLocation):WaterSample {
+  const surface=samplePreparedWaterWaveSurface(prepared,point,location),magnitude=Math.hypot(surface.slopeX,1,surface.slopeZ);
+  return{...location,height:surface.height,normal:{x:-surface.slopeX/magnitude,y:1/magnitude,z:-surface.slopeZ/magnitude},foam:surface.foam,
+    roughness:prepared.appearance.roughness,color:prepared.appearance.color};
+}
+/** Single-query convenience wrapper; surfaces should prepare their spectrum once. */
+export function sampleWaterWave(water:WaterManifest,point:WaterPoint,time:number,appearance:WaterAppearance,location:WaterLocation,phases?:WaterWavePhase):WaterSample {
+  return samplePreparedWaterWave(prepareWaterWaves(water,time,appearance,phases),point,location);
 }

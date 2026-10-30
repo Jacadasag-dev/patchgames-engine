@@ -1,8 +1,9 @@
 import type {PlanetRecipe,PlanetTile,PlanetPatchData} from '../../shared/planet.ts';
 import type {PlanetPatchSource} from '../../sandbox/planetView.ts';
+import type {PlanetBiomeRecipe} from '../../shared/planetBiomes.ts';
 
 /** Bundler-owned worker entry. Authored callbacks are never sent to this worker. */
-export function createPlanetPreparationSource(recipe:PlanetRecipe):PlanetPatchSource {
+export function createPlanetPreparationSource(recipe:PlanetRecipe,biomes?:PlanetBiomeRecipe):PlanetPatchSource {
   const worker=new Worker(new URL('./planetPreparationWorker.ts',import.meta.url),{type:'module'});
   type Request={id:number;tile:PlanetTile;resolve:(data:PlanetPatchData)=>void;reject:(error:Error)=>void;signal?:AbortSignal;abort:()=>void;cancelled:boolean};
   let nextId=0,active:Request|undefined,closed=false;
@@ -27,7 +28,7 @@ export function createPlanetPreparationSource(recipe:PlanetRecipe):PlanetPatchSo
   };
   worker.onerror=event=>close(error(event.message||'Planet worker failed.'));
   worker.onmessageerror=()=>close(error('Planet worker transfer failed.'));
-  try{worker.postMessage({type:'init',recipe});}catch(reason){close(error(reason instanceof Error?reason.message:String(reason)));throw reason;}
+  try{worker.postMessage({type:'init',recipe,biomes});}catch(reason){close(error(reason instanceof Error?reason.message:String(reason)));throw reason;}
   return{
     request(tile,signal){
       if(closed)return Promise.reject(error('Planet preparation source is disposed.'));

@@ -1,0 +1,109 @@
+import {afterEach,describe,expect,it,vi} from 'vitest';
+import {Mesh,MeshPhysicalMaterial,Vector3} from 'three';
+import {compilePlanet,type CompiledPlanet,type PlanetVector} from '../src/shared/planet.ts';
+import {compilePlanetWater,PlanetWaterView,samplePlanetWater} from '../src/sandbox/planetWaterView.ts';
+import {sampleWaterWave,waterAppearance} from '../src/sandbox/water.ts';
+
+function planet(height=-20,sea=17,radius=1000):CompiledPlanet {
+  return compilePlanet({kind:'planet',version:1,seed:4,radiusMeters:radius,segments:4,maxLevel:5,seaLevelMeters:sea,
+    surface:{maps:{kind:'generation-maps',version:1,seed:4,maps:{height:{type:'constant',value:height,unit:'metres'}}},height:'height'}});
+}
+const views:PlanetWaterView[]=[];
+afterEach(()=>{for(const view of views)view.dispose();views.length=0;vi.restoreAllMocks();});
+function view(source=planet(),options:ConstructorParameters<typeof PlanetWaterView>[1]={}) {
+  const result=new PlanetWaterView(source,{segments:32,nearRings:8,farRings:16,prepareVerticesPerFrame:4096,prepareTimeBudgetMs:16,...options});views.push(result);return result;
+}
+function ready(water:PlanetWaterView,position:PlanetVector=[0,0,1030],time=3) {
+  for(let i=0;i<100&&!water.inspection().detailReady;i++)water.update({position,timeSeconds:time});
+  expect(water.inspection().detailReady).toBe(true);
+}
+function active(water:PlanetWaterView):Mesh {
+  return water.root.children.find(child=>child.visible&&child.name==='PlanetWater:radial-wave-sheet') as Mesh;
+}
+
+describe('planetary engine water queries',()=>{
+  it('places real water at the recipe sea level and reuses the engine wave and weather source',()=>{
+    const source=planet(),water=compilePlanetWater(source,{windSpeed:8,windDirection:.7,currentSpeed:.4}),appearance=waterAppearance(water),time=9;
+    const expected=sampleWaterWave(water,{x:0,z:0},time,appearance,{inside:true,level:0,depth:37,edgeDistance:37,flow:{x:Math.cos(.7),z:Math.sin(.7)}});
+    const sample=samplePlanetWater(source,[0,1,0],time,{water});
+    expect(sample.wet).toBe(true);expect(sample.depthMeters).toBe(37);expect(sample.heightMeters).toBeCloseTo(17+expected.height,10);
+    expect(sample.position[1]).toBeCloseTo(1017+expected.height,10);
+    // The small globe's radial curvature changes slope relative to a plane.
+    expect(new Vector3(...sample.normal).distanceTo(new Vector3(expected.normal.x,expected.normal.y,expected.normal.z))).toBeLessThan(.001);
+    expect(sample.roughness).toBe(appearance.roughness);expect(sample.foam).toBe(expected.foam);
+    expect(samplePlanetWater(planet(40),[0,1,0],time).wet).toBe(false);
+    expect(samplePlanetWater(planet(40),[0,1,0],time).heightMeters).toBe(17);
+  });
+  it('keeps the same wave phase through cube-face edges, poles, and repeated queries',()=>{
+    const source=planet(),water=compilePlanetWater(source,{windSpeed:8}),options={water};
+    for(const at of [[1,0,1],[0,1,0],[1,1,1]] as const){
+      const a=samplePlanetWater(source,[at[0]+1e-9,at[1],at[2]],12,options),b=samplePlanetWater(source,[at[0]-1e-9,at[1],at[2]],12,options);
+      expect(Math.abs(a.heightMeters-b.heightMeters)).toBeLessThan(.0001);
+      expect(new Vector3(...a.normal).distanceTo(new Vector3(...b.normal))).toBeLessThan(.0001);
+    }
+    expect(samplePlanetWater(source,[1,2,3],12,options)).toEqual(samplePlanetWater(source,[2,4,6],12,options));
+    expect(compilePlanetWater(compilePlanet({...source.recipe,seed:-42})).seed).toBe(4294967254);
+  });
+  it('supplies the geometric derivative normal of the blended spherical wave surface',()=>{
+    const source=planet(),n=new Vector3(1,2,3).normalize(),east=new Vector3(0,1,0).cross(n).normalize(),north=n.clone().cross(east),epsilon=1e-6;
+    const at=(axis:Vector3,sign:number)=>samplePlanetWater(source,n.clone().addScaledVector(axis,sign*epsilon).toArray() as [number,number,number],8);
+    const dx=new Vector3(...at(east,1).position).sub(new Vector3(...at(east,-1).position));
+    const dz=new Vector3(...at(north,1).position).sub(new Vector3(...at(north,-1).position));
+    const normal=new Vector3(...samplePlanetWater(source,n.toArray() as [number,number,number],8).normal);
+    expect(Math.abs(dx.normalize().dot(normal))).toBeLessThan(.00001);expect(Math.abs(dz.normalize().dot(normal))).toBeLessThan(.00001);
+  });
+});
+
+describe('bounded native planetary water presentation',()=>{
+  it('uses native physical material, resolves near waves, and atomically replaces its initial far proxy',()=>{
+    const water=view();expect(water.root.children.filter(child=>child.visible)).toHaveLength(1);ready(water);
+    const mesh=active(water),sample=water.sample([0,0,1]);expect(mesh.material).toBeInstanceOf(MeshPhysicalMaterial);
+    const material=mesh.material as MeshPhysicalMaterial;expect(material.ior).toBe(1.333);expect(material.vertexColors).toBe(true);expect(material.transparent).toBe(false);
+    expect(water.root.children.filter(child=>child.visible)).toHaveLength(1);
+    expect(mesh.geometry.getAttribute('position').getZ(0)).toBeCloseTo(sample.heightMeters-17,5);
+    expect(mesh.geometry.getAttribute('normal').getX(0)).toBeCloseTo(sample.normal[0],6);
+    expect(water.inspection().waveSource).toBe('engine-water');expect(water.inspection().physicsBodies).toBe(0);expect(water.inspection().fluidCells).toBe(0);
+    // Outward index winding matters on both native renderers, including poles.
+    const positions=mesh.geometry.getAttribute('position'),index=mesh.geometry.index!,origin=new Vector3(0,0,1017);
+    for(let i=0;i<index.count;i+=3){
+      const a=new Vector3().fromBufferAttribute(positions,index.getX(i)),b=new Vector3().fromBufferAttribute(positions,index.getX(i+1)),c=new Vector3().fromBufferAttribute(positions,index.getX(i+2));
+      const normal=b.sub(a).cross(c.sub(a)),radial=a.clone().add(origin);expect(normal.dot(radial)).toBeGreaterThan(0);
+    }
+  });
+  it('preserves sub-metre floating-origin precision and changes only object offsets on rebasing',()=>{
+    const source=planet(-20,17,100_000_000),water=view(source);ready(water,[0,0,100_000_025]);
+    const mesh=active(water),positions=mesh.geometry.getAttribute('position'),array=positions.array,oldZ=positions.getZ(0),sample=water.sample([0,0,1]);
+    expect(oldZ).toBeCloseTo(sample.heightMeters-17,5);
+    water.update({position:[0,0,100_000_025],origin:[.125,.25,100_000_025.5],timeSeconds:3});
+    expect(mesh.position.toArray()).toEqual([-.125,-.25,-8.5]);expect(positions.array).toBe(array);expect(positions.getZ(0)).toBe(oldZ);
+    expect(water.sample([0,0,1])).toEqual(sample);
+  });
+  it('bounds preparation, keeps topology fixed across recentering, and never resets the accepted wave clock',()=>{
+    const source=planet(),water=view(source,{prepareVerticesPerFrame:32}),geometries=water.root.children.map(child=>(child as Mesh).geometry),arrays=geometries.map(geometry=>geometry.getAttribute('position').array);
+    ready(water);const point=[0,0,1] as const,before=water.sample(point),initialSwaps=water.inspection().swaps;
+    for(let i=0;i<100&&water.inspection().swaps===initialSwaps;i++){
+      water.update({position:[40,0,1030],timeSeconds:3});expect(water.inspection().preparedThisFrame).toBeLessThanOrEqual(32);
+      expect(water.root.children.filter(child=>child.visible)).toHaveLength(1);
+    }
+    expect(water.inspection().swaps).toBeGreaterThan(initialSwaps);expect(water.sample(point)).toEqual(before);
+    expect(water.root.children.map(child=>(child as Mesh).geometry)).toEqual(geometries);
+    geometries.forEach((geometry,i)=>expect(geometry.getAttribute('position').array).toBe(arrays[i]));
+    expect(water.inspection().banks).toBe(2);
+  });
+  it('uses the far proxy in orbit and resumes the same water field when descending',()=>{
+    const water=view(),position=[0,0,1030] as const;ready(water,position);
+    const expected=water.sample([0,0,1],9);
+    water.update({position:[0,0,5000],timeSeconds:9});expect(water.inspection().detailVisible).toBe(false);
+    expect(water.root.children.filter(child=>child.visible).map(child=>child.name)).toEqual(['PlanetWater:initial-far-proxy']);
+    expect(water.inspection().preparedThisFrame).toBe(0);
+    water.update({position,timeSeconds:9});expect(water.inspection().detailVisible).toBe(true);
+    expect(water.sample([0,0,1])).toEqual(expected);
+  });
+  it('samples terrain only during bounded preparation and owns every generated GPU resource exactly once',()=>{
+    const compiled=planet(),sample=vi.fn(compiled.sample),source={...compiled,sample},water=view(source);ready(water);sample.mockClear();
+    for(let i=0;i<10;i++)water.update({position:[0,0,1030],timeSeconds:4+i/30});expect(sample).not.toHaveBeenCalled();
+    const geometries=water.root.children.map(child=>vi.spyOn((child as Mesh).geometry,'dispose')),material=active(water).material as MeshPhysicalMaterial,disposeMaterial=vi.spyOn(material,'dispose');
+    water.dispose();water.dispose();expect(water.root.children).toHaveLength(0);expect(water.inspection().disposed).toBe(true);
+    for(const dispose of geometries)expect(dispose).toHaveBeenCalledTimes(1);expect(disposeMaterial).toHaveBeenCalledTimes(1);
+  });
+});

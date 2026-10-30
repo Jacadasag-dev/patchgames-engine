@@ -14,7 +14,7 @@ export interface PlanetViewOptions {
   maxInFlight?:number;
   maxUploadsPerFrame?:number;
   targetCellPixels?:number;
-  material?:Material;
+  material?:Material|Material[];
 }
 export interface PlanetViewFrame extends PlanetLodFrame {origin?:PlanetVector}
 interface Patch {
@@ -43,7 +43,8 @@ export class PlanetView {
   readonly planet:CompiledPlanet;
   private readonly source:PlanetPatchSource;
   private readonly patches=new Map<string,Patch>();
-  private readonly material:Material;
+  private readonly material:Material|Material[];
+  private readonly coarseMaterial?:MeshStandardMaterial;
   private readonly ownsMaterial:boolean;
   private readonly options:Required<Omit<PlanetViewOptions,'material'>>;
   private wanted=new Set<string>();
@@ -82,6 +83,7 @@ export class PlanetView {
     if(this.options.maxResidentBytes<6*patchBytes)throw Error('Planet resident byte budget must retain all six coarse roots.');
     this.ownsMaterial=!options.material;
     this.material=options.material??new MeshStandardMaterial({vertexColors:true,roughness:1,metalness:0});
+    if(Array.isArray(this.material))this.coarseMaterial=new MeshStandardMaterial({vertexColors:true,roughness:1,metalness:0});
     this.root.name='GeneratedPlanet';
     for(let face=0;face<6;face++)this.record({face,level:0,x:0,y:0});
   }
@@ -117,7 +119,9 @@ export class PlanetView {
     const vertices=data.positions.length/3;
     for(const values of [data.positions,data.normals,data.colors])for(const value of values)if(!Number.isFinite(value))throw Error('Planet patch contains a nonfinite vertex.');
     for(const index of data.indices)if(index>=vertices)throw Error('Planet patch index is outside its vertex buffer.');
-    const bytes=data.positions.byteLength+data.normals.byteLength+data.colors.byteLength+data.indices.byteLength;
+    if(data.uvs&&(!(data.uvs instanceof Float32Array)||data.uvs.length!==vertices*2||!data.uvs.every(Number.isFinite)))throw Error('Planet patch UVs must be finite and match its vertices.');
+    if(data.groups){let end=0;for(const group of data.groups){if(!Number.isInteger(group.start)||group.start!==end||!Number.isInteger(group.count)||group.count<=0||group.count%3||!Number.isInteger(group.materialIndex)||group.materialIndex<0||group.materialIndex>=(Array.isArray(this.material)?this.material.length:1))throw Error('Planet material groups must cover contiguous triangles with valid material indices.');end+=group.count;}if(end!==data.indices.length)throw Error('Planet material groups must cover the full index buffer.');}
+    const bytes=data.positions.byteLength+data.normals.byteLength+data.colors.byteLength+data.indices.byteLength+(data.uvs?.byteLength??0);
     if(bytes!==data.byteLength)throw Error('Planet patch byte accounting differs from its buffers.');
   }
   private install():void {
@@ -135,8 +139,10 @@ export class PlanetView {
         geometry.setAttribute('position',new BufferAttribute(data.positions,3));
         geometry.setAttribute('normal',new BufferAttribute(data.normals,3));
         geometry.setAttribute('color',new BufferAttribute(data.colors,3));
+        if(data.uvs)geometry.setAttribute('uv',new BufferAttribute(data.uvs,2));
+        for(const group of data.groups??[])geometry.addGroup(group.start,group.count,group.materialIndex);
         geometry.setIndex(new BufferAttribute(data.indices,1));geometry.computeBoundingSphere();
-        const mesh=new Mesh(geometry,this.material);mesh.name='PlanetPatch:'+data.key;mesh.visible=false;
+        const mesh=new Mesh(geometry,data.uvs?this.material:this.coarseMaterial??this.material);mesh.name='PlanetPatch:'+data.key;mesh.visible=false;
         record.mesh=mesh;record.origin=data.origin;record.bytes=data.byteLength;this.residentBytes+=record.bytes;
         this.root.add(mesh);this.completed++;this.installedThisFrame++;
       }catch(error){geometry?.dispose();this.failure(record,error);}
@@ -238,6 +244,7 @@ export class PlanetView {
     if(this.disposed)return;this.disposed=true;
     for(const record of this.patches.values()){record.abort?.abort();record.mesh?.geometry.dispose();}
     this.source.dispose();this.patches.clear();this.root.clear();this.residentBytes=0;
-    if(this.ownsMaterial)this.material.dispose();
+    if(this.ownsMaterial)for(const material of Array.isArray(this.material)?this.material:[this.material])material.dispose();
+    this.coarseMaterial?.dispose();
   }
 }
