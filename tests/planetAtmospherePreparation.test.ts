@@ -12,7 +12,7 @@ class FakeWorker {
   terminate(){this.terminated++;}
   reply(sequence:number,timeSeconds:number,epoch=7){
     const plane=()=>new Float32Array(64*32*4);
-    const snapshot:PlanetAtmosphereSnapshot={kind:'planet-atmosphere-snapshot',version:1,epoch,sequence,timeSeconds,revision:'physics',planetRevision:'surface',radiusMeters:recipe.radiusMeters,width:64,height:32,condensate:plane(),materialLower:plane(),materialUpper:plane()};
+    const snapshot:PlanetAtmosphereSnapshot={kind:'planet-atmosphere-snapshot',version:2,epoch,sequence,timeSeconds,revision:'physics',planetRevision:'surface',radiusMeters:recipe.radiusMeters,width:64,height:32,atmosphereHeightMeters:generator.diagnostics.atmosphereHeightMeters,cloudBoundsMeters:[0,0,0,0],cloudAltitudeMoments:plane(),condensate:plane(),materialLower:plane(),materialUpper:plane()};
     this.onmessage?.({data:{type:sequence?'update':'ready',epoch,generator,update:{snapshot,diagnostics:{fixedTickSeconds:30,timeSeconds}}}} as MessageEvent);
   }
 }

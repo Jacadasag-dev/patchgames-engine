@@ -195,15 +195,32 @@ describe('planet sky view lifecycle',()=>{
     view.clearWeatherSnapshots();await view.prepare(asRenderer(r),scene,camera);expect(r.compiles).toBe(9);expect(view.inspection().shaderVariant).toBe('art');
   });
   it('publishes complete physical texture pairs without rebuilding materials or exposing partial planes',async()=>{
-    const state=(sequence:number):PlanetAtmosphereSnapshot=>{const size=64*32*4,condensate=new Float32Array(size),materialLower=new Float32Array(size),materialUpper=new Float32Array(size);for(let i=2;i<size;i+=4)materialLower[i]=materialUpper[i]=1;return{kind:'planet-atmosphere-snapshot',version:1,revision:'physical',planetRevision:'planet',epoch:1,sequence,timeSeconds:sequence*10,radiusMeters:radius,width:64,height:32,condensate,materialLower,materialUpper};};
+    const state=(sequence:number):PlanetAtmosphereSnapshot=>{
+      const size=64*32*4,condensate=new Float32Array(size),materialLower=new Float32Array(size),materialUpper=new Float32Array(size),cloudAltitudeMoments=new Float32Array(size);
+      const lowerBase=sequence===1?1000:6000,lowerTop=lowerBase+1000,upperBase=sequence===1?4500:9000,upperTop=upperBase+1000;
+      for(let i=0;i<size;i+=4){materialLower[i+2]=materialUpper[i+2]=1;condensate[i]=condensate[i+2]=1;cloudAltitudeMoments.set([lowerBase,lowerTop,upperBase,upperTop],i);}
+      return{kind:'planet-atmosphere-snapshot',version:2,revision:'physical',planetRevision:'planet',epoch:1,sequence,timeSeconds:sequence*10,radiusMeters:radius,atmosphereHeightMeters:bake.recipe.atmosphere.heightMeters,cloudBoundsMeters:[lowerBase,lowerTop,upperBase,upperTop],width:64,height:32,condensate,materialLower,materialUpper,cloudAltitudeMoments};
+    };
     const view=make(),r=new Renderer(),scene=new Scene(),camera=new PerspectiveCamera(),a=state(1),b=state(2);view.enableSimulation();await view.prepare(asRenderer(r),scene,camera);
     const resources=view as unknown as {uniforms:Record<string,{value:any}>;volumeMaterial:{version:number}},version=resources.volumeMaterial.version;
     view.render(asRenderer(r),scene,camera,{...frame,timeSeconds:15});expect(resources.uniforms.uSnapshotParams.value.toArray()).toEqual([1,0,0,0]);
     expect(view.setWeatherSnapshots(a,b)).toBe(true);
     view.render(asRenderer(r),scene,camera,{...frame,timeSeconds:15,weatherPrepared:true});expect(r.uploads).toBe(0);expect(view.inspection().simulation.active).toBe(false);
-    for(let i=0;i<6;i++){view.stageWeather(r);view.render(asRenderer(r),scene,camera,{...frame,timeSeconds:15,weatherPrepared:true});expect(r.uploads).toBe(i+1);expect(resources.uniforms.uSnapshotParams.value.z).toBe(i===5?1:0);expect(resources.uniforms.uStormCount.value).toBe(0);expect(resources.volumeMaterial.version).toBe(version);}
-    expect(r.uploads).toBe(6);expect(resources.uniforms.uSnapshotParams.value.y).toBe(.5);expect(view.inspection().simulation).toMatchObject({active:true,sequence:2,fromTime:10,toTime:20,staging:false});
+    expect(view.sampleWeather([0,0,1],15)).toBeUndefined();
+    for(let i=0;i<8;i++){view.stageWeather(r);view.render(asRenderer(r),scene,camera,{...frame,timeSeconds:15,weatherPrepared:true});expect(r.uploads).toBe(i+1);expect(resources.uniforms.uSnapshotParams.value.z).toBe(i===7?1:0);expect(resources.uniforms.uSnapshotParams.value.w).toBe(i===7?2:0);expect(resources.uniforms.uStormCount.value).toBe(0);expect(resources.volumeMaterial.version).toBe(version);}
+    expect(r.uploads).toBe(8);expect(resources.uniforms.uSnapshotParams.value.y).toBe(.5);expect(view.inspection().simulation).toMatchObject({active:true,sequence:2,fromTime:10,toTime:20,staging:false});
+    expect(resources.uniforms.uCloudLayers.value.map((layer:Vector4)=>layer.toArray())).toEqual([[1000/radius,6000/radius,1,1],[4500/radius,5500/radius,1,1],[0,0,1,0]]);
+    expect(view.inspection()).toMatchObject({cloudLayerSource:'physical-snapshot',cloudLayers:{lower:{minBaseMetersAsl:1000,maxTopMetersAsl:7000},upper:{minBaseMetersAsl:4500,maxTopMetersAsl:10000}},simulation:{cloudBoundsMeters:[1000,7000,4500,10000],atmosphereHeightMeters:bake.recipe.atmosphere.heightMeters}});
+    expect(resources.uniforms.tSnapshotAltitude0.value.image.data).toBe(a.cloudAltitudeMoments);expect(resources.uniforms.tSnapshotAltitude1.value.image.data).toBe(b.cloudAltitudeMoments);
+    expect(view.sampleWeather([0,0,1],15)).toMatchObject({lowerBaseMetersAsl:3500,lowerTopMetersAsl:4500,upperBaseMetersAsl:6750,upperTopMetersAsl:7750});
+    view.setWeatherSnapshots(b,state(3));view.stageWeather(r);expect(view.sampleWeather([0,0,1],15)?.lowerBaseMetersAsl).toBe(3500);
     expect(resources.uniforms.tSnapshotCondensate0.value.image.data).toBe(a.condensate);expect(resources.uniforms.tSnapshotCondensate1.value.image.data).toBe(b.condensate);expect(()=>view.setWeatherSnapshots(a)).toThrow(/Stale/);
-    view.clearWeatherSnapshots();view.enableSimulation();view.render(asRenderer(r),scene,camera,frame);expect(resources.uniforms.uSnapshotParams.value.toArray()).toEqual([1,0,0,0]);
+    const changed={...bake.recipe,atmosphere:{...bake.recipe.atmosphere,heightMeters:bake.recipe.atmosphere.heightMeters*1.1}};
+    expect(()=>view.setRecipe(changed)).toThrow(/replacement sky view and simulation session/);
+    view.clearWeatherSnapshots();expect(view.sampleWeather([0,0,1],15)).toBeUndefined();view.setRecipe(changed);
+    await view.prepare(asRenderer(r),scene,camera);view.render(asRenderer(r),scene,camera,frame);
+    expect(resources.uniforms.uCloudLayers.value[0].toArray()).toEqual([bake.recipe.clouds.layers.fog.bottomMeters/radius,bake.recipe.clouds.layers.fog.thicknessMeters/radius,bake.recipe.clouds.layers.fog.density,bake.recipe.clouds.layers.fog.enabled?1:0]);
+    expect(()=>view.setWeatherSnapshots(a)).toThrow(/height/);
+    view.enableSimulation();view.render(asRenderer(r),scene,camera,frame);expect(resources.uniforms.uSnapshotParams.value.toArray()).toEqual([1,0,0,0]);
   });
 });

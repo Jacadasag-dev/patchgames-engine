@@ -2,7 +2,7 @@ import {describe,expect,it} from 'vitest';
 import {compilePlanetGenerator,createPlanetGeneratorRecipe} from '../src/shared/planetGenerator.ts';
 import {createPlanetAtmosphere,planetAtmosphereRadiativeColumn,planetAtmosphereTwoStreamLayer,planetAtmosphereSaturationSpecificHumidity,rotatePlanetAtmosphereCoriolis,samplePlanetAtmosphereCelestial,PLANET_ATMOSPHERE_LIMITS,type PlanetAtmosphereRecipe,type PlanetAtmosphereRadiativeColumn} from '../src/shared/planetAtmosphere.ts';
 import {samplePlanetCelestial} from '../src/shared/planetCelestial.ts';
-import type {PlanetVector} from '../src/shared/planet.ts';
+import {planetDirection,type PlanetVector} from '../src/shared/planet.ts';
 
 const physics=compilePlanetGenerator(createPlanetGeneratorRecipe()).physics;
 const recipe=(extra:Partial<typeof physics>={}):PlanetAtmosphereRecipe=>({kind:'planet-atmosphere',version:1,seed:42,resolution:16,physics:{...physics,...extra}});
@@ -30,6 +30,21 @@ describe('persistent finite-volume planet atmosphere',()=>{
     const info=finish(simulation,3600);expect(info.waterMassKg).toBe(0);expect(info.condensedWaterKg).toBe(0);expect(info.cloudyAreaFraction).toBe(0);
     const before=simulation.checkpoint();for(let i=0;i<100;i++){const a=i*.1,sample=simulation.sample([Math.sin(a),Math.cos(a),.3]);expect(sample.liquidLowerKgM2+sample.liquidUpperKgM2+sample.iceLowerKgM2+sample.iceUpperKgM2).toBe(0);expect(Math.hypot(...sample.materialLower)).toBeCloseTo(1,12);}
     expect(simulation.checkpoint()).toEqual(before);
+  });
+  it('mass-weights occupied cloud geometry and caches diagnosis until a tick or restore changes state',()=>{
+    const simulation=createPlanetAtmosphere(recipe()),state=simulation.checkpoint(),resolution=16,index=4*resolution*resolution+8*resolution+8;
+    state.liquid[index]=.1;state.surfaceWater[index]-=.1;simulation.restore(state);
+    const center=planetDirection(4,-1+2*8.5/resolution,-1+2*8.5/resolution),occupied=simulation.sample(center),mixed=simulation.sample([0,0,1]),before=simulation.inspection().cloudColumnDiagnosisCount;
+    expect(mixed.liquidLowerKgM2).toBeCloseTo(.025,12);expect(mixed.lowerBaseMetersAsl).toBeCloseTo(occupied.lowerBaseMetersAsl,8);expect(mixed.lowerTopMetersAsl).toBeCloseTo(occupied.lowerTopMetersAsl,8);
+    for(let i=0;i<20;i++)simulation.sample([0,0,1]);expect(simulation.inspection().cloudColumnDiagnosisCount).toBe(before);
+    simulation.advanceTo(simulation.inspection().fixedTickSeconds,1);simulation.sample([0,0,1]);const afterTick=simulation.inspection().cloudColumnDiagnosisCount;expect(afterTick).toBeGreaterThan(before);
+    simulation.restore(state);const restored=simulation.sample([0,0,1]);expect(simulation.inspection().cloudColumnDiagnosisCount).toBeGreaterThan(afterTick);expect(restored.lowerBaseMetersAsl).toBeCloseTo(mixed.lowerBaseMetersAsl,8);expect(simulation.inspection().waterMassRelativeError).toBeLessThan(2e-12);
+  });
+  it('does not lift a lowland cloud because a clear neighboring hill raises interpolated terrain',()=>{
+    const simulation=createPlanetAtmosphere(recipe(),d=>({heightMeters:d[0]>0&&d[1]>0?0:3000,waterFraction:d[0]>0&&d[1]>0?1:0})),state=simulation.checkpoint(),index=4*16*16+8*16+8,n=state.airMass.length/2,pressure=physics.gravityMetersPerSecondSquared*(state.airMass[index]+state.airMass[n+index]);
+    const vapor=state.airMass[index]*planetAtmosphereSaturationSpecificHumidity(state.surfaceTemperature[index],pressure,physics.meanMolarMassKgPerMol);
+    state.surfaceWater[index]-=vapor-state.vapor[index]+.1;state.vapor[index]=vapor;state.liquid[index]=.1;simulation.restore(state);
+    const sample=simulation.sample([0,0,1]);expect(sample.liquidLowerKgM2).toBeCloseTo(.025,12);expect(sample.lowerBaseMetersAsl).toBeLessThan(sample.surfaceHeightMetersAsl);expect(sample.lowerBaseMetersAsl).toBeCloseTo(0,6);expect(sample.lowerTopMetersAsl).toBeGreaterThan(sample.lowerBaseMetersAsl);
   });
   it('does not leak vapor across a stably stratified atmosphere merely because six hours passed',()=>{
     const simulation=createPlanetAtmosphere(recipe());const info=finish(simulation,21600);

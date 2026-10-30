@@ -20,6 +20,17 @@ foreground when measuring a flight. Exported frame reports distinguish RAF
 intervals, CPU submission and, where available, native GPU queue completion;
 none of these alone is physical display FPS.
 
+Cloud base and top are local physical diagnostics, rather than fixed fractions
+of atmosphere height. Temperature, moisture, pressure, gravity, gas properties
+and terrain determine each column's vertical profile. Snapshot altitude moments
+use the same interpolation as condensate, so approaching from orbit preserves
+cloud height and clear neighbours cannot pull a cloud down to the ground.
+`sky.sampleWeather(direction, timeSeconds)` reports the active uploaded pair;
+the lab uses it for its height readout and **Inside clouds** camera preset.
+The readout measures heights above the local coarse terrain/ocean surface.
+Two-layer vertical reconstruction is still an approximation; see the model
+assumptions and numerical clipping diagnostics in `planet-simulation.md`.
+
 ## Rendering backends
 
 `PlanetSkyView` captures and composites a WebGL scene. `PlanetSkyWebGPUView` is

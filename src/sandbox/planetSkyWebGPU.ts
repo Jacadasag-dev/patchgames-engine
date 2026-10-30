@@ -3,7 +3,7 @@ import {NodeMaterial,RenderPipeline,RenderTarget,type ArrayNode,type Node,type W
 import {element,outputStruct,positionLocal,renderOutput,sampler,texture,texture3D,uniform,uv,vec4,wgslFn} from 'three/tsl';
 import {compilePlanetSky,type CompiledPlanetSky,type PlanetSkyBake,type PlanetSkyRecipe} from '../shared/planetSky.ts';
 import {compilePlanet,type PlanetVector} from '../shared/planet.ts';
-import type {PlanetAtmosphereSnapshot} from '../shared/planetAtmosphereSnapshot.ts';
+import type {PlanetAtmosphereRenderColumn,PlanetAtmosphereSnapshot} from '../shared/planetAtmosphereSnapshot.ts';
 import type {PlanetSkyDiagnostic,PlanetSkyFrame} from './planetSkyView.ts';
 import {createPlanetSkyNoiseMipmaps} from './planetSkyWebGPUMips.ts';
 import {PlanetAtmosphereSnapshotBuffer} from './planetAtmosphereSnapshotBuffer.ts';
@@ -61,9 +61,9 @@ export class PlanetSkyWebGPUView {
 
   constructor(bake:PlanetSkyBake){
     this.compiled=compilePlanetSky(bake.recipe,bake.radiusMeters);
-    this.snapshotBuffer=new PlanetAtmosphereSnapshotBuffer({radiusMeters:bake.radiusMeters,planetRevision:bake.recipe.surface?compilePlanet(bake.recipe.surface).revision:undefined});
+    this.snapshotBuffer=new PlanetAtmosphereSnapshotBuffer({radiusMeters:bake.radiusMeters,planetRevision:bake.recipe.surface?compilePlanet(bake.recipe.surface).revision:undefined,atmosphereHeightMeters:bake.recipe.atmosphere.heightMeters});
     const snapshotTextures=this.snapshotBuffer.textures;
-    this.snapshotNodes={snapshotCondensate0:texture(snapshotTextures.condensate0),snapshotCondensate1:texture(snapshotTextures.condensate1),snapshotLower0:texture(snapshotTextures.materialLower0),snapshotLower1:texture(snapshotTextures.materialLower1),snapshotUpper0:texture(snapshotTextures.materialUpper0),snapshotUpper1:texture(snapshotTextures.materialUpper1)};
+    this.snapshotNodes={snapshotCondensate0:texture(snapshotTextures.condensate0),snapshotCondensate1:texture(snapshotTextures.condensate1),snapshotLower0:texture(snapshotTextures.materialLower0),snapshotLower1:texture(snapshotTextures.materialLower1),snapshotUpper0:texture(snapshotTextures.materialUpper0),snapshotUpper1:texture(snapshotTextures.materialUpper1),snapshotAltitude0:texture(snapshotTextures.cloudAltitudeMoments0),snapshotAltitude1:texture(snapshotTextures.cloudAltitudeMoments1)};
     if(bake.bakeKey!==this.compiled.bakeKey||bake.revision!==this.compiled.revision||bake.noise?.size!==32||bake.weather?.size!==32
       ||!(bake.noise.data instanceof Uint8Array)||bake.noise.data.length!==32**3*4||!(bake.weather.data instanceof Uint8Array)||bake.weather.data.length!==32**3)throw Error('Planet sky bake does not match its validated recipe or bounded volumes.');
     this.noiseMips=createPlanetSkyNoiseMipmaps(bake.noise.data);
@@ -128,6 +128,7 @@ export class PlanetSkyWebGPUView {
     if(this.disposed)throw Error('Planet sky view is disposed.');
     const next=compilePlanetSky(recipe,this.compiled.radiusMeters);
     if(next.bakeKey!==this.compiled.bakeKey)throw Error('Planet sky seed or weather changed; prepare a replacement volume in the worker first.');
+    this.snapshotBuffer.setAtmosphereHeightMeters(next.recipe.atmosphere.heightMeters);
     this.compiled=next;this.applyRecipe();
   }
   setDiagnostic(mode:PlanetSkyDiagnostic):void{
@@ -140,6 +141,9 @@ export class PlanetSkyWebGPUView {
   }
   enableSimulation():void{if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.enable();}
   clearWeatherSnapshots():void{if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.clear();}
+  sampleWeather(direction:PlanetVector,timeSeconds:number):PlanetAtmosphereRenderColumn|undefined{
+    if(this.disposed)throw Error('Planet sky view is disposed.');return this.snapshotBuffer.sample(direction,timeSeconds);
+  }
   /** Stage before sampling the shared physical clock when the host owns pause
    * and simulation timing. Pass weatherPrepared:true to render afterwards. */
   stageWeather(renderer:{initTexture(texture:DataTexture):void}):void{
@@ -182,19 +186,26 @@ export class PlanetSkyWebGPUView {
     const limits=backend.device.limits;
     if(limits.maxColorAttachments<2||limits.maxTextureDimension3D<32)throw Error('Planet sky WebGPU requires two HDR color attachments and 32 cubed 3D textures.');
     const r=this.compiled.recipe;
-    if(!r.atmosphere.enabled&&!r.clouds.enabled&&!r.celestial.sunEnabled&&!r.celestial.starsEnabled){
+    if(!frame.weatherPrepared)this.stageWeather(renderer);
+    const snapshotFrame=this.snapshotBuffer.frame(frame.timeSeconds),snapshotTextures=this.snapshotBuffer.textures;
+    this.uniforms.snapshotParams.value.set(snapshotFrame.enabled?1:0,snapshotFrame.alpha,snapshotFrame.active?1:0,snapshotFrame.active?2:0);
+    this.snapshotNodes.snapshotCondensate0.value=snapshotTextures.condensate0;this.snapshotNodes.snapshotCondensate1.value=snapshotTextures.condensate1;
+    this.snapshotNodes.snapshotLower0.value=snapshotTextures.materialLower0;this.snapshotNodes.snapshotLower1.value=snapshotTextures.materialLower1;
+    this.snapshotNodes.snapshotUpper0.value=snapshotTextures.materialUpper0;this.snapshotNodes.snapshotUpper1.value=snapshotTextures.materialUpper1;
+    this.snapshotNodes.snapshotAltitude0.value=snapshotTextures.cloudAltitudeMoments0;this.snapshotNodes.snapshotAltitude1.value=snapshotTextures.cloudAltitudeMoments1;
+    for(const [index,key]of (['fogLayer','cumulusLayer','cirrusLayer'] as const).entries()){
+      const settings=this.uniforms[key].value;
+      if(snapshotFrame.enabled){const base=snapshotFrame.cloudBoundsMeters[index*2]??0,top=snapshotFrame.cloudBoundsMeters[index*2+1]??0;settings.set(base/this.compiled.radiusMeters,Math.max(0,top-base)/this.compiled.radiusMeters,1,index<2&&top>base?1:0);}
+      else{const layer=r.clouds.layers[(['fog','cumulus','cirrus'] as const)[index]];settings.set(layer.bottomMeters/this.compiled.radiusMeters,layer.thicknessMeters/this.compiled.radiusMeters,layer.density,layer.enabled?1:0);}
+    }
+    if(!snapshotFrame.enabled&&!r.atmosphere.enabled&&!r.clouds.enabled&&!r.celestial.sunEnabled&&!r.celestial.starsEnabled){
       this.renderer=renderer;const start=performance.now(),triangles=renderer.info.render.triangles,drawCalls=renderer.info.render.drawCalls;
       renderer.render(scene,camera);this.sceneTriangles=renderer.info.render.triangles-triangles;this.sceneDrawCalls=renderer.info.render.drawCalls-drawCalls;this.renderCpuMs=performance.now()-start;this.frames++;return;
     }
     renderer.getViewport(this.viewport);renderer.getScissor(this.scissor);
     const pixelRatio=renderer.getPixelRatio(),width=Math.floor(this.viewport.z*pixelRatio),height=Math.floor(this.viewport.w*pixelRatio);
     if(width<1||height<1||width>limits.maxTextureDimension2D||height>limits.maxTextureDimension2D||width*height>8_388_608)throw Error('Planet sky capture viewport exceeds its 8-megapixel or device texture limit.');
-    this.renderer=renderer;this.resize(width,height);this.uploadNoise(renderer);if(!frame.weatherPrepared)this.stageWeather(renderer);
-    const snapshotFrame=this.snapshotBuffer.frame(frame.timeSeconds),snapshotTextures=this.snapshotBuffer.textures;
-    this.uniforms.snapshotParams.value.set(snapshotFrame.enabled?1:0,snapshotFrame.alpha,snapshotFrame.active?1:0,0);
-    this.snapshotNodes.snapshotCondensate0.value=snapshotTextures.condensate0;this.snapshotNodes.snapshotCondensate1.value=snapshotTextures.condensate1;
-    this.snapshotNodes.snapshotLower0.value=snapshotTextures.materialLower0;this.snapshotNodes.snapshotLower1.value=snapshotTextures.materialLower1;
-    this.snapshotNodes.snapshotUpper0.value=snapshotTextures.materialUpper0;this.snapshotNodes.snapshotUpper1.value=snapshotTextures.materialUpper1;
+    this.renderer=renderer;this.resize(width,height);this.uploadNoise(renderer);
     if(!this.pipeline){this.pipeline=new RenderPipeline(renderer,this.compositeNode);this.pipeline.outputColorTransform=false;}
     const u=this.uniforms,radius=this.compiled.radiusMeters,wind=r.clouds.windMetersPerSecond;
     u.cameraRadius.value.set(...frame.position).multiplyScalar(1/radius);u.sunDirection.value.set(...frame.sunDirection).normalize();
@@ -240,14 +251,15 @@ export class PlanetSkyWebGPUView {
     }
   }
   inspection(){
+    const simulation=this.snapshotBuffer.inspection(),bounds=simulation.cloudBoundsMeters,physicalCloudBoundsMeters=bounds?{lower:{minBaseMetersAsl:bounds[0],maxTopMetersAsl:bounds[1]},upper:{minBaseMetersAsl:bounds[2],maxTopMetersAsl:bounds[3]}}:null;
     return{backend:'webgpu',style:this.compiled.recipe.style,quality:this.compiled.recipe.quality,diagnostic:diagnosticModes[this.uniforms.style.value.w],revision:this.compiled.revision,bakeKey:this.compiled.bakeKey,frames:this.frames,
       atmosphereEnabled:this.compiled.recipe.atmosphere.enabled,cloudsEnabled:this.compiled.recipe.clouds.enabled,
       sunEnabled:this.compiled.recipe.celestial.sunEnabled,starsEnabled:this.compiled.recipe.celestial.starsEnabled,cloudShadowStrength:this.compiled.recipe.clouds.shadowStrength,godRayStrength:this.compiled.recipe.clouds.godRayStrength,cyclones:this.uniforms.weatherParams.value.y,
       captureWidth:this.width,captureHeight:this.height,volumeWidth:this.lowWidth,volumeHeight:this.lowHeight,volumePixels:this.lowWidth*this.lowHeight,
       noiseMipLevels:this.noiseMips.length,filteredNoiseBytes:this.noiseMips.reduce((sum,mip)=>sum+mip.data.byteLength,0),
-      cloudLayers:3,circulationAtlasBytes:this.circulationBytes,condensationThreshold:this.condensationThreshold,rotationScale:this.uniforms.weatherParams.value.w,limits:{...this.compiled.quality},volumeDataBytes:32**3*5+this.circulationBytes,estimatedTargetBytes:this.width*this.height*12+this.lowWidth*this.lowHeight*16,
+      cloudLayers:simulation.enabled?2:3,cloudLayerSource:simulation.enabled?'physical-snapshot':'authored',physicalCloudBoundsMeters,authoredCloudLayers:this.compiled.recipe.clouds.layers,circulationAtlasBytes:this.circulationBytes,condensationThreshold:this.condensationThreshold,rotationScale:this.uniforms.weatherParams.value.w,limits:{...this.compiled.quality},volumeDataBytes:32**3*5+this.circulationBytes,estimatedTargetBytes:this.width*this.height*12+this.lowWidth*this.lowHeight*16,
       transport:{cloudPrimarySamples:this.compiled.quality.cloudSteps,airPrimarySamples:this.compiled.quality.atmosphereSteps,maxCloudIntervals:6,maxCloudLightSamples:6*this.compiled.quality.cloudLightSteps,quadrature:'World-phase logarithmic feature metric; distant intervals use filtered 3D density'},
-      simulation:this.snapshotBuffer.inspection(),
+      simulation,
       byteMetric:'Estimated attachment payload; excludes driver allocation, MSAA, staging and other scene resources',sceneTriangles:this.sceneTriangles,sceneDrawCalls:this.sceneDrawCalls,renderSubmissionCpuMs:this.renderCpuMs,disposed:this.disposed};
   }
   dispose():void{

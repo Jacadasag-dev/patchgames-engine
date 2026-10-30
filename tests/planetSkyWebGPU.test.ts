@@ -4,6 +4,7 @@ import type {WebGPURenderer} from 'three/webgpu';
 import {compilePlanetSky,createPlanetSkyRecipe} from '../src/shared/planetSky.ts';
 import {PlanetSkyWebGPUView} from '../src/sandbox/planetSkyWebGPU.ts';
 import {createPlanetSkyNoiseMipmaps} from '../src/sandbox/planetSkyWebGPUMips.ts';
+import * as skyShaders from '../src/sandbox/planetSkyWebGPUShader.ts';
 import {createPlanetWeatherRecipe} from '../src/shared/planetWeather.ts';
 import type {PlanetAtmosphereSnapshot} from '../src/shared/planetAtmosphereSnapshot.ts';
 
@@ -53,9 +54,9 @@ const views:PlanetSkyWebGPUView[]=[];
 const make=()=>{const view=new PlanetSkyWebGPUView(bake);views.push(view);return view;};
 const camera=()=>new PerspectiveCamera(60,1,.1,radius*8);
 const snapshot=(sequence:number,timeSeconds:number):PlanetAtmosphereSnapshot=>{
-  const width=64,height=32,condensate=new Float32Array(width*height*4),materialLower=new Float32Array(condensate.length),materialUpper=new Float32Array(condensate.length);
-  for(let offset=0;offset<condensate.length;offset+=4){condensate[offset]=.1;materialLower[offset]=1;materialLower[offset+3]=.005;materialUpper[offset]=1;}
-  return{kind:'planet-atmosphere-snapshot',version:1,revision:'physical-atmosphere',planetRevision:'physical-planet',epoch:1,sequence,timeSeconds,radiusMeters:radius,width,height,condensate,materialLower,materialUpper};
+  const width=64,height=32,condensate=new Float32Array(width*height*4),materialLower=new Float32Array(condensate.length),materialUpper=new Float32Array(condensate.length),cloudAltitudeMoments=new Float32Array(condensate.length);
+  for(let offset=0;offset<condensate.length;offset+=4){condensate[offset]=.1;materialLower[offset]=1;materialLower[offset+3]=.005;materialUpper[offset]=1;materialUpper[offset+3]=100;const mass=condensate[offset]+materialLower[offset+3];cloudAltitudeMoments[offset]=1000*mass;cloudAltitudeMoments[offset+1]=3000*mass;}
+  return{kind:'planet-atmosphere-snapshot',version:2,revision:'physical-atmosphere',planetRevision:'physical-planet',epoch:1,sequence,timeSeconds,radiusMeters:radius,width,height,atmosphereHeightMeters:bake.recipe.atmosphere.heightMeters,cloudBoundsMeters:[1000,3000,0,0],condensate,materialLower,materialUpper,cloudAltitudeMoments};
 };
 afterEach(()=>{views.forEach(view=>view.dispose());views.length=0;vi.restoreAllMocks();});
 
@@ -154,12 +155,12 @@ describe('native WebGPU planet sky',()=>{
     const resources=view as unknown as {uniforms:{snapshotParams:{value:Vector4};weatherParams:{value:Vector4}};snapshotNodes:Record<string,{value:DataTexture}>;volumeMaterial:{version:number}};
     const nodes=resources.snapshotNodes,version=resources.volumeMaterial.version;
     expect(view.setWeatherSnapshots(previous,current)).toBe(true);
-    for(let pass=0;pass<6;pass++){
+    for(let pass=0;pass<8;pass++){
       view.render(asRenderer(r),scene,c,{...frame,timeSeconds:150});
-      expect(resources.uniforms.snapshotParams.value.x).toBe(1);expect(resources.uniforms.snapshotParams.value.z).toBe(pass===5?1:0);
+      expect(resources.uniforms.snapshotParams.value.x).toBe(1);expect(resources.uniforms.snapshotParams.value.z).toBe(pass===7?1:0);expect(resources.uniforms.snapshotParams.value.w).toBe(pass===7?2:0);
       expect(resources.uniforms.weatherParams.value.y).toBe(0);expect(resources.snapshotNodes).toBe(nodes);expect(resources.volumeMaterial.version).toBe(version);
     }
-    expect(resources.uniforms.snapshotParams.value.y).toBe(.5);expect(view.inspection().simulation).toMatchObject({active:true,sequence:2,uploads:6,staging:false});
+    expect(resources.uniforms.snapshotParams.value.y).toBe(.5);expect(view.inspection().simulation).toMatchObject({active:true,sequence:2,uploads:8,staging:false});
     expect(nodes.snapshotCondensate0.value.image.data).toBe(previous.condensate);expect(nodes.snapshotCondensate1.value.image.data).toBe(current.condensate);
     expect(view.setWeatherSnapshots(previous,current)).toBe(false);view.render(asRenderer(r),scene,c,{...frame,timeSeconds:500});expect(resources.uniforms.snapshotParams.value.y).toBe(1);
     expect(()=>view.setWeatherSnapshots(previous)).toThrow(/Stale/);
@@ -168,15 +169,15 @@ describe('native WebGPU planet sky',()=>{
     const view=make(),r=new Renderer(),scene=new Scene(),c=camera();
     const resources=view as unknown as {uniforms:{snapshotParams:{value:Vector4}}};view.enableSimulation();view.render(asRenderer(r),scene,c,frame);
     expect(resources.uniforms.snapshotParams.value.toArray()).toEqual([1,0,0,0]);
-    const state=snapshot(1,10);view.setWeatherSnapshots(state);for(let pass=0;pass<3;pass++)view.render(asRenderer(r),scene,c,frame);
+    const state=snapshot(1,10);view.setWeatherSnapshots(state);for(let pass=0;pass<4;pass++)view.render(asRenderer(r),scene,c,frame);
     expect(resources.uniforms.snapshotParams.value.z).toBe(1);view.clearWeatherSnapshots();view.enableSimulation();view.render(asRenderer(r),scene,c,frame);
     expect(resources.uniforms.snapshotParams.value.toArray()).toEqual([1,0,0,0]);view.dispose();expect(()=>view.setWeatherSnapshots(state)).toThrow(/disposed/);
   });
   it('recreates primed 1x1 snapshot allocations before uploading a larger grid while retaining nodes',()=>{
     const view=make(),r=new Renderer(),resources=view as unknown as {snapshotNodes:Record<string,{value:DataTexture}>};
     const nodes=resources.snapshotNodes;for(const node of Object.values(nodes))r.initTexture(node.value);
-    view.setWeatherSnapshots(snapshot(1,10));for(let pass=0;pass<3;pass++)view.render(asRenderer(r),new Scene(),camera(),frame);
-    expect(view.inspection().simulation).toMatchObject({active:true,error:'',uploads:3});expect(resources.snapshotNodes).toBe(nodes);
+    view.setWeatherSnapshots(snapshot(1,10));for(let pass=0;pass<4;pass++)view.render(asRenderer(r),new Scene(),camera(),frame);
+    expect(view.inspection().simulation).toMatchObject({active:true,error:'',uploads:4});expect(resources.snapshotNodes).toBe(nodes);
     expect(nodes.snapshotCondensate0.value.image.width).toBe(64);expect(r.textureAllocations.get(nodes.snapshotCondensate0.value)).toEqual({width:64,height:32});
   });
   it('lets the host freeze staged weather and advances exactly one plane before a prepared render',()=>{
@@ -188,8 +189,45 @@ describe('native WebGPU planet sky',()=>{
     view.stageWeather(r);view.render(asRenderer(r),scene,c,{...frame,weatherPrepared:true});
     expect(view.inspection().simulation).toMatchObject({active:false,uploads:2});
     view.stageWeather(r);view.render(asRenderer(r),scene,c,{...frame,weatherPrepared:true});
-    expect(view.inspection().simulation).toMatchObject({active:true,uploads:3});
+    expect(view.inspection().simulation).toMatchObject({active:false,uploads:3});
+    view.stageWeather(r);view.render(asRenderer(r),scene,c,{...frame,weatherPrepared:true});
+    expect(view.inspection().simulation).toMatchObject({active:true,uploads:4});
     view.dispose();expect(()=>view.stageWeather(r)).toThrow(/disposed/);
+  });
+  it('uses conservative physical bounds and samples only the completely uploaded altitude pair',()=>{
+    const view=make(),r=new Renderer(),scene=new Scene(),c=camera(),state=snapshot(1,10);
+    state.cloudBoundsMeters=[1000,3000,2000,4500];
+    for(let offset=0;offset<state.condensate.length;offset+=4){state.condensate[offset+1]=.02;state.condensate[offset+2]=.01;const mass=state.condensate[offset+1]+state.condensate[offset+2];state.cloudAltitudeMoments[offset+2]=2000*mass;state.cloudAltitudeMoments[offset+3]=4500*mass;}
+    view.setWeatherSnapshots(state);expect(view.sampleWeather([0,1,0],10)).toBeUndefined();
+    for(let pass=0;pass<3;pass++)view.render(asRenderer(r),scene,c,frame);expect(view.sampleWeather([0,1,0],10)).toBeUndefined();
+    view.render(asRenderer(r),scene,c,frame);const column=view.sampleWeather([0,1,0],10)!;
+    expect(column.surfaceHeightMetersAsl).toBe(100);expect(column.lowerBaseMetersAsl).toBeCloseTo(1000,3);expect(column.lowerTopMetersAsl).toBeCloseTo(3000,3);expect(column.upperBaseMetersAsl).toBeCloseTo(2000,3);expect(column.upperTopMetersAsl).toBeCloseTo(4500,3);
+    const resources=view as unknown as {uniforms:{fogLayer:{value:Vector4};cumulusLayer:{value:Vector4};cirrusLayer:{value:Vector4}};snapshotNodes:Record<string,{value:DataTexture}>};
+    expect(resources.uniforms.fogLayer.value.toArray()).toEqual([1000/radius,2000/radius,1,1]);expect(resources.uniforms.cumulusLayer.value.toArray()).toEqual([2000/radius,2500/radius,1,1]);expect(resources.uniforms.cirrusLayer.value.w).toBe(0);
+    expect(view.inspection().cloudLayers).toBe(2);
+    expect(resources.snapshotNodes.snapshotAltitude0.value.image.data).toBe(state.cloudAltitudeMoments);
+    const next=snapshot(2,20);view.setWeatherSnapshots(state,next);expect(view.sampleWeather([0,1,0],20)!.upperTopMetersAsl).toBeCloseTo(4500,3);
+    view.clearWeatherSnapshots();view.render(asRenderer(r),scene,c,frame);expect(resources.uniforms.fogLayer.value.y).toBe(bake.recipe.clouds.layers.fog.thicknessMeters/radius);expect(resources.uniforms.cirrusLayer.value.w).toBe(1);
+    expect(view.inspection().cloudLayers).toBe(3);
+  });
+  it('rejects physical atmosphere-height changes until simulation is cleared',()=>{
+    const view=make(),changed={...bake.recipe,atmosphere:{...bake.recipe.atmosphere,heightMeters:bake.recipe.atmosphere.heightMeters+100}};
+    view.enableSimulation();expect(()=>view.setRecipe(changed)).toThrow(/height/i);view.clearWeatherSnapshots();expect(()=>view.setRecipe(changed)).not.toThrow();
+  });
+});
+
+describe('native WGSL source contract',()=>{
+  it('keeps shader declarations clear of WGSL keywords and reserved identifiers',()=>{
+    // WGSL rejects these even when a local name would be legal in TypeScript
+    // or GLSL. Scan the final strings, including shared weather helper code.
+    const reserved=new Set(`alias break case const const_assert continue continuing default diagnostic discard else enable false fn for if let loop override requires return struct switch true var while NULL Self abstract active alignas alignof as asm asm_fragment async attribute auto await become binding_array cast catch class co_await co_return co_yield coherent column_major common compile compile_fragment concept const_cast consteval constexpr constinit crate debugger decltype delete demote demote_to_helper do dynamic_cast enum explicit export extends extern external fallthrough filter final finally friend from fxgroup get goto groupshared highp impl implements import inline instanceof interface layout lowp macro macro_rules match mediump meta mod module move mut mutable namespace new nil noexcept noinline nointerpolation non_coherent noncoherent noperspective null nullptr of operator package packoffset partition pass patch pixelfragment precise precision premerge priv protected pub public readonly ref regardless register reinterpret_cast require resource restrict self set shared sizeof smooth snorm static static_assert static_cast std subroutine super target template this thread_local throw trait try type typedef typeid typename typeof union unless unorm unsafe unsized use using varying virtual volatile wgsl where with writeonly yield`.split(/\s+/));
+    const invalid:string[]=[];
+    for(const [name,raw] of Object.entries(skyShaders)){
+      const source=raw.replace(/\/\*[\s\S]*?\*\//g,'').replace(/\/\/[^\n]*/g,'');
+      const declarations=[...source.matchAll(/\b(?:fn|struct|let|var(?:<[^>]+>)?|const|override|alias)\s+([A-Za-z_]\w*)/g),...source.matchAll(/\b([A-Za-z_]\w*)\s*:/g)];
+      for(const declaration of declarations)if(reserved.has(declaration[1]))invalid.push(`${name}: ${declaration[1]}`);
+    }
+    expect(invalid).toEqual([]);
   });
 });
 

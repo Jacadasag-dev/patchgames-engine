@@ -1,6 +1,9 @@
 import {generationDataRevision} from './generationMaps.ts';
 import {planetCoordinates,planetDirection,type PlanetVector} from './planet.ts';
 import {samplePlanetCelestial} from './planetCelestial.ts';
+import {planetAtmosphereSaturationSpecificHumidity} from './planetThermodynamics.ts';
+import {diagnosePlanetCloudColumn,type PlanetCloudColumnDiagnosis} from './planetCloudColumn.ts';
+export {planetAtmosphereSaturationSpecificHumidity} from './planetThermodynamics.ts';
 
 /** A noncondensing background gas plus a dilute water cycle. These are physical
  * boundary conditions, never cloud coverage or a list of prescribed storms. */
@@ -13,7 +16,7 @@ export interface PlanetAtmospherePhysics {
 }
 export interface PlanetAtmosphereRecipe {kind:'planet-atmosphere';version:1;seed:number;resolution:16|32|64;physics:PlanetAtmospherePhysics}
 export interface PlanetAtmosphereSurface {heightMeters:number;waterFraction:number}
-export interface PlanetAtmosphereSample {
+export interface PlanetAtmosphereSample extends PlanetCloudColumnDiagnosis {
   liquidLowerKgM2:number;liquidUpperKgM2:number;iceLowerKgM2:number;iceUpperKgM2:number;dustKgM2:number;
   materialLower:PlanetVector;materialUpper:PlanetVector;pressurePascals:number;
   temperatureLowerKelvin:number;temperatureUpperKelvin:number;surfaceTemperatureKelvin:number;
@@ -22,6 +25,7 @@ export interface PlanetAtmosphereSample {
 export interface PlanetAtmosphereInspection {
   revision:string;timeSeconds:number;tick:number;resolution:number;cellCount:number;edgeCount:number;fixedTickSeconds:number;
   pendingSeconds:number;stateBytes:number;maxCourant:number;maxWindMetersPerSecond:number;
+  cloudColumnDiagnosisCount:number;
   airMassKg:number;waterMassKg:number;dustMassKg:number;airMassRelativeError:number;waterMassRelativeError:number;dustMassRelativeError:number;
   condensedWaterKg:number;cloudyAreaFraction:number;meanSurfaceTemperatureKelvin:number;
   absorbedStellarJoules:number;reflectedStellarJoules:number;outgoingRadiationJoules:number;scope:string;
@@ -42,7 +46,7 @@ export interface PlanetAtmosphereSimulation {
   restore(checkpoint:PlanetAtmosphereStateSnapshot):void;inspection():PlanetAtmosphereInspection;
 }
 export const PLANET_ATMOSPHERE_LIMITS=Object.freeze({resolutions:[16,32,64] as const,maxSubsteps:512,maxPhysicalSeconds:1e12,maxStateBytes:32*1024*1024});
-const RU=8.314462618,RV=461.5,SIGMA=5.670374419e-8,LV=2.5e6,LF=333700,LS=LV+LF,FREEZE=273.15;
+const RU=8.314462618,SIGMA=5.670374419e-8,LV=2.5e6,LF=333700,LS=LV+LF,FREEZE=273.15;
 /** Deliberately gray engineering optics, not a replacement for a molecular or
  * particle spectrum. Liquid LW is the NCAR CCM3/CAM coefficient; ice/dust LW
  * use Qabs=1/.1 geometric approximations at the renderer's effective radii. */
@@ -111,13 +115,6 @@ export function samplePlanetAtmosphereCelestial(physics:PlanetAtmospherePhysics,
   bounded(timeSeconds,'celestial time',0,PLANET_ATMOSPHERE_LIMITS.maxPhysicalSeconds);
   const seasonTurns=(physics.orbitalPhaseTurns+(timeSeconds%physics.orbitalPeriodSeconds)/physics.orbitalPeriodSeconds)%1;
   return samplePlanetCelestial({dayLengthSeconds:physics.rotationPeriodSeconds,axialTiltDegrees:physics.axialTiltDegrees,seasonTurns},timeSeconds%physics.rotationPeriodSeconds);
-}
-/** Clausius-Clapeyron over water/ice. Dilute-water model is limited to q<=.2;
- * steam atmospheres need a different equation of state. */
-export function planetAtmosphereSaturationSpecificHumidity(temperatureKelvin:number,pressurePascals:number,molarMassKgPerMol=.02897):number {
-  bounded(temperatureKelvin,'temperature',80,600);bounded(pressurePascals,'pressure',1e-6,1e9);bounded(molarMassKgPerMol,'molar mass',.002,.2);
-  const latent=temperatureKelvin<FREEZE?LS:LV,es=611.657*Math.exp(latent/RV*(1/273.16-1/temperatureKelvin)),epsilon=.01801528/molarMassKgPerMol;
-  return es>=pressurePascals?.2:Math.min(.2,epsilon*es/(pressurePascals-(1-epsilon)*es));
 }
 /** Exact local inertial rotation; drag and pressure forces are separate. */
 export function rotatePlanetAtmosphereCoriolis(velocity:PlanetVector,direction:PlanetVector,rotationRadiansPerSecond:number,seconds:number):Vec {
@@ -197,15 +194,17 @@ export function createPlanetAtmosphere(input:PlanetAtmosphereRecipe,sampleSurfac
   let revision='';
   const airMass=new Float64Array(L),momentum=new Float64Array(L*3),potentialTemperatureMass=new Float64Array(L),vapor=new Float64Array(L),liquid=new Float64Array(L),ice=new Float64Array(L),dust=new Float64Array(L),material=new Float64Array(L*3);
   const surfaceWater=new Float64Array(n),surfaceIce=new Float64Array(n),surfaceDust=new Float64Array(n),surfaceTemperature=new Float64Array(n),waterFraction=new Float64Array(n),bottom=new Float64Array(n),heatCapacity=new Float64Array(n);
+  const surfaceAltitude=new Float64Array(n),cloudColumnCache=new Array<PlanetCloudColumnDiagnosis|undefined>(n),cloudColumnStamp=new Float64Array(n).fill(-1);
   const fluxMass=new Float64Array(L),fluxMomentum=new Float64Array(L*3),fluxTheta=new Float64Array(L),fluxVapor=new Float64Array(L),fluxLiquid=new Float64Array(L),fluxIce=new Float64Array(L),fluxDust=new Float64Array(L),fluxMaterial=new Float64Array(L*3),phi0=new Float64Array(n),phi1=new Float64Array(n),temperature=new Float64Array(L),exner=new Float64Array(L);
   let tick=0,pendingSeconds=0,maxCourant=0,absorbedStellarJoules=0,reflectedStellarJoules=0,outgoingRadiationJoules=0;
+  let cloudColumnEpoch=0,cloudColumnDiagnosisCount=0;
   let seed=recipe.seed>>>0;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
   const dir=(i:number):Vec=>[grid.directions[i*3],grid.directions[i*3+1],grid.directions[i*3+2]];
   let minColumn=Infinity,surfaceHash=2166136261;const hashBuffer=new ArrayBuffer(8),hashView=new DataView(hashBuffer);
   for(let i=0;i<n;i++){
     const d=dir(i),surface=sampleSurface?.(d)??{heightMeters:0,waterFraction:1};
     bounded(surface.heightMeters,'surface height',-p.radiusMeters*.05,p.radiusMeters*.05);bounded(surface.waterFraction,'water fraction',0,1);
-    const altitude=Math.max(0,surface.heightMeters);if(altitude>H*8)throw Error('Atmosphere terrain exceeds eight scale heights.');waterFraction[i]=surface.waterFraction;
+    const altitude=Math.max(0,surface.heightMeters);if(altitude>H*8)throw Error('Atmosphere terrain exceeds eight scale heights.');waterFraction[i]=surface.waterFraction;surfaceAltitude[i]=altitude;
     for(const value of [surface.heightMeters,surface.waterFraction]){hashView.setFloat64(0,value,true);for(let byte=0;byte<8;byte++)surfaceHash=Math.imul(surfaceHash^hashView.getUint8(byte),16777619)>>>0;}
     bottom[i]=H*(1-Math.exp(-altitude/H));const column=H-bottom[i];minColumn=Math.min(minColumn,column);
     surfaceTemperature[i]=p.equilibriumTemperatureKelvin+(.5-random())*.0002;
@@ -244,7 +243,7 @@ export function createPlanetAtmosphere(input:PlanetAtmosphereRecipe,sampleSurfac
   const allArrays=[airMass,momentum,potentialTemperatureMass,vapor,liquid,ice,dust,material,surfaceWater,surfaceIce,surfaceDust,surfaceTemperature];
   const massArrays=[airMass,potentialTemperatureMass,vapor,liquid,ice,dust,surfaceWater,surfaceIce,surfaceDust];
   const tracerFields=[potentialTemperatureMass,vapor,liquid,ice,dust],tracerDeltas=[fluxTheta,fluxVapor,fluxLiquid,fluxIce,fluxDust],waterDustFields=[vapor,liquid,ice,dust],vectorFields=[momentum,material],fluxArrays=[fluxMass,fluxMomentum,fluxTheta,fluxVapor,fluxLiquid,fluxIce,fluxDust,fluxMaterial];
-  const stateBytes=allArrays.reduce((sum,a)=>sum+a.byteLength,0)+[fluxMass,fluxMomentum,fluxTheta,fluxVapor,fluxLiquid,fluxIce,fluxDust,fluxMaterial,phi0,phi1,temperature,exner,grid.directions,grid.areas,grid.perimeters,waterFraction,bottom,heatCapacity].reduce((sum,a)=>sum+a.byteLength,0)+grid.edges.length*160+n*64;
+  const stateBytes=allArrays.reduce((sum,a)=>sum+a.byteLength,0)+[fluxMass,fluxMomentum,fluxTheta,fluxVapor,fluxLiquid,fluxIce,fluxDust,fluxMaterial,phi0,phi1,temperature,exner,grid.directions,grid.areas,grid.perimeters,waterFraction,bottom,heatCapacity,surfaceAltitude,cloudColumnStamp].reduce((sum,a)=>sum+a.byteLength,0)+grid.edges.length*160+n*(64+256);
   if(stateBytes>PLANET_ATMOSPHERE_LIMITS.maxStateBytes)throw Error('Atmosphere state exceeds memory budget.');
   const totals=():[number,number,number]=>{let air=0,water=0,dirt=0;for(let i=0;i<n;i++){const a=grid.areas[i];air+=(airMass[i]+airMass[n+i])*a;water+=(vapor[i]+liquid[i]+ice[i]+vapor[n+i]+liquid[n+i]+ice[n+i]+surfaceWater[i]+surfaceIce[i])*a;dirt+=(dust[i]+dust[n+i]+surfaceDust[i])*a;}return[air,water,dirt];};
   const initialTotals=totals();
@@ -357,7 +356,7 @@ export function createPlanetAtmosphere(input:PlanetAtmosphereRecipe,sampleSurfac
       if(surfaceTemperature[i]<FREEZE&&surfaceWater[i]>0){const q=Math.min(surfaceWater[i],(FREEZE-surfaceTemperature[i])*heatCapacity[i]/LF);surfaceWater[i]-=q;surfaceIce[i]+=q;surfaceTemperature[i]+=LF*q/heatCapacity[i];}
       else if(surfaceTemperature[i]>FREEZE&&surfaceIce[i]>0){const q=Math.min(surfaceIce[i],(surfaceTemperature[i]-FREEZE)*heatCapacity[i]/LF);surfaceIce[i]-=q;surfaceWater[i]+=q;surfaceTemperature[i]-=LF*q/heatCapacity[i];}
     }
-    tick++;validateState();
+    tick++;cloudColumnEpoch++;validateState();
   }
   function validateState():void {
     for(const field of allArrays)for(const v of field)if(!Number.isFinite(v))throw Error('Atmosphere produced a nonfinite state; restore a checkpoint.');
@@ -369,7 +368,7 @@ export function createPlanetAtmosphere(input:PlanetAtmosphereRecipe,sampleSurfac
     const total=totals();let wind=0,cloudy=0,condensed=0,area=0,surfaceMean=0;
     for(let i=0;i<n;i++){const a=grid.areas[i],q=liquid[i]+liquid[n+i]+ice[i]+ice[n+i];condensed+=q*a;if(q>.0001)cloudy+=a;area+=a;surfaceMean+=surfaceTemperature[i]*a;for(let layer=0;layer<2;layer++){const j=i+layer*n;wind=Math.max(wind,Math.hypot(momentum[j*3],momentum[j*3+1],momentum[j*3+2])/airMass[j]);}}
     const error=(v:number,initial:number)=>initial===0?v:Math.abs(v/initial-1);
-    return{revision,timeSeconds:tick*fixedTickSeconds,tick,resolution:recipe.resolution,cellCount:n,edgeCount:grid.edges.length,fixedTickSeconds,pendingSeconds,stateBytes,maxCourant,maxWindMetersPerSecond:wind,airMassKg:total[0],waterMassKg:total[1],dustMassKg:total[2],airMassRelativeError:error(total[0],initialTotals[0]),waterMassRelativeError:error(total[1],initialTotals[1]),dustMassRelativeError:error(total[2],initialTotals[2]),condensedWaterKg:condensed,cloudyAreaFraction:cloudy/area,meanSurfaceTemperatureKelvin:surfaceMean/area,absorbedStellarJoules,reflectedStellarJoules,outgoingRadiationJoules,scope:'Persistent coarse two-layer moist shallow atmosphere; resolved circulation and condensate, parameterized convection/radiation/precipitation. Hurricane eyes, vertical turbulence, CO2 frost and scientific climate prediction are outside this model.'};
+    return{revision,timeSeconds:tick*fixedTickSeconds,tick,resolution:recipe.resolution,cellCount:n,edgeCount:grid.edges.length,fixedTickSeconds,pendingSeconds,stateBytes,maxCourant,maxWindMetersPerSecond:wind,cloudColumnDiagnosisCount,airMassKg:total[0],waterMassKg:total[1],dustMassKg:total[2],airMassRelativeError:error(total[0],initialTotals[0]),waterMassRelativeError:error(total[1],initialTotals[1]),dustMassRelativeError:error(total[2],initialTotals[2]),condensedWaterKg:condensed,cloudyAreaFraction:cloudy/area,meanSurfaceTemperatureKelvin:surfaceMean/area,absorbedStellarJoules,reflectedStellarJoules,outgoingRadiationJoules,scope:'Persistent coarse two-layer moist shallow atmosphere; resolved circulation and condensate, parameterized convection/radiation/precipitation. Hurricane eyes, vertical turbulence, CO2 frost and scientific climate prediction are outside this model.'};
   }
   function snapshot():PlanetAtmosphereStateSnapshot{return{kind:'planet-atmosphere-state',version:1,revision,tick,timeSeconds:tick*fixedTickSeconds,airMass:airMass.slice(),momentum:momentum.slice(),potentialTemperatureMass:potentialTemperatureMass.slice(),vapor:vapor.slice(),liquid:liquid.slice(),ice:ice.slice(),dust:dust.slice(),material:material.slice(),surfaceWater:surfaceWater.slice(),surfaceIce:surfaceIce.slice(),surfaceDust:surfaceDust.slice(),surfaceTemperature:surfaceTemperature.slice(),initialTotals:[...initialTotals],absorbedStellarJoules,reflectedStellarJoules,outgoingRadiationJoules};}
   function restore(s:PlanetAtmosphereStateSnapshot):void {
@@ -390,7 +389,14 @@ export function createPlanetAtmosphere(input:PlanetAtmosphereRecipe,sampleSurfac
     const restoredTotals:[number,number,number]=[0,0,0];
     for(let i=0;i<n;i++){const a=grid.areas[i];restoredTotals[0]+=(s.airMass[i]+s.airMass[n+i])*a;restoredTotals[1]+=(s.vapor[i]+s.liquid[i]+s.ice[i]+s.vapor[n+i]+s.liquid[n+i]+s.ice[n+i]+s.surfaceWater[i]+s.surfaceIce[i])*a;restoredTotals[2]+=(s.dust[i]+s.dust[n+i]+s.surfaceDust[i])*a;}
     for(let k=0;k<3;k++)if(Math.abs(s.initialTotals[k]-initialTotals[k])/Math.max(1,initialTotals[k])>1e-12||Math.abs(restoredTotals[k]-initialTotals[k])/Math.max(1,initialTotals[k])>1e-10)throw Error('Atmosphere checkpoint conserved inventories do not match this planet.');
-    for(const [key,destination]of Object.entries(entries))destination.set(s[key as keyof typeof entries]);tick=s.tick;absorbedStellarJoules=s.absorbedStellarJoules;reflectedStellarJoules=s.reflectedStellarJoules;outgoingRadiationJoules=s.outgoingRadiationJoules;pendingSeconds=0;validateState();
+    for(const [key,destination]of Object.entries(entries))destination.set(s[key as keyof typeof entries]);tick=s.tick;absorbedStellarJoules=s.absorbedStellarJoules;reflectedStellarJoules=s.reflectedStellarJoules;outgoingRadiationJoules=s.outgoingRadiationJoules;pendingSeconds=0;cloudColumnEpoch++;validateState();
+  }
+  function cloudColumn(i:number):PlanetCloudColumnDiagnosis {
+    if(cloudColumnStamp[i]!==cloudColumnEpoch){
+      cloudColumnCache[i]=diagnosePlanetCloudColumn({physics:p,surfaceHeightMetersAsl:surfaceAltitude[i],surfaceTemperatureKelvin:surfaceTemperature[i],lower:{airMassKgM2:airMass[i],temperatureKelvin:temperature[i],vaporKgM2:vapor[i],liquidKgM2:liquid[i],iceKgM2:ice[i]},upper:{airMassKgM2:airMass[n+i],temperatureKelvin:temperature[n+i],vaporKgM2:vapor[n+i],liquidKgM2:liquid[n+i],iceKgM2:ice[n+i]}});
+      cloudColumnStamp[i]=cloudColumnEpoch;cloudColumnDiagnosisCount++;
+    }
+    return cloudColumnCache[i]!;
   }
   function sample(direction:PlanetVector):PlanetAtmosphereSample {
     const d=unit(direction),c=planetCoordinates(d),resolution=recipe.resolution,px=(c.u+1)*resolution*.5-.5,py=(c.v+1)*resolution*.5-.5,x0=Math.floor(px),y0=Math.floor(py),fx=px-x0,fy=py-y0;
@@ -418,7 +424,17 @@ export function createPlanetAtmosphere(input:PlanetAtmosphereRecipe,sampleSurfac
     const value=(field:Float64Array,layer=0)=>indices.reduce((sum,i,k)=>sum+field[i+layer*n]*weights[k],0);
     const vector=(field:Float64Array,layer:number,normalize:boolean):Vec=>{const out:Vec=[0,0,0];for(let q=0;q<indices.length;q++){const j=indices[q]+layer*n,m=airMass[j];for(let k=0;k<3;k++)out[k]+=weights[q]*field[j*3+k]/m;}if(normalize)return Math.hypot(...out)<1e-12?[...d]:unit(out);const radial=dot(out,d);return[out[0]-radial*d[0],out[1]-radial*d[1],out[2]-radial*d[2]];};
     const lowerMass=value(airMass),upperMass=value(airMass,1),pressure=g*(lowerMass+upperMass),t0=value(potentialTemperatureMass)/lowerMass*(g*(upperMass+lowerMass*.5)/p.surfacePressurePascals)**kappa,t1=value(potentialTemperatureMass,1)/upperMass*(g*upperMass*.5/p.surfacePressurePascals)**kappa;
-    return{liquidLowerKgM2:value(liquid),liquidUpperKgM2:value(liquid,1),iceLowerKgM2:value(ice),iceUpperKgM2:value(ice,1),dustKgM2:value(dust)+value(dust,1),materialLower:vector(material,0,true),materialUpper:vector(material,1,true),pressurePascals:pressure,temperatureLowerKelvin:t0,temperatureUpperKelvin:t1,surfaceTemperatureKelvin:value(surfaceTemperature),windLowerMetersPerSecond:vector(momentum,0,false),windUpperMetersPerSecond:vector(momentum,1,false),relativeHumidityLower:value(vapor)/lowerMass/Math.max(1e-20,planetAtmosphereSaturationSpecificHumidity(t0,g*(upperMass+lowerMass*.5),p.meanMolarMassKgPerMol))};
+    const geometry:PlanetCloudColumnDiagnosis={surfaceHeightMetersAsl:value(surfaceAltitude),lowerBaseMetersAsl:0,lowerTopMetersAsl:0,upperBaseMetersAsl:0,upperTopMetersAsl:0,lclHeightMetersAgl:0,lclWithinAtmosphere:true,geometryClipped:false,lowerCloudOrigin:'clear',upperCloudOrigin:'clear'};
+    let lowerCondensate=0,upperCondensate=0,lowerCenter=0,upperCenter=0,lowerOriginWeight=0,upperOriginWeight=0;
+    for(let q=0;q<indices.length;q++){
+      const i=indices[q],w=weights[q];if(w===0)continue;const column=cloudColumn(i),lowerWeight=w*(liquid[i]+ice[i]),upperWeight=w*(liquid[n+i]+ice[n+i]);
+      lowerCondensate+=lowerWeight;upperCondensate+=upperWeight;geometry.lowerBaseMetersAsl+=column.lowerBaseMetersAsl*lowerWeight;geometry.lowerTopMetersAsl+=column.lowerTopMetersAsl*lowerWeight;geometry.upperBaseMetersAsl+=column.upperBaseMetersAsl*upperWeight;geometry.upperTopMetersAsl+=column.upperTopMetersAsl*upperWeight;
+      lowerCenter+=w*(column.lowerBaseMetersAsl+column.lowerTopMetersAsl)*.5;upperCenter+=w*(column.upperBaseMetersAsl+column.upperTopMetersAsl)*.5;geometry.lclHeightMetersAgl+=w*column.lclHeightMetersAgl;geometry.lclWithinAtmosphere&&=column.lclWithinAtmosphere;geometry.geometryClipped||=column.geometryClipped;
+      if(lowerWeight>lowerOriginWeight){lowerOriginWeight=lowerWeight;geometry.lowerCloudOrigin=column.lowerCloudOrigin;}if(upperWeight>upperOriginWeight){upperOriginWeight=upperWeight;geometry.upperCloudOrigin=column.upperCloudOrigin;}
+    }
+    if(lowerCondensate>0){geometry.lowerBaseMetersAsl/=lowerCondensate;geometry.lowerTopMetersAsl/=lowerCondensate;}else geometry.lowerBaseMetersAsl=geometry.lowerTopMetersAsl=lowerCenter;
+    if(upperCondensate>0){geometry.upperBaseMetersAsl/=upperCondensate;geometry.upperTopMetersAsl/=upperCondensate;}else geometry.upperBaseMetersAsl=geometry.upperTopMetersAsl=upperCenter;
+    return{...geometry,liquidLowerKgM2:value(liquid),liquidUpperKgM2:value(liquid,1),iceLowerKgM2:value(ice),iceUpperKgM2:value(ice,1),dustKgM2:value(dust)+value(dust,1),materialLower:vector(material,0,true),materialUpper:vector(material,1,true),pressurePascals:pressure,temperatureLowerKelvin:t0,temperatureUpperKelvin:t1,surfaceTemperatureKelvin:value(surfaceTemperature),windLowerMetersPerSecond:vector(momentum,0,false),windUpperMetersPerSecond:vector(momentum,1,false),relativeHumidityLower:value(vapor)/lowerMass/Math.max(1e-20,planetAtmosphereSaturationSpecificHumidity(t0,g*(upperMass+lowerMass*.5),p.meanMolarMassKgPerMol))};
   }
   validateState();
   return{revision,inspection,snapshot,checkpoint:snapshot,restore,sample,advanceTo(targetPhysicalSeconds,maxSubsteps=32){bounded(targetPhysicalSeconds,'target time',0,PLANET_ATMOSPHERE_LIMITS.maxPhysicalSeconds);if(!Number.isInteger(maxSubsteps)||maxSubsteps<0||maxSubsteps>PLANET_ATMOSPHERE_LIMITS.maxSubsteps)throw Error('Atmosphere maxSubsteps must be an integer from 0 to 512.');if(targetPhysicalSeconds<tick*fixedTickSeconds-1e-8)throw Error('Atmosphere cannot rewind without a checkpoint.');const goal=Math.floor(targetPhysicalSeconds/fixedTickSeconds+1e-10);if(!Number.isSafeInteger(goal))throw Error('Atmosphere target exceeds safe physical tick precision.');for(let work=0;work<maxSubsteps&&tick<goal;work++)step();pendingSeconds=Math.max(0,targetPhysicalSeconds-tick*fixedTickSeconds);return inspection();}};

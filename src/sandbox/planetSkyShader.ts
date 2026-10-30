@@ -32,6 +32,8 @@ uniform sampler2D tSnapshotLower0;
 uniform sampler2D tSnapshotLower1;
 uniform sampler2D tSnapshotUpper0;
 uniform sampler2D tSnapshotUpper1;
+uniform sampler2D tSnapshotAltitude0;
+uniform sampler2D tSnapshotAltitude1;
 uniform vec4 uSnapshotParams;
 uniform vec4 uStormCenters[16];
 uniform vec4 uStormProperties[16];
@@ -120,9 +122,20 @@ vec4 atmosphereMass(vec3 position) {
 }
 vec4 atmosphereMaterial(vec3 position,int layer) {
   vec3 direction=normalize(position);vec4 a,b;
-  if(layer==2){a=atmospherePlane(tSnapshotUpper0,direction);b=atmospherePlane(tSnapshotUpper1,direction);}
+  if(layer==1){a=atmospherePlane(tSnapshotUpper0,direction);b=atmospherePlane(tSnapshotUpper1,direction);}
   else{a=atmospherePlane(tSnapshotLower0,direction);b=atmospherePlane(tSnapshotLower1,direction);}
   return vec4(atmosphereUnit(mix(atmosphereUnit(a.xyz,direction),atmosphereUnit(b.xyz,direction),uSnapshotParams.y),direction),mix(a.w,b.w,uSnapshotParams.y));
+}
+struct AtmosphereCloudColumn {vec4 mass;vec4 lower;vec4 upper;vec4 altitude;};
+AtmosphereCloudColumn atmosphereCloudColumn(vec3 position) {
+  AtmosphereCloudColumn column;
+  column.mass=atmosphereMass(position);column.lower=atmosphereMaterial(position,0);column.upper=atmosphereMaterial(position,1);
+  // Spatial and temporal interpolation happen on altitude*condensate mass.
+  // A dry neighbour contributes zero moments and cannot drag the cloud base.
+  vec4 moments=mix(atmospherePlane(tSnapshotAltitude0,normalize(position)),atmospherePlane(tSnapshotAltitude1,normalize(position)),uSnapshotParams.y);
+  float lowerMass=column.mass.x+column.lower.w,upperMass=column.mass.y+column.mass.z;
+  column.altitude=vec4(lowerMass>0.0?moments.xy/lowerMass:vec2(0.0),upperMass>0.0?moments.zw/upperMass:vec2(0.0));
+  return column;
 }
 float atmosphereDust(vec3 position) {
   if(!uAtmosphereEnabled||uSnapshotParams.x<0.5||uSnapshotParams.z<0.5)return 0.0;
@@ -147,28 +160,136 @@ vec3 cloudMorph(vec3 metres) {
 
 ${planetSkyQuadratureGLSL}
 
+#ifdef PLANET_SKY_SIMULATION
+float physicalCloudMicro(vec3 position,float footprintMetres,int layer,AtmosphereCloudColumn column) {
+  bool cirrus=layer==1;
+  vec2 bounds=cirrus?column.altitude.zw:column.altitude.xy;
+  float altitude=(length(position)-1.0)*uRadius,thickness=bounds.y-bounds.x;
+  float h=(altitude-bounds.x)/thickness;
+  vec3 flow=cirrus?column.upper.xyz:column.lower.xyz;
+  vec3 metres=cloudMorph(flow*(length(position)*uRadius));
+  float filterScale=cirrus?min(uNoiseShapeScale*0.22,thickness/4.0):uNoiseShapeScale;
+  float shapeLod=clamp(log2(max(1.0,footprintMetres/filterScale)),0.0,5.0);
+  float detailLod=clamp(log2(max(1.0,footprintMetres/uNoiseDetailScale)),0.0,5.0);
+  vec3 shapeUV=metres/(uNoiseShapeScale*32.0)+uShapeWindUV;
+  if(cirrus){vec3 direction=normalize(metres);float longitude=atan(direction.x,direction.z)/(2.0*PI)+0.5;float periods=max(1.0,floor(2.0*PI*uRadius/(uNoiseShapeScale*32.0*8.0)+0.5));shapeUV=vec3(longitude*periods,asin(clamp(direction.y,-1.0,1.0))*uRadius/(uNoiseShapeScale*32.0*0.22),h*0.125)+uShapeWindUV;}
+  float shape=smoothstep(0.30,0.68,textureLod(uNoiseTexture,shapeUV,shapeLod).r);
+  float detail=textureLod(uNoiseTexture,metres/(uNoiseDetailScale*32.0)+uDetailWindUV,detailLod).g;
+  float erosion=cirrus?0.12:uCloudErosion;
+  return shape*(1.0-erosion*(1.0-detail))/(0.5*(1.0-0.5*erosion));
+}
+float physicalCloudOptical(int layer,AtmosphereCloudColumn column) {
+  return layer==1?column.mass.y*${PLANET_ATMOSPHERE_OPTICS.liquidExtinctionM2Kg.toFixed(1)}+column.mass.z*${PLANET_ATMOSPHERE_OPTICS.iceExtinctionM2Kg.toFixed(2)}:column.mass.x*${PLANET_ATMOSPHERE_OPTICS.liquidExtinctionM2Kg.toFixed(1)}+column.lower.w*${PLANET_ATMOSPHERE_OPTICS.iceExtinctionM2Kg.toFixed(2)};
+}
+float physicalCloudLayerDensity(vec3 position,float footprintMetres,int layer,AtmosphereCloudColumn column) {
+  if(!uCloudEnabled||uSnapshotParams.z<0.5||layer>1)return 0.0;
+  vec2 bounds=layer==1?column.altitude.zw:column.altitude.xy;
+  float altitude=(length(position)-1.0)*uRadius,thickness=bounds.y-bounds.x;
+  if(thickness<=0.0||altitude<=column.upper.w||altitude<=bounds.x||altitude>=bounds.y)return 0.0;
+  float columnOptical=physicalCloudOptical(layer,column);if(columnOptical<=0.0)return 0.0;
+  float height=physicalCloudProfile((altitude-bounds.x)/thickness,layer==1);
+  // Both compact profiles integrate to .735. All diagnosed lower-layer mass
+  // lives above its local base: no detached artistic fog share below the LCL.
+  return columnOptical*height*physicalCloudMicro(position,footprintMetres,layer,column)/thickness;
+}
+vec2 physicalCloudOverlap(vec3 origin,vec3 direction,float from,float to,vec2 bounds,float surface) {
+  if(bounds.y<=max(bounds.x,surface))return vec2(1.0,-1.0);
+  vec2 outer=sphereInterval(origin,direction,1.0+bounds.y/uRadius);
+  vec2 overlap=vec2(max(from,outer.x),min(to,outer.y));if(outer.y<=outer.x||overlap.y<=overlap.x)return vec2(1.0,-1.0);
+  vec2 inner=sphereInterval(origin,direction,1.0+max(bounds.x,surface)/uRadius);
+  // Primary and solar intervals split at closest approach. A monotone bin
+  // contains only one side of the shell, even at a grazing/tangent view.
+  if(inner.y>inner.x){if((from+to)*0.5<=-dot(origin,direction))overlap.y=min(overlap.y,inner.x);else overlap.x=max(overlap.x,inner.y);}
+  return overlap;
+}
+int physicalCloudProfileCuts(vec3 origin,vec3 direction,vec2 overlap,vec2 bounds,bool upper,out float cuts[4]) {
+  // The compact spline has two knees. Integrating each smooth piece keeps
+  // column mass independent of where a coarse ray-bin boundary happens to fall.
+  cuts[0]=overlap.x;cuts[1]=overlap.y;int count=2;
+  bool outward=(overlap.x+overlap.y)*0.5>-dot(origin,direction);
+  for(int knee=0;knee<2;knee++){
+    float fraction=knee==0?(upper?0.18:0.08):(upper?0.65:0.55);
+    vec2 crossing=sphereInterval(origin,direction,1.0+mix(bounds.x,bounds.y,fraction)/uRadius);
+    float point=outward?crossing.y:crossing.x;
+    if(crossing.y>crossing.x&&point>overlap.x&&point<overlap.y){cuts[count]=point;count++;}
+  }
+  for(int i=1;i<count;i++){float value=cuts[i];int at=i;for(int j=0;j<i;j++){if(at<=0||cuts[at-1]<=value)break;cuts[at]=cuts[at-1];at--;}cuts[at]=value;}
+  return count;
+}
+vec2 physicalCloudPieceMean(vec3 origin,vec3 direction,vec2 piece,vec2 bounds,bool upper) {
+  float sum=0.0,travelCenter=0.0;
+  int nodes=clamp(uCloudSteps,1,4);
+  for(int node=0;node<nodes;node++) {
+    float fraction=node==0?0.06943184420297371:node==1?0.33000947820757187:node==2?0.6699905217924281:0.9305681557970262;
+    float weight=node==0||node==3?0.1739274225687269:0.3260725774312731;
+    float distanceRay=mix(piece.x,piece.y,fraction);
+    float altitude=(length(origin+direction*distanceRay)-1.0)*uRadius;
+    float contribution=weight*physicalCloudProfile((altitude-bounds.x)/(bounds.y-bounds.x),upper);
+    sum+=contribution;travelCenter+=contribution*distanceRay;
+  }
+  return vec2(sum,sum>0.0?travelCenter/sum:(piece.x+piece.y)*0.5);
+}
+vec2 physicalCloudProfileMean(vec3 origin,vec3 direction,vec2 overlap,vec2 bounds,bool upper) {
+  float cuts[4];int count=physicalCloudProfileCuts(origin,direction,overlap,bounds,upper,cuts);
+  float sum=0.0,travelCenter=0.0;
+  for(int part=0;part<count-1;part++){
+    vec2 piece=physicalCloudPieceMean(origin,direction,vec2(cuts[part],cuts[part+1]),bounds,upper);
+    float amount=piece.x*(cuts[part+1]-cuts[part]);sum+=amount;travelCenter+=amount*piece.y;
+  }
+  return vec2(sum/(overlap.y-overlap.x),sum>0.0?travelCenter/sum:(overlap.x+overlap.y)*0.5);
+}
+vec2 physicalCloudBinLayer(vec3 origin,vec3 direction,float from,float to,float footprintMetres,int layer,AtmosphereCloudColumn column) {
+  vec2 bounds=layer==1?column.altitude.zw:column.altitude.xy;
+  float columnOptical=physicalCloudOptical(layer,column);if(columnOptical<=0.0)return vec2(0.0);
+  vec2 overlap=physicalCloudOverlap(origin,direction,from,to,bounds,column.upper.w);if(overlap.y<=overlap.x)return vec2(0.0);
+  float lengthMetres=(overlap.y-overlap.x)*uRadius;
+  vec2 profile=physicalCloudProfileMean(origin,direction,overlap,bounds,layer==1);
+  float centre=profile.y;vec3 point=origin+direction*centre;
+  float micro=physicalCloudMicro(point,max(footprintMetres,lengthMetres*0.5),layer,column);
+  return vec2(columnOptical*lengthMetres*profile.x*micro/(bounds.y-bounds.x),centre);
+}
+float physicalCloudSourceDistance(vec3 origin,vec3 direction,float from,float to,int layer,AtmosphereCloudColumn column,float fraction) {
+  vec2 bounds=layer==1?column.altitude.zw:column.altitude.xy;
+  vec2 overlap=physicalCloudOverlap(origin,direction,from,to,bounds,column.upper.w);
+  if(overlap.y<=overlap.x)return (from+to)*0.5;
+  float cuts[4];int count=physicalCloudProfileCuts(origin,direction,overlap,bounds,layer==1,cuts);
+  float masses[3];float total=0.0;
+  for(int part=0;part<count-1;part++){masses[part]=physicalCloudPieceMean(origin,direction,vec2(cuts[part],cuts[part+1]),bounds,layer==1).x*(cuts[part+1]-cuts[part]);total+=masses[part];}
+  float target=total*fraction,prefix=0.0;int selected=count-2;
+  for(int part=0;part<count-1;part++){if(target<=prefix+masses[part]){selected=part;break;}prefix+=masses[part];}
+  target=max(0.0,target-prefix);
+  float start=cuts[selected],finish=cuts[selected+1],lo=start,hi=finish;
+  if(target<=0.0)return start;if(target>=masses[selected])return finish;
+  float entryAltitude=(length(origin+direction*lo)-1.0)*uRadius;
+  float entryProfile=physicalCloudProfile((entryAltitude-bounds.x)/(bounds.y-bounds.x),layer==1);
+  float point=entryProfile>0.0000001?clamp(lo+target/entryProfile,lo,hi):mix(lo,hi,pow(clamp(target/max(masses[selected],1e-12),0.0,1.0),1.0/3.0));
+  // Safeguarded Newton in the same actual radial profile integral. Runtime
+  // bounds keep this scalar-only inverse from expanding driver shader code.
+  int iterations=clamp(uCloudSteps,8,10);
+  for(int iteration=0;iteration<iterations;iteration++){
+    float amount=point>start?physicalCloudPieceMean(origin,direction,vec2(start,point),bounds,layer==1).x*(point-start):0.0;
+    float error=target-amount;if(abs(error)<=max(1e-12,target*0.00001))break;
+    if(error>0.0)lo=point;else hi=point;
+    float altitude=(length(origin+direction*point)-1.0)*uRadius;
+    float derivative=physicalCloudProfile((altitude-bounds.x)/(bounds.y-bounds.x),layer==1);
+    float next=point+error/max(derivative,0.0000001);
+    point=next>lo&&next<hi?next:(lo+hi)*0.5;
+  }
+  return point;
+}
+float cloudLayerDensity(vec3 position,float footprintMetres,int layer) {
+  return physicalCloudLayerDensity(position,footprintMetres,layer,atmosphereCloudColumn(position));
+}
+#else
 float cloudLayerDensity(vec3 position,float footprintMetres,int layer) {
   vec4 settings=uCloudLayers[layer];
-#ifdef PLANET_SKY_SIMULATION
-  bool simulation=true;
-#else
-  bool simulation=false;
-#endif
-  if(!uCloudEnabled||settings.w<0.5||(!simulation&&(uCloudCoverage<=0.0||uCoverageGain<=0.0||uCloudDensity<=0.0||settings.z<=0.0)))return 0.0;
+  if(!uCloudEnabled||settings.w<0.5||uCloudCoverage<=0.0||uCoverageGain<=0.0||uCloudDensity<=0.0||settings.z<=0.0)return 0.0;
   float h=(length(position)-1.0-settings.x)/settings.y;
   if(h<=0.0||h>=1.0)return 0.0;
-  vec3 coverage=vec3(0.0),flow;float columnOptical=0.0;
-#ifdef PLANET_SKY_SIMULATION
-    if(uSnapshotParams.z<0.5)return 0.0;
-    vec4 mass=atmosphereMass(position),material=atmosphereMaterial(position,layer);
-    columnOptical=layer==2?mass.y*${PLANET_ATMOSPHERE_OPTICS.liquidExtinctionM2Kg.toFixed(1)}+mass.z*${PLANET_ATMOSPHERE_OPTICS.iceExtinctionM2Kg.toFixed(2)}:mass.x*${PLANET_ATMOSPHERE_OPTICS.liquidExtinctionM2Kg.toFixed(1)}+material.w*${PLANET_ATMOSPHERE_OPTICS.iceExtinctionM2Kg.toFixed(2)};
-    if(columnOptical<=0.0)return 0.0;flow=material.xyz;
-#else
-    PlanetWeatherState state=cloudWeather(position);
+  PlanetWeatherState state=cloudWeather(position);
   // No texture mip, erosion feather or lighting approximation may create a
   // cloud outside the common pressure/humidity condensation support.
-    if(state.support<=0.0||state.coverage[layer]<=0.0)return 0.0;coverage=state.coverage;flow=state.flowDirection;
-#endif
+  if(state.support<=0.0||state.coverage[layer]<=0.0)return 0.0;vec3 coverage=state.coverage,flow=state.flowDirection;
   vec3 metres=cloudMorph(flow*(length(position)*uRadius));
   float filterScale=layer==2?min(uNoiseShapeScale*0.22,settings.y*uRadius/4.0):uNoiseShapeScale;
   float shapeLod=clamp(log2(max(1.0,footprintMetres/filterScale)),0.0,5.0);
@@ -189,20 +310,20 @@ float cloudLayerDensity(vec3 position,float footprintMetres,int layer) {
   float height=layer==0?smoothstep(0.0,0.002,h)*exp(-3.0*h)*(1.0-smoothstep(0.65,1.0,h)):
     layer==1?smoothstep(0.0,0.08,cumulusHeight)*(1.0-smoothstep(0.55,1.0,cumulusHeight)):smoothstep(0.0,0.18,h)*(1.0-smoothstep(0.65,1.0,h));
   float erosion=layer==2?0.12:uCloudErosion;
-#ifdef PLANET_SKY_SIMULATION
-    float profileIntegral=layer==0?0.30349990275:layer==1?0.735*(0.55+0.45*top):0.735;
-    float share=layer==0?0.08:layer==1?0.92:1.0;
-    float micro=shape*(1.0-erosion*(1.0-detail))/(0.5*(1.0-0.5*erosion));
-    return columnOptical*share*height*micro/(profileIntegral*settings.y*uRadius);
-#else
   return coverage[layer]*max(0.0,(shape*height-erosion*(1.0-detail)*0.35)/(1.0-0.35*erosion))*uCloudDensity*settings.z;
-#endif
 }
+#endif
 
 float cloudExtinction(vec3 position,float footprintMetres) {
+#ifdef PLANET_SKY_SIMULATION
+  if(!uCloudEnabled||uSnapshotParams.z<0.5)return 0.0;
+  AtmosphereCloudColumn column=atmosphereCloudColumn(position);
+  return physicalCloudLayerDensity(position,footprintMetres,0,column)+physicalCloudLayerDensity(position,footprintMetres,1,column);
+#else
   float density=0.0;
-  for(int layer=0;layer<3;layer++){float value=cloudLayerDensity(position,footprintMetres,layer);density+=uSnapshotParams.x>0.5?value:value*(layer==0?4.0:layer==1?8.0:2.0)/(uCloudLayers[layer].y*uRadius);}
+  for(int layer=0;layer<3;layer++){float value=cloudLayerDensity(position,footprintMetres,layer);if(value>0.0)density+=value*(layer==0?4.0:layer==1?8.0:2.0)/(uCloudLayers[layer].y*uRadius);}
   return density;
+#endif
 }
 bool cloudsActive() {return uCloudEnabled&&(uSnapshotParams.x>0.5||(uCloudCoverage>0.0&&uCoverageGain>0.0&&uCloudDensity>0.0));}
 bool layerActive(vec4 settings) {return settings.w>0.5&&(uSnapshotParams.x>0.5||settings.z>0.0);}
@@ -240,7 +361,11 @@ float cloudSunTransmittance(vec3 position,float observerFootprintMetres) {
   // this factor specific to clouds so a clear night cannot darken scene ambient.
   if(planetShadows(position))return 1.0;
   float opticalDepth=0.0;
-  for(int layer=0;layer<3;layer++) {
+  int layerCount=3;
+#ifdef PLANET_SKY_SIMULATION
+  layerCount=int(uSnapshotParams.w);
+#endif
+  for(int layer=0;layer<layerCount;layer++) {
     vec4 settings=uCloudLayers[layer];if(!layerActive(settings))continue;
     vec2 outer=sphereInterval(position,uSunDirection,1.0+settings.x+settings.y);
     if(outer.y<=max(0.0,outer.x))continue;
@@ -249,7 +374,11 @@ float cloudSunTransmittance(vec3 position,float observerFootprintMetres) {
     if(inner.y>inner.x&&inner.x<outer.y&&inner.y>segments[0].x) {
       segments[1]=vec2(max(segments[0].x,inner.y),outer.y);segments[0].y=min(outer.y,inner.x);
     }
-    for(int part=0;part<2;part++) {
+#ifdef PLANET_SKY_SIMULATION
+    else{float turn=-dot(position,uSunDirection);if(turn>segments[0].x&&turn<segments[0].y){segments[1]=vec2(turn,segments[0].y);segments[0].y=turn;}}
+#endif
+    int partCount=segments[1].y>segments[1].x?2:1;
+    for(int part=0;part<partCount;part++) {
       float start=segments[part].x,end=segments[part].y;if(end<=start)continue;
       // A bounded cone average avoids highly aliased sun shafts. At shallow
       // angles the finite cloud-shell segment is sampled, never the empty gap
@@ -261,8 +390,13 @@ float cloudSunTransmittance(vec3 position,float observerFootprintMetres) {
         vec3 middle=position+uSunDirection*((begin+finish)*0.5);
         float phase=cloudWorldPhase(middle,feature);
         vec3 point=position+uSunDirection*mix(begin,finish,phase);
+#ifdef PLANET_SKY_SIMULATION
+        AtmosphereCloudColumn column=atmosphereCloudColumn(point);
+        opticalDepth+=physicalCloudBinLayer(position,uSunDirection,begin,finish,observerFootprintMetres,layer,column).x;
+#else
         float density=cloudLayerDensity(point,max(observerFootprintMetres,stepRay*uRadius*0.5),layer);
-        opticalDepth+=uSnapshotParams.x>0.5?density*stepRay*uRadius:density*(layer==0?4.0:layer==1?8.0:2.0)*stepRay/settings.y;
+        opticalDepth+=density*(layer==0?4.0:layer==1?8.0:2.0)*stepRay/settings.y;
+#endif
       }
     }
     if(opticalDepth>12.0)break;
@@ -273,6 +407,66 @@ float cloudSunTransmittance(vec3 position,float observerFootprintMetres) {
 float hgPhase(float cosine,float g) {
   return (1.0-g*g)/(4.0*PI*pow(max(0.001,1.0+g*g-2.0*g*cosine),1.5));
 }
+
+#ifdef PLANET_SKY_SIMULATION
+void integratePhysicalCloudBin(vec3 origin,vec3 direction,float from,float to,float columnRay,bool cloudSegment,
+                               float rayleighPhase,float miePhase,float cloudPhase,inout vec3 radiance,inout vec3 transmission) {
+  vec3 columnPoint=origin+direction*columnRay;
+  AtmosphereCloudColumn column;
+  if(cloudSegment)column=atmosphereCloudColumn(columnPoint);
+  else{column.mass=atmosphereMass(columnPoint);column.lower=vec4(normalize(columnPoint),0.0);column.upper=column.lower;column.altitude=vec4(0.0);}
+  int layerCount=cloudSegment?int(uSnapshotParams.w):0;
+  float cuts[6];cuts[0]=from;cuts[1]=to;int count=2;
+  for(int layer=0;layer<layerCount;layer++){
+    vec2 bounds=layer==1?column.altitude.zw:column.altitude.xy;
+    if(physicalCloudOptical(layer,column)<=0.0)continue;
+    vec2 overlap=physicalCloudOverlap(origin,direction,from,to,bounds,column.upper.w);
+    if(overlap.y<=overlap.x)continue;
+    if(overlap.x>from&&overlap.x<to){cuts[count]=overlap.x;count++;}
+    if(overlap.y>from&&overlap.y<to){cuts[count]=overlap.y;count++;}
+  }
+  for(int i=1;i<count;i++){float value=cuts[i];int at=i;for(int j=0;j<i;j++){if(at<=0)break;if(cuts[at-1]<=value)break;cuts[at]=cuts[at-1];at--;}cuts[at]=value;}
+  for(int part=0;part<count-1;part++){
+    float begin=cuts[part],end=cuts[part+1];if(end<=begin)continue;
+    if(max(transmission.r,max(transmission.g,transmission.b))<0.01)break;
+    float distanceRay=(begin+end)*0.5,lengthMetres=(end-begin)*uRadius;
+    vec3 point=origin+direction*distanceRay;vec2 air=airDensity(point);vec3 rayleigh=uRayleigh*air.x;float mie=uMie*air.y;
+    float footprint=2.0*abs(uProjectionInverse[1][1])*distanceRay*uRadius/max(1.0,uLowSize.y);
+    vec2 layerOptical[2];layerOptical[0]=vec2(0.0);layerOptical[1]=vec2(0.0);
+    for(int layer=0;layer<layerCount;layer++)layerOptical[layer]=physicalCloudBinLayer(origin,direction,begin,end,footprint,layer,column);
+    float cloudOptical=layerOptical[0].x+layerOptical[1].x,cloud=cloudOptical/max(0.000001,lengthMetres);
+    float altitude=max(0.0,(length(point)-1.0)*uRadius),dustHeight=max(0.01,uRayleighHeightMeters);
+    float dust=uAtmosphereEnabled?column.mass.w*${PLANET_ATMOSPHERE_OPTICS.dustExtinctionM2Kg.toFixed(1)}*exp(-altitude/dustHeight)/(dustHeight*max(0.000001,1.0-exp(-uAtmosphereHeight*uRadius/dustHeight))):0.0;
+    vec3 dustAlbedo=vec3(0.90,0.72,0.48),extinction=rayleigh+vec3(mie+cloud+dust);
+    vec3 lightPoints[3],lightCoefficients[3];int lightCount=1;
+    lightPoints[0]=point;lightCoefficients[0]=rayleigh*rayleighPhase+vec3(mie*miePhase)+dust*dustAlbedo*hgPhase(dot(direction,uSunDirection),0.7);
+    float daylight=smoothstep(-0.16,0.2,dot(normalize(point),uSunDirection));vec3 source=dust*dustAlbedo*(uSunIntensity*0.012*daylight);
+    float cellOptical=max(0.0000001,(extinction.r+extinction.g+extinction.b)*lengthMetres/3.0);
+    for(int layer=0;layer<layerCount;layer++){
+      vec2 optical=layerOptical[layer];if(optical.x<=0.0)continue;
+      vec3 massPoint=origin+direction*optical.y,radial=normalize(massPoint);
+      if(!planetShadows(massPoint)){
+        float muSun=dot(radial,uSunDirection);muSun=muSun<0.0?min(-0.0001,muSun):max(0.0001,muSun);
+        float slope=-dot(radial,direction)/muSun;
+        float fraction=cloudOpticalSourceFraction(cellOptical,slope*optical.x/cellOptical);
+        float sourceRay=physicalCloudSourceDistance(origin,direction,begin,end,layer,column,fraction);
+        lightPoints[lightCount]=origin+direction*sourceRay;lightCoefficients[lightCount]=vec3(cloudPhase*optical.x/max(0.000001,lengthMetres));lightCount++;
+      }
+      float cloudDaylight=smoothstep(-0.16,0.2,dot(radial,uSunDirection));
+      source+=vec3(0.78,0.87,1.0)*(uSunIntensity*0.035*cloudDaylight)*(optical.x/max(0.000001,lengthMetres));
+    }
+    // One data-dependent lighting loop gives the driver one shadow callsite,
+    // rather than inlining the full atlas/light marcher for every source.
+    for(int light=0;light<lightCount;light++){
+      float visibility=light>0||cloudOptical>0.0||uSkyEffects.y>0.0?cloudSunTransmittance(lightPoints[light],footprint):1.0;
+      if(light==0&&cloudOptical<=0.0)visibility=mix(1.0,visibility,uSkyEffects.y);
+      source+=sunTransmittance(lightPoints[light])*visibility*uSunIntensity*lightCoefficients[light];
+    }
+    vec3 segmentTransmission=exp(-min(vec3(80.0),extinction*lengthMetres));
+    radiance+=transmission*source*(vec3(1.0)-segmentTransmission)/max(extinction,vec3(0.000000001));transmission*=segmentTransmission;
+  }
+}
+#endif
 
 void integrateSegment(vec3 origin,vec3 direction,float from,float to,int requested,int cloudLayer,
                       float rayleighPhase,float miePhase,float cloudPhase,inout vec3 radiance,inout vec3 transmission) {
@@ -292,27 +486,38 @@ void integrateSegment(vec3 origin,vec3 direction,float from,float to,int request
     float phase=cloudSegment?cloudWorldPhase(middle,feature):0.5;
     float sampleRay=mix(begin,end,phase);
     vec3 point=origin+direction*sampleRay;
+#ifdef PLANET_SKY_SIMULATION
+    integratePhysicalCloudBin(origin,direction,begin,end,sampleRay,cloudSegment&&uSnapshotParams.z>0.5,rayleighPhase,miePhase,cloudPhase,radiance,transmission);
+#else
     vec2 air=airDensity(point);
     vec3 rayleigh=uRayleigh*air.x;
     float mie=uMie*air.y;
     float distanceMetres=sampleRay*uRadius;
     float pixelFootprint=2.0*abs(uProjectionInverse[1][1])*distanceMetres/max(1.0,uLowSize.y);
-    float cloud=cloudSegment?cloudExtinction(point,max(pixelFootprint,stepMetres*.5)):0.0;
+    float cloud=0.0;vec3 cloudPoint=point;
+#ifndef PLANET_SKY_SIMULATION
+    cloud=cloudSegment?cloudExtinction(point,max(pixelFootprint,stepMetres*.5)):0.0;
+#endif
     float dust=atmosphereDust(point);vec3 dustAlbedo=vec3(0.90,0.72,0.48);
     vec3 extinction=rayleigh+vec3(mie+cloud+dust);
     float shadow=cloudSegment||uSkyEffects.y>0.0?cloudSunTransmittance(point,max(pixelFootprint,cloudSegment?stepMetres*0.5:0.0)):1.0;
     if(!cloudSegment)shadow=mix(1.0,shadow,uSkyEffects.y);
     vec3 incoming=sunTransmittance(point)*shadow*uSunIntensity;
-    vec3 source=incoming*(rayleigh*rayleighPhase+vec3(mie*miePhase+cloud*cloudPhase)+dust*dustAlbedo*hgPhase(dot(direction,uSunDirection),0.7));
+    vec3 source=incoming*(rayleigh*rayleighPhase+vec3(mie*miePhase)+dust*dustAlbedo*hgPhase(dot(direction,uSunDirection),0.7));
+#ifndef PLANET_SKY_SIMULATION
+    source+=incoming*(cloud*cloudPhase);
+#endif
     float daylight=smoothstep(-0.16,0.2,dot(normalize(point),uSunDirection));
     // Bounded ambient multiple-scattering fill keeps thick shaded cloud faces
     // legible without making the night hemisphere glow like daylight.
-    source+=vec3(0.78,0.87,1.0)*(cloud*uSunIntensity*0.035*daylight);
+    float cloudDaylight=smoothstep(-0.16,0.2,dot(normalize(cloudPoint),uSunDirection));
+    source+=vec3(0.78,0.87,1.0)*(cloud*uSunIntensity*0.035*cloudDaylight);
     source+=dust*dustAlbedo*(uSunIntensity*0.012*daylight);
     vec3 segmentTransmission=exp(-min(vec3(80.0),extinction*stepMetres));
     vec3 integral=(vec3(1.0)-segmentTransmission)/max(extinction,vec3(0.000000001));
     radiance+=transmission*source*integral;
     transmission*=segmentTransmission;
+#endif
   }
 }
 
@@ -339,11 +544,16 @@ void main() {
   vec2 body=sphereInterval(uCameraRadius,direction,1.0);
   if(body.y>body.x){if(body.x>0.0)to=min(to,body.x);else if(body.y>0.0)from=max(from,body.y);}
   if(atmosphere.y>atmosphere.x&&to>from&&(uAtmosphereEnabled||uCloudEnabled)) {
-    // Split all three spherical altitude layers, in order along this ray. An
+    // Split the conservative altitude envelopes, in order along this ray. An
     // orbital ray can traverse the near and far side; a ground/inside-cloud ray
     // keeps its exact shell entry. No atmospheric step can skip a thin layer.
     float cuts[14];cuts[0]=from;cuts[1]=to;int cutCount=2;
-    if(cloudsActive())for(int layer=0;layer<3;layer++) {
+    int layerCount=3;
+#ifdef PLANET_SKY_SIMULATION
+    layerCount=int(uSnapshotParams.w);
+    float turn=-dot(uCameraRadius,direction);if(turn>from&&turn<to){cuts[cutCount]=turn;cutCount++;}
+#endif
+    if(cloudsActive())for(int layer=0;layer<layerCount;layer++) {
       vec4 settings=uCloudLayers[layer];if(!layerActive(settings))continue;
       vec2 outer=sphereInterval(uCameraRadius,direction,1.0+settings.x+settings.y);
       vec2 inner=sphereInterval(uCameraRadius,direction,1.0+settings.x);
@@ -360,7 +570,7 @@ void main() {
     for(int i=0;i<segmentCount;i++) {
       if(cuts[i+1]<=cuts[i])continue;
       float altitude=length(uCameraRadius+direction*((cuts[i]+cuts[i+1])*0.5))-1.0;
-      bool cloudy=false;int cloudLayer=0;for(int layer=0;layer<3;layer++){vec4 settings=uCloudLayers[layer];if(cloudsActive()&&layerActive(settings)&&altitude>=settings.x&&altitude<=settings.x+settings.y){cloudy=true;cloudLayer=layer;}}
+      bool cloudy=false;int cloudLayer=0;for(int layer=0;layer<layerCount;layer++){vec4 settings=uCloudLayers[layer];if(cloudsActive()&&layerActive(settings)&&altitude>=settings.x&&altitude<=settings.x+settings.y){if(!cloudy||cloudFeatureMetres(layer)<cloudFeatureMetres(cloudLayer))cloudLayer=layer;cloudy=true;}}
       if(cloudy){cloudMetric+=cloudRayMetric(cuts[i],cuts[i+1],cloudFeatureMetres(cloudLayer));cloudIntervals++;}
       else{airLength+=cuts[i+1]-cuts[i];airIntervals++;}
     }
@@ -373,7 +583,9 @@ void main() {
     for(int i=0;i<segmentCount;i++) {
       float begin=cuts[i],end=cuts[i+1];if(end<=begin)continue;
       vec3 midpoint=uCameraRadius+direction*((begin+end)*0.5);float altitude=length(midpoint)-1.0;
-      bool cloudy=false;int cloudLayer=0;for(int layer=0;layer<3;layer++){vec4 settings=uCloudLayers[layer];if(cloudsActive()&&layerActive(settings)&&altitude>=settings.x&&altitude<=settings.x+settings.y){cloudy=true;cloudLayer=layer;}}
+      // Local lower/upper geometry may overlap; march their envelope union
+      // once, with the tighter bandwidth, and sum both densities at each point.
+      bool cloudy=false;int cloudLayer=0;for(int layer=0;layer<layerCount;layer++){vec4 settings=uCloudLayers[layer];if(cloudsActive()&&layerActive(settings)&&altitude>=settings.x&&altitude<=settings.x+settings.y){if(!cloudy||cloudFeatureMetres(layer)<cloudFeatureMetres(cloudLayer))cloudLayer=layer;cloudy=true;}}
       float measure=cloudy?cloudRayMetric(begin,end,cloudFeatureMetres(cloudLayer)):end-begin;
       int steps=cloudy?apportionedSteps(cloudPrefix,cloudPrefix+measure,cloudMetric,cloudIntervals,max(cloudIntervals,clamp(uCloudSteps,1,32))):apportionedSteps(airPrefix,airPrefix+measure,airLength,airIntervals,max(airIntervals,clamp(uAtmosphereSteps,1,24)));
       if(cloudy)cloudPrefix+=measure;else airPrefix+=measure;

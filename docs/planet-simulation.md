@@ -190,13 +190,113 @@ After a failed update the host can restore its last valid checkpoint.
 
 ## Renderer boundary
 
+### Local cloud heights
+
+Physical clouds use locally diagnosed heights rather than authored altitude
+bands or global scale-height fractions. `diagnosePlanetCloudColumn()` in
+`src/shared/planetCloudColumn.ts` reads the current temperature, pressure,
+vapor, condensate, background-gas properties, gravity and terrain altitude.
+It is also exposed through `atmosphere.sample(direction)`:
+
+- `surfaceHeightMetersAsl` is the effective terrain/ocean surface above the
+  reference sea sphere. Submerged terrain uses the ocean surface at zero.
+- `lowerBaseMetersAsl`, `lowerTopMetersAsl`, `upperBaseMetersAsl` and
+  `upperTopMetersAsl` are radial altitudes above that same reference sphere.
+  Subtract the local surface altitude when reporting clearance above ground.
+- `lclHeightMetersAgl` is a lower-parcel condensation/deposition-level diagnostic
+  above the local surface. Use it only when `lclWithinAtmosphere` is true.
+  Otherwise its finite value is the available atmosphere-depth sentinel, not
+  a predicted cloud base. Dry air does not acquire a cloud from this value.
+- `lowerCloudOrigin` / `upperCloudOrigin` distinguish `clear`, `surface-parcel`,
+  `in-situ` and transient `advected` condensate. `geometryClipped` reports a
+  finite-domain or numerical vertical-geometry exception.
+
+The parcel retains its effective specific humidity while its unsaturated temperature
+follows `T(p)=Tlaunch*(p/plaunch)^(Rparcel/cpParcel)`. Its first saturation
+intersection is solved against the shared Clausius-Clapeyron primitive. Actual
+gas molar mass and heat capacity are used; the implementation does not apply
+an Earth-specific 125-metres-per-degree cloud-base rule. Water vapor's gas
+constant and a constant 1850 J/(kg K) vapor heat capacity enter the dilute
+parcel-mixture approximation. Diagnosis consistently uses the unchanged core's
+effective `q=vapor/airMass` convention: `Rparcel=Rdry+q*(Rv-Rdry)`,
+`cpParcel=cpDry+q*(cpVapor-cpDry)` and `Tv/T=1+q*(Rv/Rdry-1)`.
+It does not mix a specific-humidity saturation function with mixing-ratio
+virtual-temperature equations. Surface skin temperature is an explicit proxy
+for unresolved near-surface air temperature, and lower-layer vapor supplies
+its moisture. This two-layer limitation is not a measured surface sounding.
+The exported diagnosis rejects vapor `q>0.2` before evaluating gas-mixture
+properties (apart from a `2e-9` absolute roundoff tolerance). It does not silently
+clamp an unsupported steam-rich parcel. This limit applies to vapor alone:
+separate nonnegative liquid/ice column inventories remain valid, including
+advected or sedimenting hydrometeors whose total-water ratio exceeds 0.2.
+Their mass is retained; dense condensate loading does not acquire resolved
+buoyancy or a more complete moist equation of state from this geometry API.
+
+Pressure interfaces come from the actual layer air columns. Geometric heights
+integrate `dz=Rdry*Tv/g*d(log(psurface/p))`, with vapor virtual-temperature
+correction. Temperature is reconstructed through surface, lower and upper
+states in log-pressure coordinates; the unresolved region above the upper
+center is isothermal. The upper cloud is diagnosed from its own pressure,
+temperature and available water, independently of the surface parcel LCL.
+Connected saturated intervals around each resolved layer center determine
+cloud bounds, limited by its pressure layer and the reconstructed stable or
+inverted profile. The lower LCL can constrain the base when it belongs to that
+saturated interval. This does not calculate resolved updrafts, CAPE or a fully
+observed cloud-top sounding.
+
+Existing condensate is never created, removed or hidden by this diagnosis.
+Advected droplets can temporarily survive in subsaturated air during finite-rate
+evaporation. With no locally saturated interval, the diagnostic uses the central
+half of that layer's finite-volume **pressure** bin and marks it `advected`;
+it does not spread the cloud to the top of the unresolved atmosphere or assign
+a global scale-height band. The geometry remains a coarse reconstruction.
+All bounds stay inside the finite rendered atmosphere at 9.21 scale heights.
+A clipped or numerically degenerate occupied interval alone receives a bounded
+one-metre minimum bin and `geometryClipped=true`, retaining its water mass.
+
+Diagnostics are cached once per sampled cell and simulation-state epoch;
+stepping and checkpoint restoration invalidate them. Repeated view sampling
+does not repeatedly solve the same column. `inspection().cloudColumnDiagnosisCount`
+reports the actual computations. Lower and upper base/top interpolation is
+weighted separately by each layer's liquid-plus-ice inventory. Clear neighbors
+therefore cannot pull an occupied profile toward their zero-height moment.
+At a coarse lowland-cloud/clear-hill boundary this weighted cloud base can lie
+below the separately interpolated terrain height. The renderer clips density
+inside that terrain; it does not lift the lowland cloud or redistribute its
+opacity because a clear hill contributes no cloud mass. Subgrid terrain
+occlusion is distinct from diagnosed source-column AGL clearance.
+
 The renderer wire format is separately defined in
 `src/shared/planetAtmosphereSnapshot.ts`. A worker samples the persistent
 cubed-sphere state into bounded latitude/longitude Float32 atlases containing
-liquid/ice/dust column kg/m² and advected material labels. The renderer
-interpolates physical mass and obtains extinction from droplet/ice/dust cross
-sections. Labels move with transported air; changing wind does not recompute
-coordinates as `currentWind * elapsedTime`.
+liquid/ice/dust column kg/m², advected material labels and cloud altitude moments.
+Version 2 uses four RGBA32F planes: condensate, lower material/ice, upper
+material/surface altitude, and lower/upper base/top multiplied by their occupied
+condensate mass. Spatial and time interpolation operate on mass and altitude
+moments **before** division. The renderer obtains extinction from particle cross
+sections and retains the same vertical inventory from orbit to the ground.
+Labels move with transported air; changing wind does not recompute coordinates
+as `currentWind * elapsedTime`.
+
+Physical transport integrates a local cloud's optical volume inside each ray
+bin rather than testing only the bin midpoint. It intersects the diagnosed
+base/top and effective terrain surface first, splits at radial tangency and
+the compact profile's two spline knees, and uses four scalar Gauss nodes per
+smooth piece. A 280 m cloud therefore contributes its inventory even inside a
+much wider global acceleration envelope, without increasing its thickness.
+Filtered microstructure uses the occupied profile's mass-weighted center.
+The bin is divided at local layer entries/exits so lower cloud, upper cloud
+and intervening air composite in view order. Direct cloud lighting uses a
+separate effective optical source point: the analytic Beer-Lambert average
+of exponential self-shadow at the local view/sun angle. A bounded scalar
+profile-integral inverse locates that source inside the actual cloud. For an
+opaque cloud illuminated and viewed from the same direction, its effective
+source lies at optical depth `ln(2)`, rather than a dark mass midpoint. This
+constant-angle closure preserves radiance under optical bin subdivision;
+spatially varying illumination remains an approximation. Solar cloud shadows
+use the same bin integral. Horizontal geometry is frozen at each
+bounded bin's sampled column, so distant weather is still a coarse optical
+approximation rather than fully resolved individual cloud turbulence.
 
 Lower cloud, upper cloud and ice use their own height profiles and the same
 column inventory when seen from space or from the ground. Clear source columns
@@ -243,7 +343,7 @@ the browser worker session does not expose checkpoint transport yet.
 
 At the start of a render frame, call `sky.stageWeather(renderer)` **before**
 selecting the shared simulation/sun clock. Atlas upload is staged and a complete
-three-plane state is committed atomically. Read
+four-plane version-2 state is committed atomically. Read
 `sky.inspection().simulation.fromTime` and `.toTime`, and keep render time
 inside that available interval. Compute sunlight with
 `samplePlanetAtmosphereCelestial(session.generator.physics, renderTime)` and
@@ -298,3 +398,5 @@ cost before changes are presented as improvements in climate realism.
 - [Kaspi and Showman, 2015](https://arxiv.org/abs/1407.6349), *Atmospheric Dynamics of Terrestrial Exoplanets over a Wide Range of Orbital and Atmospheric Parameters*: why rotation, gravity, atmospheric mass and thermal forcing change circulation in different ways.
 - [NASA ROCKE-3D model description](https://gmd.copernicus.org/articles/18/5825/2025/gmd-18-5825-2025.html): the wider physical scope required for a scientific planetary general circulation model.
 - [NCAR CCM3 description, 1998](https://doi.org/10.1175/1520-0442%281998%29011%3C1131%3ATNCFAR%3E2.0.CO%3B2) and the [NCAR CAM4 technical description](https://www.cesm.ucar.edu/models/ccsm4.0/cam/docs/description/cam4_desc.pdf), section 4.9.5: the published liquid-cloud thermal absorption coefficient and diffusivity factor. The gray solar coefficients here are explicitly separate engineering assumptions.
+- [NOAA parcel saturation and LCL](https://www.noaa.gov/jetstream/upperair/severe-weather) and [NOAA cloud formation](https://www.noaa.gov/jetstream/clouds/how-clouds-form): why lifting, moisture and thermodynamic stability matter. The Earth lapse rates in these introductory references are not hard-coded planetary constants in this implementation.
+- [Federal Meteorological Handbook 3, Appendix D](https://www.icams-portal.gov/resources/ofcm/fmh/FMH3/00-entire-FMH3.pdf): hypsometric integration using layer virtual temperatures. The implementation substitutes each planet's gas constant and gravity for Earth's reference constants.

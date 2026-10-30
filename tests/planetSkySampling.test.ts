@@ -1,7 +1,78 @@
 import {describe,expect,it} from 'vitest';
-import {conservativePlanetSkySampleWeights,partitionPlanetCloudRay,planetCloudFeatureMetres} from '../src/sandbox/planetSkySampling.ts';
+import {conservativePlanetSkySampleWeights,integratePlanetPhysicalCloudBin,partitionPlanetCloudRay,planetCloudFeatureMetres,planetCloudOpticalSourceFraction,planetPhysicalCloudProfile,planetPhysicalCloudSourceDistance} from '../src/sandbox/planetSkySampling.ts';
 
 describe('bounded cloud ray quadrature',()=>{
+  it('keeps thick self-shadowed radiance independent of optical bin partition',()=>{
+    for(const total of [10,30,100])for(const slope of [-2,-1,-.5,0,.25,1,4]){
+      const entryLog=slope<0?slope*total:0,rate=1+slope;
+      const exact=Math.abs(rate)<1e-10?Math.exp(entryLog)*total:rate>0?Math.exp(entryLog)*(-Math.expm1(-rate*total))/rate:Math.exp(entryLog-rate*total)*(-Math.expm1(rate*total))/(-rate);
+      for(const bins of [1,2,7,20,64]){
+        const tau=total/bins,fraction=planetCloudOpticalSourceFraction(tau,slope);let radiance=0;
+        for(let bin=0;bin<bins;bin++){const prefix=bin*tau,source=prefix+tau*fraction;radiance+=Math.exp(-prefix+entryLog-slope*source)*(-Math.expm1(-tau));}
+        expect(Math.abs(radiance-exact)).toBeLessThan(Math.max(1e-14,exact*1e-8));
+      }
+    }
+    const tau=100,point=tau*planetCloudOpticalSourceFraction(tau,1);
+    expect(point).toBeCloseTo(Math.log(2),12);expect(Math.exp(-point)*(-Math.expm1(-tau))).toBeCloseTo(.5,12);
+  });
+  it('bounds source fractions at thin, grazing, and backlit optical limits without overflow',()=>{
+    for(const tau of [1e-9,.001,1,10,100,10_000])for(const slope of [-10_000,-2,-1.0000001,-1,-.9999999,-.000001,0,.000001,1,10_000]){
+      const fraction=planetCloudOpticalSourceFraction(tau,slope);expect(Number.isFinite(fraction)).toBe(true);expect(fraction).toBeGreaterThanOrEqual(0);expect(fraction).toBeLessThanOrEqual(1);
+    }
+  });
+  it('finds the effective optical source inside thin radial, tangent, and clipped cloud volumes',()=>{
+    const radius=6_371_000,base=16_670,top=16_950;
+    const paths=[{origin:[0,radius+50_000,0] as const,direction:[0,-1,0] as const,fromMetres:0,toMetres:50_000},{origin:[0,radius+base+50,0] as const,direction:[0,1,0] as const,fromMetres:0,toMetres:1000},{origin:[0,radius+base+100,0] as const,direction:[1,0,0] as const,fromMetres:0,toMetres:100_000}];
+    for(const path of paths)for(const upper of [false,true])for(const columnOpticalDepth of [1,10,100,10_000])for(const slope of [0,1,-1]){
+      const input={...path,radiusMeters:radius,baseMetersAsl:base,topMetersAsl:top,surfaceMetersAsl:0,columnOpticalDepth,upper},full=integratePlanetPhysicalCloudBin(input),fraction=planetCloudOpticalSourceFraction(full.opticalDepth,slope),point=planetPhysicalCloudSourceDistance(input,fraction);
+      expect(point).toBeGreaterThanOrEqual(full.entryMetres);expect(point).toBeLessThanOrEqual(full.exitMetres);
+      const amount=integratePlanetPhysicalCloudBin({...input,fromMetres:full.entryMetres,toMetres:point}).opticalDepth,target=full.opticalDepth*fraction;
+      expect(Math.abs(amount-target)).toBeLessThan(Math.max(.001,target*.001));
+    }
+  });
+  it('integrates a thin local cloud inside one broad orbital bin without widening its geometry',()=>{
+    const radius=6_371_000,base=16_670,top=16_950,optical=2.5,request={radiusMeters:radius,origin:[0,radius+100_000,0] as const,direction:[0,-1,0] as const,fromMetres:0,toMetres:100_000,baseMetersAsl:base,topMetersAsl:top,surfaceMetersAsl:0,columnOpticalDepth:optical};
+    for(const upper of [false,true])for(const bins of [1,2,7,20,64]){
+      let total=0;for(let bin=0;bin<bins;bin++)total+=integratePlanetPhysicalCloudBin({...request,upper,fromMetres:100_000*bin/bins,toMetres:100_000*(bin+1)/bins}).opticalDepth;
+      expect(total).toBeCloseTo(optical,7);
+    }
+    const result=integratePlanetPhysicalCloudBin({...request,upper:true});expect(result.centroidMetres).toBeGreaterThan(100_000-top);expect(result.centroidMetres).toBeLessThan(100_000-base);
+    // The previous point rule sees no cloud at all at these twenty midpoints.
+    let pointOptical=0;for(let bin=0;bin<20;bin++)pointOptical+=planetPhysicalCloudProfile((100_000-(bin+.5)*5000-base)/(top-base),true)*5000*optical/(top-base);
+    expect(pointOptical).toBe(0);
+  });
+  it('converges to a fine radial reference through tangent and inside-cloud paths',()=>{
+    const radius=6_371_000,base=16_670,top=16_950,optical=.01;
+    for(const upper of [false,true])for(const offset of [0,40,140,279]){
+      const origin=[-100_000,radius+base+offset,0] as const,direction=[1,0,0] as const,to=200_000,request={radiusMeters:radius,origin,direction,fromMetres:0,toMetres:to,baseMetersAsl:base,topMetersAsl:top,surfaceMetersAsl:0,columnOpticalDepth:optical,upper};
+      let reference=0;const count=100_000,step=to/count;
+      for(let sample=0;sample<count;sample++){const x=origin[0]+(sample+.5)*step,altitude=Math.hypot(x,origin[1])-radius;reference+=planetPhysicalCloudProfile((altitude-base)/(top-base),upper)*step*optical/(top-base);}
+      for(const bins of [1,7,20]){
+        let actual=0;for(let bin=0;bin<bins;bin++)actual+=integratePlanetPhysicalCloudBin({...request,fromMetres:to*bin/bins,toMetres:to*(bin+1)/bins}).opticalDepth;
+        expect(Math.abs(actual-reference)/reference).toBeLessThan(2e-5);
+      }
+    }
+  });
+  it('clips physical cloud optical depth at terrain without lifting or renormalizing hidden mass',()=>{
+    const radius=6_371_000,request={radiusMeters:radius,origin:[0,radius+10_000,0] as const,direction:[0,-1,0] as const,fromMetres:0,toMetres:10_000,baseMetersAsl:1000,topMetersAsl:2000,surfaceMetersAsl:0,columnOpticalDepth:1};
+    expect(integratePlanetPhysicalCloudBin(request).opticalDepth).toBeCloseTo(1,8);
+    const clipped=integratePlanetPhysicalCloudBin({...request,surfaceMetersAsl:1500});expect(clipped.opticalDepth).toBeGreaterThan(0);expect(clipped.opticalDepth).toBeLessThan(1);
+    expect(integratePlanetPhysicalCloudBin({...request,surfaceMetersAsl:2000}).opticalDepth).toBe(0);
+    expect(integratePlanetPhysicalCloudBin({...request,fromMetres:0,toMetres:1000}).opticalDepth).toBe(0);
+  });
+  it('keeps all lower and upper optical mass inside their diagnosed local altitude interval',()=>{
+    for(const upper of [false,true])for(const [base,top]of [[0,1200],[1700,4200],[6500,6900]]){
+      const columnOptical=7.25,count=20_000,step=(top-base)/count;
+      let optical=0;for(let i=0;i<count;i++)optical+=columnOptical*planetPhysicalCloudProfile(((base+(i+.5)*step)-base)/(top-base),upper)*step/(top-base);
+      expect(optical).toBeCloseTo(columnOptical,7);
+      for(const altitude of [-10,base-1,base,top,top+1])expect(planetPhysicalCloudProfile((altitude-base)/(top-base),upper)).toBe(0);
+      // Terrain occludes a lowland cloud; clipping its hidden portion must not
+      // move that cloud up a mountain or renormalize it into a brighter bank.
+      const surface=base+(top-base)*.5;let visible=0;
+      for(let i=0;i<count;i++){const altitude=base+(i+.5)*step;if(altitude>surface)visible+=columnOptical*planetPhysicalCloudProfile((altitude-base)/(top-base),upper)*step/(top-base);}
+      expect(visible).toBeGreaterThan(0);expect(visible).toBeLessThan(columnOptical);
+    }
+  });
   it('spends one total quality budget across six crossings without skipping any layer',()=>{
     const segments=[
       {fromMetres:0,toMetres:800,featureMetres:100},
