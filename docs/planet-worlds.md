@@ -192,6 +192,23 @@ amplitude-scaled threshold); the distant sea remains a physical sea-level
 proxy. Fast travel can outrun a preparing near bank; existing water coverage
 remains, with reduced local wave detail until the bank is ready.
 
+Orbital reflections use one water dielectric interface at IOR 1.333, retaining
+real ocean sunglint without a second clearcoat lobe. When geometric wave normals
+fade out, the view transfers their unresolved sine-wave slope variance into the
+material's roughness. A tiny one-column roughness texture follows the same ring
+fade on the near sheet; its outer value matches the orbital proxy. Fully resolved
+near waves retain the authored roughness. The texture and geometry are reused
+across weather changes, and no extra shader or draw pass is needed.
+
+The width uses `roughness^4 + omittedSlopeVariance`, with each engine sine wave
+contributing `(amplitude * wavenumber)^2 / 2`. This is a conservative representative
+width for the radial wave charts, mapped to Three's GGX core. It is not an exact
+GGX variance (its tails have no finite second moment), a directional ocean wave
+spectrum, or a Cox–Munk sea-slope fit. The water profile still supplies the optical
+color; global absorption, bathymetric color, and ocean currents are not inferred.
+[NASA's sunglint explanation](https://science.nasa.gov/earth/earth-observatory/the-subtleties-of-sunglint-151456/)
+describes why real surface roughness spreads the reflected Sun over the ocean.
+
 The orbital proxy defaults to 512 longitude by 256 latitude segments
 (261,120 triangles). `farProxySegments` can select 128, 256, 512 or 1024 to
 trade memory and geometry against radial chord error. Inspection reports the
@@ -202,7 +219,7 @@ tessellation approximation; the proxy does not provide analytic sphere depth.
 
 `inspection()` reports detail readiness/visibility, preparation budget and CPU
 time, fixed topology counts, swaps, accepted wave updates and sea level.
-`dispose()` releases owned geometry/materials once. An `envMap` is borrowed and
+`dispose()` releases owned geometry/materials and the roughness texture once. An `envMap` is borrowed and
 remains the caller's responsibility.
 
 ## Gameplay boundary

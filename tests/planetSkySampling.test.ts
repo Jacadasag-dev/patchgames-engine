@@ -1,7 +1,110 @@
 import {describe,expect,it} from 'vitest';
-import {conservativePlanetSkySampleWeights,integratePlanetPhysicalCloudBin,partitionPlanetCloudRay,planetCloudFeatureMetres,planetCloudOpticalSourceFraction,planetPhysicalCloudProfile,planetPhysicalCloudSourceDistance} from '../src/sandbox/planetSkySampling.ts';
+import {conservativePlanetSkySampleWeights,integratePlanetPhysicalCloudBin,partitionPlanetCloudRay,planetCloudFeatureMetres,planetCloudOpticalSourceFraction,planetCloudProfileTopFraction,planetCloudScatteringWeights,planetCloudSlabScatteringResponse,planetPhysicalCloudProfile,planetPhysicalCloudSourceDistance,samplePlanetCloudProfile} from '../src/sandbox/planetSkySampling.ts';
+import type {PlanetAtmosphereRenderColumn} from '../src/shared/planetAtmosphereSnapshot.ts';
+import {createPlanetSkyNoiseMipmaps} from '../src/sandbox/planetSkyWebGPUMips.ts';
 
 describe('bounded cloud ray quadrature',()=>{
+  it('preserves support and optical mass across continuous relief mip footprints',()=>{
+    const bytes=new Uint8Array(32**3*4);for(let index=0;index<bytes.length;index++)bytes[index]=Math.imul(index^731,0x5bd1e995)>>>24;
+    const mips=createPlanetSkyNoiseMipmaps(bytes),read=(lod:number,channel:number)=>{const lo=Math.floor(lod),hi=Math.min(5,lo+1),fraction=lod-lo;return(mips[lo].data[channel]*(1-fraction)+mips[hi].data[channel]*fraction)/255;};
+    const profile=(footprint:number,ice:number)=>{const broadLod=Math.max(0,Math.min(5,Math.log2(Math.max(1,footprint/3000)))),fineLod=Math.max(0,Math.min(5,Math.log2(Math.max(1,footprint/750))));return planetCloudProfileTopFraction(read(broadLod,2),read(fineLod,3),ice);};
+    for(const footprint of [0,375,750,1100,1500,2800,3000,4200,6000,12_000,20_000,48_000,96_000])for(const ice of [0,.5,1]){
+      const fraction=profile(footprint,ice),base=16_670,top=base+280*fraction,radius=6_371_000;
+      expect(fraction).toBeGreaterThanOrEqual(.58+.22*ice-1e-12);expect(fraction).toBeLessThanOrEqual(1);
+      const request={radiusMeters:radius,origin:[0,radius+20_000,0] as const,direction:[0,-1,0] as const,fromMetres:0,toMetres:20_000,baseMetersAsl:base,topMetersAsl:top,surfaceMetersAsl:0,columnOpticalDepth:3.25,upper:true};
+      expect(integratePlanetPhysicalCloudBin(request).opticalDepth).toBeCloseTo(3.25,7);expect(integratePlanetPhysicalCloudBin({...request,columnOpticalDepth:0}).opticalDepth).toBe(0);
+    }
+    for(const boundary of [750,1500,3000,6000,12_000,24_000,48_000])expect(Math.abs(profile(boundary*(1+1e-7),1)-profile(boundary*(1-1e-7),1))).toBeLessThan(1e-5);
+  });
+  it('approaches bright hemispheric cloud reflectance rather than a dim 4pi phase limit',()=>{
+    for(const column of [.001,1,20,100,10_000])for(const ice of [0,1])for(const muSun of [.1,.55,.9])for(const muOut of [.1,.5,1]){
+      const view=column/muOut,slope=muOut/muSun,source=view*planetCloudOpticalSourceFraction(view,slope),transmission=Math.exp(-slope*source),activation=-Math.expm1(-column),transport=column*(.15+.1*ice),reflection=transport/(1+transport);
+      const response=planetCloudSlabScatteringResponse({transmission,columnOpticalDepth:column,observerOpticalDepth:view,selfShadowSlope:slope,sourceOpticalDepth:source,phase:0,solarCosine:muSun,outgoingCosine:muOut,iceOpticalFraction:ice}),radiance=response*(-Math.expm1(-view));
+      expect(radiance).toBeCloseTo(activation*muSun*reflection/Math.PI,9);
+      if(column===10_000&&muSun===.9)expect(radiance).toBeGreaterThan(.28);
+      const passing=1/(1+transport),diffuseTransmission=activation*Math.max(0,passing-Math.exp(-column/muSun));
+      expect(activation*reflection+diffuseTransmission+(1-activation)).toBeLessThanOrEqual(1+1e-12);
+    }
+  });
+  it('keeps hemispheric diffuse reflection invariant under optical bin subdivision',()=>{
+    for(const column of [1,10,100])for(const muSun of [.1,.55,.9])for(const muOut of [.2,.6,1]){
+      const view=column/muOut,slope=muOut/muSun,p=-Math.expm1(-column),transport=column*.15,reference=p*muSun*transport/(1+transport)/Math.PI;
+      for(const bins of [1,2,7,20,64]){
+        const tau=view/bins;let radiance=0;
+        for(let bin=0;bin<bins;bin++){const prefix=bin*tau,source=tau*planetCloudOpticalSourceFraction(tau,slope),transmission=Math.exp(-slope*(prefix+source));radiance+=Math.exp(-prefix)*(-Math.expm1(-tau))*planetCloudSlabScatteringResponse({transmission,columnOpticalDepth:column,observerOpticalDepth:tau,selfShadowSlope:slope,sourceOpticalDepth:source,phase:0,solarCosine:muSun,outgoingCosine:muOut,iceOpticalFraction:0});}
+        expect(Math.abs(radiance-reference)).toBeLessThan(Math.max(1e-10,reference*1e-8));
+      }
+    }
+  });
+  it('keeps thin diffuse light second-order and limits the backlit escape hemisphere',()=>{
+    const diffuse=(column:number)=>{const muSun=.55,muOut=.6,view=column/muOut,slope=muOut/muSun,source=view*planetCloudOpticalSourceFraction(view,slope);return -Math.expm1(-view)*planetCloudSlabScatteringResponse({transmission:Math.exp(-slope*source),columnOpticalDepth:column,observerOpticalDepth:view,selfShadowSlope:slope,sourceOpticalDepth:source,phase:0,solarCosine:muSun,outgoingCosine:muOut,iceOpticalFraction:0});};
+    expect(diffuse(.001)/diffuse(.0005)).toBeCloseTo(4,2);
+    for(const column of [.001,1,10,100,10_000])for(const muOut of [-.1,-.5,-1]){
+      const muSun=.55,view=column/-muOut,slope=muOut/muSun,source=view*planetCloudOpticalSourceFraction(view,slope),transmission=Math.exp(-column/muSun-slope*source),response=planetCloudSlabScatteringResponse({transmission,columnOpticalDepth:column,observerOpticalDepth:view,selfShadowSlope:slope,sourceOpticalDepth:source,phase:0,solarCosine:muSun,outgoingCosine:muOut,iceOpticalFraction:0}),limit=-Math.expm1(-column)*muSun*Math.max(0,1/(1+column*.15)-Math.exp(-column/muSun))/Math.PI;
+      expect(Number.isFinite(response)).toBe(true);expect(response).toBeGreaterThanOrEqual(0);expect(response*(-Math.expm1(-view))).toBeLessThanOrEqual(limit+1e-12);
+    }
+  });
+  it('preserves column optical mass while forming relief strictly inside its diagnosed envelope',()=>{
+    const radius=6_371_000;
+    for(const upper of [false,true])for(const broad of [0,.2,.5,.8,1])for(const detail of [0,.5,1]){
+      const fraction=planetCloudProfileTopFraction(broad,detail,upper?1:0),base=upper?16_670:1500,ceiling=upper?16_950:6500,top=base+(ceiling-base)*fraction;
+      expect(fraction).toBeGreaterThanOrEqual((upper?.8:.58)-1e-12);expect(fraction).toBeLessThanOrEqual(1);
+      expect(top).toBeGreaterThan(base);expect(top).toBeLessThanOrEqual(ceiling);
+      const optical=integratePlanetPhysicalCloudBin({radiusMeters:radius,origin:[0,radius+20_000,0],direction:[0,-1,0],fromMetres:0,toMetres:20_000,baseMetersAsl:base,topMetersAsl:top,surfaceMetersAsl:0,columnOpticalDepth:3.25,upper}).opticalDepth;
+      expect(optical).toBeCloseTo(3.25,7);
+      expect(planetPhysicalCloudProfile((base-1-base)/(top-base),upper)).toBe(0);expect(planetPhysicalCloudProfile((ceiling+1-base)/(top-base),upper)).toBe(0);
+    }
+  });
+  it('keeps rendered relief tied to advected columns and time, independently of the viewer',()=>{
+    const noise={size:32,data:new Uint8Array(32**3*4)};let hash=731;
+    for(let index=0;index<noise.data.length;index++){hash=Math.imul(hash^hash>>>13,0x5bd1e995);noise.data[index]=hash>>>24;}
+    const context={noise,radiusMeters:6_371_000,shapeScaleMeters:1500,timeSeconds:3600,windMetersPerSecond:[7,0,-2] as const};
+    const column=(angle:number):PlanetAtmosphereRenderColumn=>({liquidLowerKgM2:1,iceLowerKgM2:0,liquidUpperKgM2:0,iceUpperKgM2:1,dustKgM2:0,materialLower:[Math.sin(angle),0,Math.cos(angle)],materialUpper:[Math.sin(angle),0,Math.cos(angle)],surfaceHeightMetersAsl:0,lowerBaseMetersAsl:1500,lowerTopMetersAsl:6500,upperBaseMetersAsl:16_670,upperTopMetersAsl:16_950});
+    const tops:number[]=[];
+    for(const angle of [0,.1,.3,.7,1.2]){
+      const input=column(angle),result=samplePlanetCloudProfile(input,context),nearby=samplePlanetCloudProfile(column(angle+1e-7),context);
+      expect(result).toEqual(samplePlanetCloudProfile(input,context));expect(result.lowerTopMetersAsl).toBe(input.lowerTopMetersAsl);expect(result.iceUpperKgM2).toBe(1);
+      expect(result.lowerProfileTopMetersAsl).toBeGreaterThanOrEqual(4400);expect(result.lowerProfileTopMetersAsl).toBeLessThanOrEqual(6500);
+      expect(result.upperProfileTopMetersAsl).toBeGreaterThanOrEqual(16_894);expect(result.upperProfileTopMetersAsl).toBeLessThanOrEqual(16_950);
+      expect(Math.abs(result.lowerProfileTopMetersAsl-nearby.lowerProfileTopMetersAsl)).toBeLessThan(1);tops.push(result.lowerProfileTopMetersAsl);
+    }
+    expect(Math.max(...tops)-Math.min(...tops)).toBeGreaterThan(100);
+    const clear={...column(0),liquidLowerKgM2:0,iceUpperKgM2:0,lowerBaseMetersAsl:0,lowerTopMetersAsl:0,upperBaseMetersAsl:0,upperTopMetersAsl:0};
+    expect(samplePlanetCloudProfile(clear,context)).toMatchObject({lowerProfileTopMetersAsl:0,upperProfileTopMetersAsl:0,liquidLowerKgM2:0,iceUpperKgM2:0});
+  });
+  it('keeps direct plus normalized diffuse cloud scattering within the incident angular energy budget',()=>{
+    for(const transmission of [0,1e-12,.001,.1,.5,.99,1])for(const columnOpticalDepth of [0,.0001,.1,1,100])for(const slope of [-2,-1,0,1,100]){
+      const weights=planetCloudScatteringWeights({transmission,columnOpticalDepth,observerOpticalDepth:10,selfShadowSlope:slope,sourceOpticalDepth:10*planetCloudOpticalSourceFraction(10,slope)});
+      expect(weights.single).toBe(transmission);expect(weights.multiple).toBeGreaterThanOrEqual(0);expect(weights.single+weights.multiple).toBeLessThanOrEqual(1+1e-12);
+      expect(weights.reducedTransmission).toBeGreaterThanOrEqual(transmission);expect(weights.reducedTransmission).toBeLessThanOrEqual(transmission**.25+1e-12);
+    }
+  });
+  it('has no unoccluded cloud ambient floor and approaches single scattering for a thin column',()=>{
+    const samples=[1,.1,.001,1e-6,1e-12,0].map(transmission=>planetCloudScatteringWeights({transmission,columnOpticalDepth:100}));
+    expect(samples.at(-1)).toEqual({single:0,multiple:0,reducedTransmission:0});
+    expect(planetCloudScatteringWeights({transmission:.1,columnOpticalDepth:0}).multiple).toBe(0);
+    const multiple=(tau:number)=>planetCloudScatteringWeights({transmission:Math.exp(-tau),columnOpticalDepth:tau}).multiple;
+    expect(multiple(.001)/multiple(.0005)).toBeCloseTo(4,2);
+    expect(samples[4].multiple).toBeLessThan(samples[3].multiple);expect(samples[3].multiple).toBeLessThan(samples[2].multiple);
+  });
+  it('keeps diffuse cloud lighting stable under ray partition and signed self-shadow slopes',()=>{
+    const eta=.25,iso=1/(4*Math.PI),phase=.04355;
+    const integral=(rate:number,length:number,entry:number)=>Math.abs(rate)<1e-10?Math.exp(entry)*length:rate>0?Math.exp(entry)*(-Math.expm1(-rate*length))/rate:Math.exp(entry-rate*length)*(-Math.expm1(rate*length))/(-rate);
+    for(const total of [1,10,100])for(const slope of [-2,-1,-.5,0,.25,1,4]){
+      const entry=slope<0?slope*total:0,direct=integral(1+slope,total,entry),diffuse=integral(1+eta*slope,total,eta*entry),activation=-Math.expm1(-total),reference=phase*direct+iso*activation*(diffuse-direct);
+      for(const bins of [1,2,7,20,64]){
+        const tau=total/bins;let radiance=0;
+        for(let bin=0;bin<bins;bin++){
+          const prefix=bin*tau,source=tau*planetCloudOpticalSourceFraction(tau,slope),transmission=Math.exp(entry-slope*(prefix+source));
+          const weights=planetCloudScatteringWeights({transmission,columnOpticalDepth:total,observerOpticalDepth:tau,selfShadowSlope:slope,sourceOpticalDepth:source});
+          radiance+=Math.exp(-prefix)*(-Math.expm1(-tau))*(phase*weights.single+iso*weights.multiple);
+        }
+        // The GPU deliberately bounds log transmission at ~exp(-80). Tiny
+        // fully backlit residuals can differ below RGBA16F's smallest value.
+        expect(Math.abs(radiance-reference)).toBeLessThan(Math.max(1e-10,Math.abs(reference)*1e-8));
+      }
+    }
+  });
   it('keeps thick self-shadowed radiance independent of optical bin partition',()=>{
     for(const total of [10,30,100])for(const slope of [-2,-1,-.5,0,.25,1,4]){
       const entryLog=slope<0?slope*total:0,rate=1+slope;

@@ -1,9 +1,38 @@
+import type {PlanetAtmosphereRenderColumn} from '../shared/planetAtmosphereSnapshot.ts';
+
 /** Numeric reference and GLSL for bounded, feature-aware cloud quadrature.
  * Distances supplied to the partition helper are metres; shader distances are
  * divided by planet radius. Their logarithmic metric is identical. */
 export interface PlanetCloudRaySegment {fromMetres:number;toMetres:number;featureMetres:number}
 export interface PlanetCloudRayPartition extends PlanetCloudRaySegment {edgesMetres:number[]}
 export interface PlanetSkyDepthCandidate {terminalDepth:number;distanceSquared:number}
+export interface PlanetCloudRenderedColumn extends PlanetAtmosphereRenderColumn {lowerProfileTopMetersAsl:number;upperProfileTopMetersAsl:number}
+export interface PlanetCloudProfileContext {
+  noise:{size:number;data:Uint8Array};radiusMeters:number;shapeScaleMeters:number;timeSeconds:number;windMetersPerSecond:readonly [number,number,number];
+}
+export function planetCloudProfileTopFraction(broad:number,detail:number,iceFraction:number):number {
+  if(![broad,detail,iceFraction].every(Number.isFinite))throw Error('Cloud profile noise and phase must be finite.');
+  const clamp=(value:number)=>Math.max(0,Math.min(1,value)),ice=clamp(iceFraction),weight=.28+.52*ice,t=clamp(((1-weight)*clamp(broad)+weight*clamp(detail)-.2)/.6),minimum=.58+.22*ice;
+  return minimum+(1-minimum)*(t*t*(3-2*t))**.65;
+}
+/** Renderer subgrid support inside the diagnosed physical envelope. The same
+ * advected, camera-independent field is used by view, solar and source rays.
+ * Normalizing the profile by this effective thickness preserves column mass. */
+export function samplePlanetCloudProfile(column:PlanetAtmosphereRenderColumn,context:PlanetCloudProfileContext):PlanetCloudRenderedColumn {
+  const {noise,radiusMeters:radius,shapeScaleMeters:shape,timeSeconds:time,windMetersPerSecond:wind}=context;
+  if(!Number.isInteger(noise.size)||noise.size<2||noise.size>128||noise.data.length!==noise.size**3*4||![radius,shape,time,...wind].every(Number.isFinite)||radius<=0||shape<=0||time<0)throw Error('Cloud profile needs a bounded periodic noise volume and physical frame.');
+  const fract=(value:number)=>value-Math.floor(value),e=(time/86400%(1/12))*12*Math.PI*2,phases=[e,-e,e],scale=shape*32*2;
+  const read=(uv:readonly number[],channel:number)=>{
+    const point=uv.map(value=>fract(value)*noise.size-.5),base=point.map(Math.floor),fraction=point.map(fract),wrap=(value:number)=>(value%noise.size+noise.size)%noise.size;let value=0;
+    for(let z=0;z<2;z++)for(let y=0;y<2;y++)for(let x=0;x<2;x++){const cell=[x,y,z],weight=cell.reduce((product,side,index)=>product*(side?fraction[index]:1-fraction[index]),1),offset=((wrap(base[2]+z)*noise.size+wrap(base[1]+y))*noise.size+wrap(base[0]+x))*4+channel;value+=noise.data[offset]/255*weight;}return value;
+  };
+  const top=(base:number,ceiling:number,label:readonly number[],liquid:number,ice:number)=>{
+    if(ceiling<=base||liquid+ice<=0)return ceiling;
+    const metres=label.map(value=>value*(radius+base)),q=metres.map(value=>value/shape*.35),warped=metres.map((value,index)=>value+Math.sin(q[(index+1)%3]+.6*Math.sin(q[(index+2)%3]+phases[index]))*shape*.28),uv=warped.map((value,index)=>value/scale+fract(-wind[index]*time/scale)),detail=uv.map((value,index)=>value*4+[.173,.317,.619][index]);
+    return base+(ceiling-base)*planetCloudProfileTopFraction(read(uv,2),read(detail,3),ice/(liquid+ice));
+  };
+  return{...column,lowerProfileTopMetersAsl:top(column.lowerBaseMetersAsl,column.lowerTopMetersAsl,column.materialLower,column.liquidLowerKgM2,column.iceLowerKgM2),upperProfileTopMetersAsl:top(column.upperBaseMetersAsl,column.upperTopMetersAsl,column.materialUpper,column.liquidUpperKgM2,column.iceUpperKgM2)};
+}
 
 /** Unit-column physical cloud profile. Heights are local diagnosed base/top,
  * not a planet-wide authored shell; translating or stretching that geometry
@@ -32,6 +61,34 @@ export function planetCloudOpticalSourceFraction(tau:number,slope:number):number
   const logIntegral=Math.abs(exponent)<.01?Math.log(tau)-exponent*.5+exponent*exponent/24:
     rate>0?Math.log(-Math.expm1(-exponent))-Math.log(rate):-exponent+Math.log(-Math.expm1(exponent))-Math.log(-rate);
   return Math.max(0,Math.min(1,-(logIntegral-Math.log(denominator))/(slope*tau)));
+}
+export interface PlanetCloudScatteringInput {
+  transmission:number;columnOpticalDepth:number;observerOpticalDepth?:number;selfShadowSlope?:number;sourceOpticalDepth?:number;
+}
+/** Bounded reduced-extinction multiple-scattering approximation. Each lobe is
+ * normalized over solid angle; the extra diffuse weight draws only from lost
+ * direct transmission. It vanishes in clear/thin columns and deep shadows,
+ * rather than adding a constant unoccluded ambient/emissive cloud floor. */
+export function planetCloudScatteringWeights(input:PlanetCloudScatteringInput):{single:number;multiple:number;reducedTransmission:number} {
+  const {transmission:t,columnOpticalDepth:column,observerOpticalDepth:tau=0,selfShadowSlope:slope=0,sourceOpticalDepth:source=0}=input;
+  if(![t,column,tau,slope,source].every(Number.isFinite)||t<0||t>1||column<0||tau<0||source<0)throw Error('Cloud scattering requires bounded transmission and nonnegative optical mass.');
+  const eta=.25,upper=t**eta;let mean=upper;
+  if(tau>0&&t>0&&t<1){const entry=Math.max(0,-Math.log(Math.max(t,1e-35))-slope*source);mean=Math.exp(Math.max(-80,Math.min(0,-eta*entry-eta*slope*tau*planetCloudOpticalSourceFraction(tau,eta*slope))));}
+  mean=Math.max(t,Math.min(upper,mean));
+  return{single:t,multiple:-Math.expm1(-column)*(mean-t),reducedTransmission:mean};
+}
+export interface PlanetCloudSlabScatteringInput extends PlanetCloudScatteringInput {phase:number;solarCosine:number;outgoingCosine:number;iceOpticalFraction:number}
+/** Hemispheric visible-light escape closure. Conservative two-stream slab
+ * reflectance replaces the incorrect 4π phase-budget limit for thick cloud
+ * decks. The escape kernel is normalized over the complete viewed column. */
+export function planetCloudSlabScatteringResponse(input:PlanetCloudSlabScatteringInput):number {
+  const {transmission,columnOpticalDepth:column,phase,solarCosine:muSun,outgoingCosine:muOut,iceOpticalFraction:ice}=input;
+  if(![phase,muSun,muOut,ice].every(Number.isFinite)||phase<0||Math.abs(muSun)>1||Math.abs(muOut)>1||ice<0||ice>1)throw Error('Cloud slab needs finite phase, hemisphere cosines and optical ice fraction.');
+  const mean=planetCloudScatteringWeights(input).reducedTransmission,p=-Math.expm1(-column),transport=column*(.15+.1*ice),reflection=transport/(1+transport),passing=1/(1+transport);
+  let diffuse=0;
+  if(muSun*muOut>0&&column>0){const view=column/Math.max(Math.abs(muOut),.001),rate=1+.25*Math.max(0,input.selfShadowSlope??0),normalization=-Math.expm1(-rate*view)/rate;diffuse=p*Math.abs(muSun)*reflection*mean/(Math.PI*Math.max(1e-12,normalization));}
+  else{const unscattered=Math.exp(-column/Math.max(Math.abs(muSun),.001));diffuse=p*Math.abs(muSun)*Math.max(0,passing-unscattered)*mean/Math.PI;}
+  return(1-p)*phase*transmission+diffuse;
 }
 /** Frozen-column finite-volume reference for physical transport. Intersect
  * local diagnosed geometry before sampling: a thin cloud cannot disappear
@@ -129,6 +186,16 @@ export function partitionPlanetCloudRay(segments:readonly PlanetCloudRaySegment[
 /** Included verbatim by the WebGL volume shader. Native transport mirrors this
  * small contract; numeric regression tests exercise the same metric/partition. */
 export const planetSkyQuadratureGLSL=/* glsl */`
+vec2 physicalCloudProfileBounds(vec2 bounds,vec3 label,float iceFraction,float footprintMetres) {
+  if(bounds.y<=bounds.x)return bounds;
+  vec3 metres=cloudMorph(label*(uRadius+bounds.x));
+  vec3 uv=metres/(uNoiseShapeScale*32.0*2.0)+uReliefWindUV;
+  float broadLod=clamp(log2(max(1.0,footprintMetres/(uNoiseShapeScale*2.0))),0.0,5.0),detailLod=clamp(log2(max(1.0,footprintMetres/(uNoiseShapeScale*0.5))),0.0,5.0);
+  float broad=textureLod(uNoiseTexture,uv,broadLod).b,detail=textureLod(uNoiseTexture,uv*4.0+vec3(0.173,0.317,0.619),detailLod).a;
+  float ice=clamp(iceFraction,0.0,1.0),signal=pow(smoothstep(0.2,0.8,mix(broad,detail,0.28+0.52*ice)),0.65),minimum=0.58+0.22*ice;
+  return vec2(bounds.x,mix(bounds.x,bounds.y,minimum+(1.0-minimum)*signal));
+}
+
 float cloudOneMinusExp(float value) {
   return value<0.01?value*(1.0+value*(-0.5+value/6.0)):1.0-exp(-value);
 }
@@ -141,6 +208,27 @@ float cloudOpticalSourceFraction(float tau,float slope) {
   else if(rate>0.0)logIntegral=log(cloudOneMinusExp(exponent))-log(rate);
   else logIntegral=-exponent+log(cloudOneMinusExp(-exponent))-log(-rate);
   return clamp(-(logIntegral-log(cloudOneMinusExp(tau)))/(slope*tau),0.0,1.0);
+}
+float cloudReducedVisibility(float transmission,float observerOptical,float slope,float sourceOptical) {
+  const float eta=0.25;
+  float upper=pow(clamp(transmission,0.0,1.0),eta),mean=upper;
+  if(observerOptical>0.0&&transmission>0.0&&transmission<1.0){
+    float entry=max(0.0,-log(max(transmission,1e-35))-slope*sourceOptical);
+    float fraction=cloudOpticalSourceFraction(observerOptical,eta*slope);
+    mean=exp(clamp(-eta*entry-eta*slope*observerOptical*fraction,-80.0,0.0));
+  }
+  return clamp(mean,transmission,upper);
+}
+float cloudScatteringResponse(float transmission,float phase,float columnOptical,float observerOptical,float slope,float sourceOptical) {
+  float mean=cloudReducedVisibility(transmission,observerOptical,slope,sourceOptical);
+  return phase*transmission+cloudOneMinusExp(max(0.0,columnOptical))*(mean-transmission)/(4.0*3.141592653589793);
+}
+float cloudSlabScatteringResponse(float transmission,float phase,float columnOptical,float observerOptical,float slope,float sourceOptical,float muSun,float muOut,float iceFraction) {
+  float mean=cloudReducedVisibility(transmission,observerOptical,slope,sourceOptical),activation=cloudOneMinusExp(max(0.0,columnOptical));
+  float transport=columnOptical*(0.15+0.1*clamp(iceFraction,0.0,1.0)),reflection=transport/(1.0+transport),passing=1.0/(1.0+transport),diffuse;
+  if(muSun*muOut>0.0&&columnOptical>0.0){float view=columnOptical/max(abs(muOut),0.001),rate=1.0+0.25*max(0.0,slope),normalization=cloudOneMinusExp(rate*view)/rate;diffuse=activation*abs(muSun)*reflection*mean/(3.141592653589793*max(1e-12,normalization));}
+  else{float unscattered=exp(-columnOptical/max(abs(muSun),0.001));diffuse=activation*abs(muSun)*max(0.0,passing-unscattered)*mean/3.141592653589793;}
+  return(1.0-activation)*phase*transmission+diffuse;
 }
 
 float physicalCloudProfile(float fraction,bool upper) {

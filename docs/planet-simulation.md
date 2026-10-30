@@ -284,6 +284,10 @@ base/top and effective terrain surface first, splits at radial tangency and
 the compact profile's two spline knees, and uses four scalar Gauss nodes per
 smooth piece. A 280 m cloud therefore contributes its inventory even inside a
 much wider global acceleration envelope, without increasing its thickness.
+Horizontal physical-column acquisition uses coherent bin midpoints; the
+analytic vertical integral does not need random sampling offsets. Procedural
+art clouds retain their world-phase sampling. This avoids turning fine
+advected top relief into randomly jittered solar self-shadows.
 Filtered microstructure uses the occupied profile's mass-weighted center.
 The bin is divided at local layer entries/exits so lower cloud, upper cloud
 and intervening air composite in view order. Direct cloud lighting uses a
@@ -297,6 +301,16 @@ spatially varying illumination remains an approximation. Solar cloud shadows
 use the same bin integral. Horizontal geometry is frozen at each
 bounded bin's sampled column, so distant weather is still a coarse optical
 approximation rather than fully resolved individual cloud turbulence.
+Cloud indirect light uses the [bounded sky scattering response](planet-sky.md#cloud-light-shadows-and-shafts),
+with whole-column optical mass controlling diffuse escape and the same
+optical source average used for direct light. It does not add an unshadowed
+ambient floor or change the diagnosed cloud heights, profile or inventory.
+The renderer can vary the effective profile top inside that diagnosed envelope
+using [column-coherent subgrid relief](planet-sky.md#cloud-light-shadows-and-shafts).
+Its base remains fixed and its profile is normalized by the reduced thickness.
+The diagnosed `lowerTopMetersAsl`/`upperTopMetersAsl` remain unchanged;
+`sampleWeather()` additionally reports `lowerProfileTopMetersAsl` and
+`upperProfileTopMetersAsl` so inspection cameras use the same rendered support.
 
 Lower cloud, upper cloud and ice use their own height profiles and the same
 column inventory when seen from space or from the ground. Clear source columns

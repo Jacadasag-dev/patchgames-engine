@@ -2,9 +2,10 @@ import {BufferAttribute,BufferGeometry,ClampToEdgeWrapping,Color,Data3DTexture,D
 import {compilePlanetSky,type CompiledPlanetSky,type PlanetSkyBake,type PlanetSkyRecipe} from '../shared/planetSky.ts';
 import type {PlanetVector} from '../shared/planet.ts';
 import {compilePlanet} from '../shared/planet.ts';
-import type {PlanetAtmosphereRenderColumn,PlanetAtmosphereSnapshot} from '../shared/planetAtmosphereSnapshot.ts';
+import type {PlanetAtmosphereSnapshot} from '../shared/planetAtmosphereSnapshot.ts';
 import {PlanetAtmosphereSnapshotBuffer} from './planetAtmosphereSnapshotBuffer.ts';
 import {planetSkyCompositeFragmentShader,planetSkyVertexShader,planetSkyVolumeFragmentShader} from './planetSkyShader.ts';
+import {samplePlanetCloudProfile,type PlanetCloudRenderedColumn} from './planetSkySampling.ts';
 
 export interface PlanetSkyFrame {position:PlanetVector;timeSeconds:number;sunDirection:PlanetVector;starRotationRadians?:number;presentationTimeSeconds?:number;weatherPrepared?:boolean}
 export type PlanetSkyDiagnostic='composite'|'scene'|'radiance'|'transmittance'|'depth-rejection'|'unweighted'|'nearest'|'cloud-shadow';
@@ -79,7 +80,7 @@ export class PlanetSkyView {
       tSnapshotCondensate0:{value:this.snapshotBuffer.textures.condensate0},tSnapshotCondensate1:{value:this.snapshotBuffer.textures.condensate1},tSnapshotLower0:{value:this.snapshotBuffer.textures.materialLower0},tSnapshotLower1:{value:this.snapshotBuffer.textures.materialLower1},tSnapshotUpper0:{value:this.snapshotBuffer.textures.materialUpper0},tSnapshotUpper1:{value:this.snapshotBuffer.textures.materialUpper1},tSnapshotAltitude0:{value:this.snapshotBuffer.textures.cloudAltitudeMoments0},tSnapshotAltitude1:{value:this.snapshotBuffer.textures.cloudAltitudeMoments1},uSnapshotParams:{value:new Vector4()},
       uStormCenters:{value:Array.from({length:16},()=>new Vector4())},uStormProperties:{value:Array.from({length:16},()=>new Vector4())},uStormCount:{value:0},uWeatherTimeDays:{value:0},uWeatherRotationScale:{value:1},uWeatherEvolutionPhase:{value:0},uCondensationThreshold:{value:circulation.condensationThreshold},uCoverageGain:{value:1},uCloudLayers:{value:Array.from({length:3},()=>new Vector4())},
       uCelestial:{value:new Vector4()},uStars:{value:new Vector4()},uSkyClock:{value:new Vector4()},uSkyEffects:{value:new Vector4()},
-      uCameraRadius:{value:new Vector3()},uSunDirection:{value:this.sun},uRayleigh:{value:new Vector3()},uShapeWindUV:{value:new Vector3()},uDetailWindUV:{value:new Vector3()},
+      uCameraRadius:{value:new Vector3()},uSunDirection:{value:this.sun},uRayleigh:{value:new Vector3()},uShapeWindUV:{value:new Vector3()},uDetailWindUV:{value:new Vector3()},uReliefWindUV:{value:new Vector3()},
       uRadius:{value:bake.radiusMeters},uNear:{value:.1},uFar:{value:bake.radiusMeters*8},uLogDepth:{value:0},
       uAtmosphereEnabled:{value:true},uCloudEnabled:{value:true},uAtmosphereHeight:{value:0},uRayleighHeightMeters:{value:0},uMieHeightMeters:{value:0},uMie:{value:0},uMieG:{value:0},uSunIntensity:{value:0},
       uCloudBottom:{value:0},uCloudThickness:{value:0},uCloudCoverage:{value:0},uCloudDensity:{value:0},uCloudErosion:{value:0},uNoiseShapeScale:{value:0},uNoiseDetailScale:{value:0},
@@ -128,7 +129,7 @@ export class PlanetSkyView {
    * weatherPrepared:true to render; omit staging while playback is paused. */
   stageWeather(renderer:{initTexture(texture:DataTexture):void}):void {if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.uploadNext(renderer);}
   /** Inspect exactly the uploaded temporal pair, including while paused. */
-  sampleWeather(direction:PlanetVector,timeSeconds:number):PlanetAtmosphereRenderColumn|undefined {if(this.disposed)throw Error('Planet sky view is disposed.');return this.snapshotBuffer.sample(direction,timeSeconds);}
+  sampleWeather(direction:PlanetVector,timeSeconds:number):PlanetCloudRenderedColumn|undefined {if(this.disposed)throw Error('Planet sky view is disposed.');const frame=this.snapshotBuffer.frame(timeSeconds),column=this.snapshotBuffer.sample(direction,timeSeconds);return column?samplePlanetCloudProfile(column,{noise:{size:32,data:this.noise.image.data as Uint8Array},radiusMeters:this.compiled.radiusMeters,shapeScaleMeters:this.compiled.recipe.clouds.shapeScaleMeters,timeSeconds:frame.timeSeconds,windMetersPerSecond:this.compiled.recipe.clouds.windMetersPerSecond}):undefined;}
   clearWeatherSnapshots():void {if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.clear();this.simulationVariant(false);}
   /** Host/lab inspection only. Does not change the persisted weather recipe. */
   setDiagnostic(mode:PlanetSkyDiagnostic):void {
@@ -251,7 +252,7 @@ export class PlanetSkyView {
     camera.updateWorldMatrix(true,false);u.uProjectionInverse.value.copy(camera.projectionMatrixInverse);this.cameraRotation.setFromMatrix4(camera.matrixWorld);
     u.uCameraRadius.value.set(...frame.position).multiplyScalar(1/radius);this.sun.set(...frame.sunDirection).normalize();u.uNear.value=camera.near;u.uFar.value=camera.far;u.uLogDepth.value=renderer.capabilities.logarithmicDepthBuffer?1:0;
     const windTime=snapshotFrame.enabled?snapshotFrame.timeSeconds:frame.timeSeconds;
-    for(const [name,scale] of [['uShapeWindUV',r.clouds.shapeScaleMeters],['uDetailWindUV',r.clouds.detailScaleMeters]] as const)u[name].value.set(...wind.map(value=>fract(-value*windTime/(scale*32))));
+    for(const [name,scale] of [['uShapeWindUV',r.clouds.shapeScaleMeters],['uDetailWindUV',r.clouds.detailScaleMeters],['uReliefWindUV',r.clouds.shapeScaleMeters*2]] as const)u[name].value.set(...wind.map(value=>fract(-value*windTime/(scale*32))));
     const weatherFrame=snapshotFrame.enabled?{timeDays:snapshotFrame.timeSeconds/86400,rotationScale:1,cyclones:[]}:this.compiled.weather.frame(frame.timeSeconds);u.uStormCount.value=weatherFrame.cyclones.length;u.uWeatherTimeDays.value=weatherFrame.timeDays;u.uWeatherRotationScale.value=weatherFrame.rotationScale;u.uWeatherEvolutionPhase.value=(weatherFrame.timeDays%(1/12))*12*Math.PI*2;
     for(let index=0;index<16;index++){const storm=weatherFrame.cyclones[index];if(storm){u.uStormCenters.value[index].set(...storm.center,storm.angularRadius);u.uStormProperties.value[index].set(storm.spin,(storm.phase*.15%(Math.PI*2))/.15,storm.strength,storm.type==='tropical'?0:1);}else{u.uStormCenters.value[index].set(0,0,0,0);u.uStormProperties.value[index].set(0,0,0,0);}}
     u.uSkyClock.value.set((frame.presentationTimeSeconds??frame.timeSeconds)%4096,(frame.starRotationRadians??0)%(Math.PI*2),(r.seed>>>16)&65535,r.seed&65535);
@@ -291,7 +292,7 @@ export class PlanetSkyView {
       cloudLayerSource:simulation.enabled?'physical-snapshot':'authored',cloudLayers:simulation.enabled?physicalCloudBoundsMeters:this.compiled.recipe.clouds.layers,physicalCloudBoundsMeters,authoredCloudLayers:this.compiled.recipe.clouds.layers,celestial:this.compiled.recipe.celestial,weather:{...this.weatherFacts,cyclones:this.uniforms.uStormCount.value,timeDays:this.uniforms.uWeatherTimeDays.value},
       captureWidth:this.width,captureHeight:this.height,volumeWidth:this.lowWidth,volumeHeight:this.lowHeight,volumePixels:this.lowWidth*this.lowHeight,
       limits:{...this.compiled.quality},volumeDataBytes:32**3*5+this.weatherFacts.atlasBytes,estimatedTargetBytes:this.width*this.height*12+this.lowWidth*this.lowHeight*16,
-      transport:{cloudPrimarySamples:this.compiled.quality.cloudSteps,airPrimarySamples:this.compiled.quality.atmosphereSteps,maxCloudIntervals:6,maxCloudLightSamples:6*this.compiled.quality.cloudLightSteps,quadrature:'World-phase logarithmic feature metric; distant intervals use filtered 3D density'},
+      transport:{cloudPrimarySamples:this.compiled.quality.cloudSteps,airPrimarySamples:this.compiled.quality.atmosphereSteps,maxCloudIntervals:6,maxCloudLightSamples:6*this.compiled.quality.cloudLightSteps,quadrature:simulation.enabled?'Coherent midpoint columns and normalized local-volume integration':'World-phase logarithmic feature metric; distant intervals use filtered 3D density'},
       byteMetric:'Estimated attachment payload; excludes driver allocation, MSAA, staging and other scene resources',sceneTriangles:this.sceneTriangles,sceneDrawCalls:this.sceneDrawCalls,renderSubmissionCpuMs:this.renderCpuMs,disposed:this.disposed};
   }
   dispose():void {

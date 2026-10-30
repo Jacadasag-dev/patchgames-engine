@@ -1,5 +1,5 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
-import {Mesh,MeshPhysicalMaterial,SphereGeometry,Triangle,Vector3,type BufferGeometry} from 'three';
+import {DataTexture,Mesh,MeshPhysicalMaterial,SphereGeometry,Triangle,Vector3,type BufferGeometry} from 'three';
 import {compilePlanet,type CompiledPlanet,type PlanetVector} from '../src/shared/planet.ts';
 import {compilePlanetWater,PlanetWaterView,samplePlanetWater} from '../src/sandbox/planetWaterView.ts';
 import {sampleWaterWave,waterAppearance} from '../src/sandbox/water.ts';
@@ -78,6 +78,37 @@ describe('bounded native planetary water presentation',()=>{
     const proxy=water.root.children.find(child=>child.name==='PlanetWater:initial-far-proxy') as Mesh,array=proxy.geometry.getAttribute('position').array;
     water.update({position:[0,0,15_000_000],timeSeconds:9,conditions:{windSpeed:22}});expect(proxy.geometry.getAttribute('position').array).toBe(array);
   });
+  it('keeps a single water Fresnel interface and filters omitted wave slopes instead of a second glossy coat',()=>{
+    const source=planet(),water=view(source),proxy=water.root.children.find(child=>child.name==='PlanetWater:initial-far-proxy') as Mesh;
+    const far=proxy.material as MeshPhysicalMaterial;ready(water);const near=active(water).material as MeshPhysicalMaterial;
+    expect(far.clearcoat).toBe(0);expect(near.clearcoat).toBe(0);expect(far.ior).toBe(1.333);expect(far.specularIntensity).toBe(1);
+    expect(((far.ior-1)/(far.ior+1))**2).toBeCloseTo(.02037,4);
+    expect(far.roughness).toBeGreaterThan(water.sample([0,0,1]).roughness);expect(far.roughnessMap).toBeNull();
+    expect(near.roughnessMap).toBeInstanceOf(DataTexture);expect(near.roughness).toBe(1);
+    const map=near.roughnessMap as DataTexture,pixels=map.image.data as Uint8Array;
+    expect(pixels[1]/255).toBeCloseTo(water.sample([0,0,1]).roughness,2);
+    expect(pixels[pixels.length-3]/255).toBeCloseTo(far.roughness,2);
+    for(let row=1;row<map.image.height;row++)expect(pixels[row*4+1]).toBeGreaterThanOrEqual(pixels[(row-1)*4+1]);
+    expect(water.inspection().roughnessTextureBytes).toBeLessThan(1024);
+  });
+  it('preserves a flat authored ocean and responds to wave steepness rather than absolute wave size',()=>{
+    const source=planet(),make=(amplitude:number,wavelength:number)=>view(source,{water:compilePlanetWater(source,{profiles:[{id:'test',minWindSpeed:0,amplitude,wavelength,speed:1,roughness:.12,foam:0,shoreFoam:0,color:'#204050'}]})});
+    const flat=make(0,10),small=make(.2,10),large=make(2,100),steep=make(.4,10);
+    expect(flat.inspection().farRoughness).toBeCloseTo(.12,12);
+    expect(small.inspection().farRoughness).toBeCloseTo(large.inspection().farRoughness,12);
+    expect(small.inspection().farRoughness).toBeGreaterThan(flat.inspection().farRoughness);
+    expect(steep.inspection().farRoughness).toBeGreaterThan(small.inspection().farRoughness);
+    expect(steep.inspection().farRoughness).toBeLessThanOrEqual(1);
+  });
+  it('updates the stable roughness resource with weather and keeps the outer sheet matched to orbit',()=>{
+    const water=view(planet(),{conditions:{windSpeed:0}});ready(water);
+    const mesh=active(water),near=mesh.material as MeshPhysicalMaterial,map=near.roughnessMap as DataTexture,pixels=map.image.data,version=map.version,initial=water.inspection().farRoughness;
+    water.update({position:[0,0,1030],timeSeconds:4,conditions:{windSpeed:22}});
+    expect(near.roughnessMap).toBe(map);expect(map.image.data).toBe(pixels);expect(map.version).toBeGreaterThan(version);expect(water.inspection().farRoughness).toBeGreaterThan(initial);
+    const values=map.image.data as Uint8Array;expect(values[values.length-3]/255).toBeCloseTo(water.inspection().farRoughness,2);
+    const lastVersion=map.version;water.update({position:[0,0,5000],timeSeconds:4});expect(map.version).toBe(lastVersion);
+    const uv=mesh.geometry.getAttribute('uv');expect(uv.getY(0)).toBeCloseTo(.5/map.image.height,6);expect(uv.getY(uv.count-1)).toBeCloseTo((map.image.height-.5)/map.image.height,6);
+  });
   it('uses native physical material, resolves near waves, and atomically replaces its initial far proxy',()=>{
     const water=view();expect(water.root.children.filter(child=>child.visible)).toHaveLength(1);ready(water);
     const mesh=active(water),sample=water.sample([0,0,1]);expect(mesh.material).toBeInstanceOf(MeshPhysicalMaterial);
@@ -126,7 +157,8 @@ describe('bounded native planetary water presentation',()=>{
     const compiled=planet(),sample=vi.fn(compiled.sample),source={...compiled,sample},water=view(source);ready(water);sample.mockClear();
     for(let i=0;i<10;i++)water.update({position:[0,0,1030],timeSeconds:4+i/30});expect(sample).not.toHaveBeenCalled();
     const geometries=water.root.children.map(child=>vi.spyOn((child as Mesh).geometry,'dispose')),materials=new Set(water.root.children.map(child=>(child as Mesh).material as MeshPhysicalMaterial)),disposeMaterials=[...materials].map(material=>vi.spyOn(material,'dispose'));
-    water.dispose();water.dispose();expect(water.root.children).toHaveLength(0);expect(water.inspection().disposed).toBe(true);
+    const map=active(water).material as MeshPhysicalMaterial,disposeRoughness=vi.spyOn(map.roughnessMap!,'dispose');
+    water.dispose();water.dispose();expect(disposeRoughness).toHaveBeenCalledTimes(1);expect(water.root.children).toHaveLength(0);expect(water.inspection().disposed).toBe(true);
     for(const dispose of geometries)expect(dispose).toHaveBeenCalledTimes(1);for(const dispose of disposeMaterials)expect(dispose).toHaveBeenCalledTimes(1);
   });
 });

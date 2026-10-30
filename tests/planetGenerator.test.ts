@@ -27,6 +27,7 @@ describe('physical planet generation',()=>{
     expect(Object.keys(recipe).some(k=>/cloud|storm/i.test(k))).toBe(false);
     expect(generated.sky.clouds.circulation.coverageTarget).toBe(0);expect(generated.sky.clouds.circulation.cycloneCount).toBe(0);
     expect(Object.values(generated.sky.clouds.layers).every(layer=>!layer.enabled)).toBe(true);
+    expect(generated.sky.clouds.godRayStrength).toBe(1);
     expect(generated.recipe).toEqual(recipe);expect(Object.isFrozen(generated.recipe)).toBe(true);
   });
   it('rejects accessor input and physically unsupported spherical configurations',()=>{

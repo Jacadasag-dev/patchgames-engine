@@ -80,7 +80,7 @@ SANDBOX_NAMES.push('gameScenes.ts');
 SANDBOX_NAMES.push('scenePresets.ts');
 SANDBOX_NAMES.push('generatedLod.ts','generatedAlpha.ts','modelLod.ts','terrainLod.ts','terrainInstanceLod.ts','voxelLod.ts');
 SANDBOX_NAMES.push('planet.ts','planetView.ts');
-SANDBOX_NAMES.push('planetSkyView.ts','planetSkyShader.ts','planetAtmosphereSnapshotBuffer.ts');
+SANDBOX_NAMES.push('planetSkyView.ts','planetSkyShader.ts','planetSkySampling.ts','planetAtmosphereSnapshotBuffer.ts');
 SANDBOX_NAMES.push('planetPopulationView.ts','planetWaterView.ts','planetSkyWebGPU.ts','planetSkyWebGPUShader.ts','planetSkyWebGPUMips.ts');
 const SANDBOX_FILES = new Set(SANDBOX_NAMES.map((name) => real(sandboxFile(name))));
 const GAME_API = real(fileURLToPath(new URL('../../shared/gameApi.ts', import.meta.url)));

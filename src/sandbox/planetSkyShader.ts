@@ -4,7 +4,8 @@ import {PLANET_ATMOSPHERE_OPTICS} from '../shared/planetAtmosphereSnapshot.ts';
 
 /** Engine-owned GLSL3 volume integration. Density comes from the same prepared
  * fields as the CPU recipe sampler. Lighting is bounded single scattering with
- * a small ambient cloud fill, not a multiple-scattering weather simulation. */
+ * a bounded reduced-extinction cloud scattering approximation, not a
+ * multiple-scattering weather simulation. */
 export const planetSkyVertexShader=/* glsl */`
 out vec2 vUv;
 void main() {
@@ -52,6 +53,7 @@ uniform vec3 uSunDirection;
 uniform vec3 uRayleigh;
 uniform vec3 uShapeWindUV;
 uniform vec3 uDetailWindUV;
+uniform vec3 uReliefWindUV;
 uniform float uRadius;
 uniform float uNear;
 uniform float uFar;
@@ -127,7 +129,8 @@ vec4 atmosphereMaterial(vec3 position,int layer) {
   return vec4(atmosphereUnit(mix(atmosphereUnit(a.xyz,direction),atmosphereUnit(b.xyz,direction),uSnapshotParams.y),direction),mix(a.w,b.w,uSnapshotParams.y));
 }
 struct AtmosphereCloudColumn {vec4 mass;vec4 lower;vec4 upper;vec4 altitude;};
-AtmosphereCloudColumn atmosphereCloudColumn(vec3 position) {
+vec2 physicalCloudProfileBounds(vec2 bounds,vec3 label,float iceFraction,float footprintMetres);
+AtmosphereCloudColumn atmosphereCloudColumn(vec3 position,float footprintMetres) {
   AtmosphereCloudColumn column;
   column.mass=atmosphereMass(position);column.lower=atmosphereMaterial(position,0);column.upper=atmosphereMaterial(position,1);
   // Spatial and temporal interpolation happen on altitude*condensate mass.
@@ -135,6 +138,8 @@ AtmosphereCloudColumn atmosphereCloudColumn(vec3 position) {
   vec4 moments=mix(atmospherePlane(tSnapshotAltitude0,normalize(position)),atmospherePlane(tSnapshotAltitude1,normalize(position)),uSnapshotParams.y);
   float lowerMass=column.mass.x+column.lower.w,upperMass=column.mass.y+column.mass.z;
   column.altitude=vec4(lowerMass>0.0?moments.xy/lowerMass:vec2(0.0),upperMass>0.0?moments.zw/upperMass:vec2(0.0));
+  if(lowerMass>0.0)column.altitude.xy=physicalCloudProfileBounds(column.altitude.xy,column.lower.xyz,column.lower.w/lowerMass,footprintMetres);
+  if(upperMass>0.0)column.altitude.zw=physicalCloudProfileBounds(column.altitude.zw,column.upper.xyz,column.mass.z/upperMass,footprintMetres);
   return column;
 }
 float atmosphereDust(vec3 position) {
@@ -278,7 +283,7 @@ float physicalCloudSourceDistance(vec3 origin,vec3 direction,float from,float to
   return point;
 }
 float cloudLayerDensity(vec3 position,float footprintMetres,int layer) {
-  return physicalCloudLayerDensity(position,footprintMetres,layer,atmosphereCloudColumn(position));
+  return physicalCloudLayerDensity(position,footprintMetres,layer,atmosphereCloudColumn(position,footprintMetres));
 }
 #else
 float cloudLayerDensity(vec3 position,float footprintMetres,int layer) {
@@ -317,7 +322,7 @@ float cloudLayerDensity(vec3 position,float footprintMetres,int layer) {
 float cloudExtinction(vec3 position,float footprintMetres) {
 #ifdef PLANET_SKY_SIMULATION
   if(!uCloudEnabled||uSnapshotParams.z<0.5)return 0.0;
-  AtmosphereCloudColumn column=atmosphereCloudColumn(position);
+  AtmosphereCloudColumn column=atmosphereCloudColumn(position,footprintMetres);
   return physicalCloudLayerDensity(position,footprintMetres,0,column)+physicalCloudLayerDensity(position,footprintMetres,1,column);
 #else
   float density=0.0;
@@ -388,10 +393,13 @@ float cloudSunTransmittance(vec3 position,float observerFootprintMetres) {
         float begin=cloudRayEdge(start,end,metric,feature,float(i)/float(count)),finish=cloudRayEdge(start,end,metric,feature,float(i+1)/float(count));
         float stepRay=finish-begin;
         vec3 middle=position+uSunDirection*((begin+finish)*0.5);
-        float phase=cloudWorldPhase(middle,feature);
+        float phase=0.5;
+#ifndef PLANET_SKY_SIMULATION
+        phase=cloudWorldPhase(middle,feature);
+#endif
         vec3 point=position+uSunDirection*mix(begin,finish,phase);
 #ifdef PLANET_SKY_SIMULATION
-        AtmosphereCloudColumn column=atmosphereCloudColumn(point);
+        AtmosphereCloudColumn column=atmosphereCloudColumn(point,observerFootprintMetres);
         opticalDepth+=physicalCloudBinLayer(position,uSunDirection,begin,finish,observerFootprintMetres,layer,column).x;
 #else
         float density=cloudLayerDensity(point,max(observerFootprintMetres,stepRay*uRadius*0.5),layer);
@@ -412,8 +420,9 @@ float hgPhase(float cosine,float g) {
 void integratePhysicalCloudBin(vec3 origin,vec3 direction,float from,float to,float columnRay,bool cloudSegment,
                                float rayleighPhase,float miePhase,float cloudPhase,inout vec3 radiance,inout vec3 transmission) {
   vec3 columnPoint=origin+direction*columnRay;
+  float columnFootprint=2.0*abs(uProjectionInverse[1][1])*columnRay*uRadius/max(1.0,uLowSize.y);
   AtmosphereCloudColumn column;
-  if(cloudSegment)column=atmosphereCloudColumn(columnPoint);
+  if(cloudSegment)column=atmosphereCloudColumn(columnPoint,columnFootprint);
   else{column.mass=atmosphereMass(columnPoint);column.lower=vec4(normalize(columnPoint),0.0);column.upper=column.lower;column.altitude=vec4(0.0);}
   int layerCount=cloudSegment?int(uSnapshotParams.w):0;
   float cuts[6];cuts[0]=from;cuts[1]=to;int count=2;
@@ -438,7 +447,7 @@ void integratePhysicalCloudBin(vec3 origin,vec3 direction,float from,float to,fl
     float altitude=max(0.0,(length(point)-1.0)*uRadius),dustHeight=max(0.01,uRayleighHeightMeters);
     float dust=uAtmosphereEnabled?column.mass.w*${PLANET_ATMOSPHERE_OPTICS.dustExtinctionM2Kg.toFixed(1)}*exp(-altitude/dustHeight)/(dustHeight*max(0.000001,1.0-exp(-uAtmosphereHeight*uRadius/dustHeight))):0.0;
     vec3 dustAlbedo=vec3(0.90,0.72,0.48),extinction=rayleigh+vec3(mie+cloud+dust);
-    vec3 lightPoints[3],lightCoefficients[3];int lightCount=1;
+    vec3 lightPoints[3],lightCoefficients[3];vec4 cloudLighting[2];int lightCount=1;
     lightPoints[0]=point;lightCoefficients[0]=rayleigh*rayleighPhase+vec3(mie*miePhase)+dust*dustAlbedo*hgPhase(dot(direction,uSunDirection),0.7);
     float daylight=smoothstep(-0.16,0.2,dot(normalize(point),uSunDirection));vec3 source=dust*dustAlbedo*(uSunIntensity*0.012*daylight);
     float cellOptical=max(0.0000001,(extinction.r+extinction.g+extinction.b)*lengthMetres/3.0);
@@ -448,19 +457,22 @@ void integratePhysicalCloudBin(vec3 origin,vec3 direction,float from,float to,fl
       if(!planetShadows(massPoint)){
         float muSun=dot(radial,uSunDirection);muSun=muSun<0.0?min(-0.0001,muSun):max(0.0001,muSun);
         float slope=-dot(radial,direction)/muSun;
-        float fraction=cloudOpticalSourceFraction(cellOptical,slope*optical.x/cellOptical);
+        float effectiveSlope=slope*optical.x/cellOptical;
+        float fraction=cloudOpticalSourceFraction(cellOptical,effectiveSlope);
         float sourceRay=physicalCloudSourceDistance(origin,direction,begin,end,layer,column,fraction);
-        lightPoints[lightCount]=origin+direction*sourceRay;lightCoefficients[lightCount]=vec3(cloudPhase*optical.x/max(0.000001,lengthMetres));lightCount++;
+        float columnOptical=physicalCloudOptical(layer,column),iceOptical=(layer==0?column.lower.w:column.mass.z)*${PLANET_ATMOSPHERE_OPTICS.iceExtinctionM2Kg.toFixed(2)};
+        cloudLighting[lightCount-1]=vec4(columnOptical,effectiveSlope,cellOptical*fraction,iceOptical/max(1e-12,columnOptical));
+        lightPoints[lightCount]=origin+direction*sourceRay;lightCoefficients[lightCount]=vec3(optical.x/max(0.000001,lengthMetres));lightCount++;
       }
-      float cloudDaylight=smoothstep(-0.16,0.2,dot(radial,uSunDirection));
-      source+=vec3(0.78,0.87,1.0)*(uSunIntensity*0.035*cloudDaylight)*(optical.x/max(0.000001,lengthMetres));
     }
     // One data-dependent lighting loop gives the driver one shadow callsite,
     // rather than inlining the full atlas/light marcher for every source.
     for(int light=0;light<lightCount;light++){
-      float visibility=light>0||cloudOptical>0.0||uSkyEffects.y>0.0?cloudSunTransmittance(lightPoints[light],footprint):1.0;
+      float visibility=light>0||cloudOptical>0.0||uSkyEffects.y>0.0?cloudSunTransmittance(lightPoints[light],columnFootprint):1.0;
       if(light==0&&cloudOptical<=0.0)visibility=mix(1.0,visibility,uSkyEffects.y);
-      source+=sunTransmittance(lightPoints[light])*visibility*uSunIntensity*lightCoefficients[light];
+      float response=visibility;
+      if(light>0){vec4 data=cloudLighting[light-1];vec3 radial=normalize(lightPoints[light]);response=cloudSlabScatteringResponse(visibility,cloudPhase,data.x,cellOptical,data.y,data.z,dot(radial,uSunDirection),-dot(radial,direction),data.w);}
+      source+=sunTransmittance(lightPoints[light])*response*uSunIntensity*lightCoefficients[light];
     }
     vec3 segmentTransmission=exp(-min(vec3(80.0),extinction*lengthMetres));
     radiance+=transmission*source*(vec3(1.0)-segmentTransmission)/max(extinction,vec3(0.000000001));transmission*=segmentTransmission;
@@ -483,7 +495,10 @@ void integrateSegment(vec3 origin,vec3 direction,float from,float to,int request
     float end=cloudSegment?cloudRayEdge(from,to,metric,feature,float(i+1)/float(count)):mix(from,to,float(i+1)/float(count));
     float stepMetres=(end-begin)*uRadius;
     vec3 middle=origin+direction*((begin+end)*0.5);
-    float phase=cloudSegment?cloudWorldPhase(middle,feature):0.5;
+    float phase=0.5;
+#ifndef PLANET_SKY_SIMULATION
+    phase=cloudSegment?cloudWorldPhase(middle,feature):0.5;
+#endif
     float sampleRay=mix(begin,end,phase);
     vec3 point=origin+direction*sampleRay;
 #ifdef PLANET_SKY_SIMULATION
@@ -502,16 +517,14 @@ void integrateSegment(vec3 origin,vec3 direction,float from,float to,int request
     vec3 extinction=rayleigh+vec3(mie+cloud+dust);
     float shadow=cloudSegment||uSkyEffects.y>0.0?cloudSunTransmittance(point,max(pixelFootprint,cloudSegment?stepMetres*0.5:0.0)):1.0;
     if(!cloudSegment)shadow=mix(1.0,shadow,uSkyEffects.y);
-    vec3 incoming=sunTransmittance(point)*shadow*uSunIntensity;
+    vec3 solar=sunTransmittance(point)*uSunIntensity,incoming=solar*shadow;
     vec3 source=incoming*(rayleigh*rayleighPhase+vec3(mie*miePhase)+dust*dustAlbedo*hgPhase(dot(direction,uSunDirection),0.7));
 #ifndef PLANET_SKY_SIMULATION
-    source+=incoming*(cloud*cloudPhase);
+    source+=solar*(cloud*cloudScatteringResponse(shadow,cloudPhase,cloud*uNoiseShapeScale,0.0,0.0,0.0));
 #endif
     float daylight=smoothstep(-0.16,0.2,dot(normalize(point),uSunDirection));
-    // Bounded ambient multiple-scattering fill keeps thick shaded cloud faces
-    // legible without making the night hemisphere glow like daylight.
-    float cloudDaylight=smoothstep(-0.16,0.2,dot(normalize(cloudPoint),uSunDirection));
-    source+=vec3(0.78,0.87,1.0)*(cloud*uSunIntensity*0.035*cloudDaylight);
+    // Cloud indirect light comes from the bounded solar scattering response;
+    // there is no separate unshadowed blue/emissive fill on cloud surfaces.
     source+=dust*dustAlbedo*(uSunIntensity*0.012*daylight);
     vec3 segmentTransmission=exp(-min(vec3(80.0),extinction*stepMetres));
     vec3 integral=(vec3(1.0)-segmentTransmission)/max(extinction,vec3(0.000000001));

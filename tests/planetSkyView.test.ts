@@ -113,6 +113,7 @@ describe('planet sky view lifecycle',()=>{
     expect(uniforms.uCondensationThreshold.value).toBe(prepared.circulation.condensationThreshold);
     for(let index=0;index<weather.cyclones.length;index++)expect(uniforms.uStormProperties.value[index].y).toBeCloseTo((weather.cyclones[index].phase*.15%(Math.PI*2))/.15);
     const shift=-3*timeSeconds/(compiled.recipe.clouds.shapeScaleMeters*32);expect(uniforms.uShapeWindUV.value.x).toBeCloseTo(shift-Math.floor(shift));
+    const reliefShift=-3*timeSeconds/(compiled.recipe.clouds.shapeScaleMeters*32*2);expect(uniforms.uReliefWindUV.value.x).toBeCloseTo(reliefShift-Math.floor(reliefShift));
     expect(view.inspection().transport).toMatchObject({cloudPrimarySamples:20,airPrimarySamples:12,maxCloudIntervals:6,maxCloudLightSamples:18});
     expect(()=>new PlanetSkyView({...prepared,circulation:{...prepared.circulation,condensationThreshold:NaN}})).toThrow(/threshold/);
   });
@@ -213,6 +214,8 @@ describe('planet sky view lifecycle',()=>{
     expect(view.inspection()).toMatchObject({cloudLayerSource:'physical-snapshot',cloudLayers:{lower:{minBaseMetersAsl:1000,maxTopMetersAsl:7000},upper:{minBaseMetersAsl:4500,maxTopMetersAsl:10000}},simulation:{cloudBoundsMeters:[1000,7000,4500,10000],atmosphereHeightMeters:bake.recipe.atmosphere.heightMeters}});
     expect(resources.uniforms.tSnapshotAltitude0.value.image.data).toBe(a.cloudAltitudeMoments);expect(resources.uniforms.tSnapshotAltitude1.value.image.data).toBe(b.cloudAltitudeMoments);
     expect(view.sampleWeather([0,0,1],15)).toMatchObject({lowerBaseMetersAsl:3500,lowerTopMetersAsl:4500,upperBaseMetersAsl:6750,upperTopMetersAsl:7750});
+    const rendered=view.sampleWeather([0,0,1],15)!;expect(rendered.lowerProfileTopMetersAsl).toBeGreaterThanOrEqual(4080);expect(rendered.lowerProfileTopMetersAsl).toBeLessThanOrEqual(4500);
+    expect(view.sampleWeather([0,0,1],1000)).toEqual(view.sampleWeather([0,0,1],20));
     view.setWeatherSnapshots(b,state(3));view.stageWeather(r);expect(view.sampleWeather([0,0,1],15)?.lowerBaseMetersAsl).toBe(3500);
     expect(resources.uniforms.tSnapshotCondensate0.value.image.data).toBe(a.condensate);expect(resources.uniforms.tSnapshotCondensate1.value.image.data).toBe(b.condensate);expect(()=>view.setWeatherSnapshots(a)).toThrow(/Stale/);
     const changed={...bake.recipe,atmosphere:{...bake.recipe.atmosphere,heightMeters:bake.recipe.atmosphere.heightMeters*1.1}};

@@ -52,10 +52,11 @@ it('allows deterministic biome and population queries through the planet facade 
  if(!Number.isFinite(landing.heightMeters)||population.instances.length>25)throw Error('Planet query failed');\n`);
  expect(describeGame(buildLogic(root)).info).toBeTruthy();
 });
-it('allows native generated planet population, water and WebGPU sky views through the game boundary',()=>{
+it('allows native generated planet population, water and both sky backends through the game boundary',()=>{
  const root=project('blank'),view=join(root,'src/game/view.ts');
  writeFileSync(view,readFileSync(view,'utf8')+`\nexport {PlanetPopulationView,createPreparedPlanetPopulation,bakePlanetPopulation} from '../sandbox/planetPopulationView.ts';
  export {PlanetWaterView,compilePlanetWater} from '../sandbox/planetWaterView.ts';
+ export {PlanetSkyView} from '../sandbox/planetSkyView.ts';
  export {PlanetSkyWebGPUView} from '../sandbox/planetSkyWebGPU.ts';
  export {preparePlanetSurfacePatch,planetSurfaceMaterialRecipes} from '../shared/planetSurface.ts';\n`);
  expect(buildView(root).length).toBeGreaterThan(100);

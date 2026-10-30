@@ -202,6 +202,9 @@ describe('native WebGPU planet sky',()=>{
     for(let pass=0;pass<3;pass++)view.render(asRenderer(r),scene,c,frame);expect(view.sampleWeather([0,1,0],10)).toBeUndefined();
     view.render(asRenderer(r),scene,c,frame);const column=view.sampleWeather([0,1,0],10)!;
     expect(column.surfaceHeightMetersAsl).toBe(100);expect(column.lowerBaseMetersAsl).toBeCloseTo(1000,3);expect(column.lowerTopMetersAsl).toBeCloseTo(3000,3);expect(column.upperBaseMetersAsl).toBeCloseTo(2000,3);expect(column.upperTopMetersAsl).toBeCloseTo(4500,3);
+    const lowerMinimum=.58+.22*column.iceLowerKgM2/(column.liquidLowerKgM2+column.iceLowerKgM2),upperMinimum=.58+.22*column.iceUpperKgM2/(column.liquidUpperKgM2+column.iceUpperKgM2);
+    expect(column.lowerProfileTopMetersAsl).toBeGreaterThanOrEqual(column.lowerBaseMetersAsl+(column.lowerTopMetersAsl-column.lowerBaseMetersAsl)*lowerMinimum);expect(column.lowerProfileTopMetersAsl).toBeLessThanOrEqual(column.lowerTopMetersAsl);
+    expect(column.upperProfileTopMetersAsl).toBeGreaterThanOrEqual(column.upperBaseMetersAsl+(column.upperTopMetersAsl-column.upperBaseMetersAsl)*upperMinimum);expect(column.upperProfileTopMetersAsl).toBeLessThanOrEqual(column.upperTopMetersAsl);
     const resources=view as unknown as {uniforms:{fogLayer:{value:Vector4};cumulusLayer:{value:Vector4};cirrusLayer:{value:Vector4}};snapshotNodes:Record<string,{value:DataTexture}>};
     expect(resources.uniforms.fogLayer.value.toArray()).toEqual([1000/radius,2000/radius,1,1]);expect(resources.uniforms.cumulusLayer.value.toArray()).toEqual([2000/radius,2500/radius,1,1]);expect(resources.uniforms.cirrusLayer.value.w).toBe(0);
     expect(view.inspection().cloudLayers).toBe(2);
@@ -214,9 +217,34 @@ describe('native WebGPU planet sky',()=>{
     const view=make(),changed={...bake.recipe,atmosphere:{...bake.recipe.atmosphere,heightMeters:bake.recipe.atmosphere.heightMeters+100}};
     view.enableSimulation();expect(()=>view.setRecipe(changed)).toThrow(/height/i);view.clearWeatherSnapshots();expect(()=>view.setRecipe(changed)).not.toThrow();
   });
+  it('holds all material wind and reported profile relief at the uploaded physical clock',()=>{
+    const view=make(),r=new Renderer(),scene=new Scene(),c=camera(),wind=[13,-7,5] as const;
+    view.setRecipe({...bake.recipe,clouds:{...bake.recipe.clouds,windMetersPerSecond:wind}});view.setWeatherSnapshots(snapshot(1,10));
+    for(let pass=0;pass<4;pass++)view.render(asRenderer(r),scene,c,{...frame,timeSeconds:500});
+    const resources=view as unknown as {uniforms:{shapeWind:{value:Vector3};detailWind:{value:Vector3};reliefWind:{value:Vector3}}};
+    for(const [key,scale]of [['shapeWind',bake.recipe.clouds.shapeScaleMeters],['detailWind',bake.recipe.clouds.detailScaleMeters],['reliefWind',bake.recipe.clouds.shapeScaleMeters*2]] as const){
+      expect(resources.uniforms[key].value.toArray()).toEqual(wind.map(value=>{const offset=-value*10/(scale*32);return offset-Math.floor(offset);}));
+    }
+    const held=view.sampleWeather([0,1,0],10)!,future=view.sampleWeather([0,1,0],500)!;
+    expect(future.lowerProfileTopMetersAsl).toBe(held.lowerProfileTopMetersAsl);expect(future.lowerTopMetersAsl).toBeCloseTo(3000,3);expect(future.upperProfileTopMetersAsl).toBe(0);
+    const materialVersion=(view as unknown as {volumeMaterial:{version:number}}).volumeMaterial.version;
+    view.render(asRenderer(r),scene,c,{...frame,position:[radius+500,0,0],timeSeconds:500});expect(view.sampleWeather([0,1,0],500)!.lowerProfileTopMetersAsl).toBe(held.lowerProfileTopMetersAsl);
+    expect((view as unknown as {volumeMaterial:{version:number}}).volumeMaterial.version).toBe(materialVersion);
+  });
 });
 
 describe('native WGSL source contract',()=>{
+  it('keeps the reduced-extinction cloud response free of additional GPU queries',()=>{
+    const shader=skyShaders.planetSkyWebGPUVolumeWGSL;
+    for(const name of ['skyCloudReducedVisibility','skyCloudScatteringResponse','skyCloudSlabScatteringResponse']){
+      const start=shader.indexOf(`fn ${name}(`),finish=shader.indexOf('\nfn ',start+1);
+      expect(start).toBeGreaterThan(0);expect(finish).toBeGreaterThan(start);
+      const response=shader.slice(start,finish);
+      // Multiple scattering reuses the single-scattering visibility; adding a
+      // texture or solar marcher here would multiply every cloud lighting cost.
+      expect(response).not.toMatch(/\b(?:texture\w*|skySun|skyCloudSun|skySnapshot\w*)\s*\(/);
+    }
+  });
   it('keeps shader declarations clear of WGSL keywords and reserved identifiers',()=>{
     // WGSL rejects these even when a local name would be legal in TypeScript
     // or GLSL. Scan the final strings, including shared weather helper code.

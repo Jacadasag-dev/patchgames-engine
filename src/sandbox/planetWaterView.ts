@@ -1,6 +1,6 @@
 /** Camera-relative planetary ocean presentation using the engine's water wave
  * and weather profiles. This is not a spherical WaterWorld fluid solver. */
-import {BufferGeometry,Color,DoubleSide,DynamicDrawUsage,Float32BufferAttribute,Group,Mesh,MeshPhysicalMaterial,SphereGeometry,type Texture} from 'three';
+import {BufferGeometry,Color,DataTexture,DoubleSide,DynamicDrawUsage,Float32BufferAttribute,Group,LinearFilter,Mesh,MeshPhysicalMaterial,NoColorSpace,RGBAFormat,SphereGeometry,UnsignedByteType,type Texture} from 'three';
 import type {CompiledPlanet,PlanetVector} from '../shared/planet.ts';
 import {compileWater,prepareWaterWaves,samplePreparedWaterWaveSurface,waterAppearance,type PreparedWaterWaves,type WaterAppearance,type WaterConditions,type WaterLocation,type WaterManifest,type WaterRecipe,type WaterWavePhase} from './water.ts';
 
@@ -95,6 +95,8 @@ export class PlanetWaterView {
   readonly root=new Group();readonly planet:CompiledPlanet;readonly water:WaterManifest;
   private readonly material:MeshPhysicalMaterial;private readonly proxyMaterial:MeshPhysicalMaterial;private readonly proxy:Mesh;
   private readonly farProxySegments:number;private readonly farProxyError:number;
+  private readonly roughnessTexture:DataTexture;private readonly roughnessPixels:Uint8Array;
+  private slopeVariance=0;private filteredRoughness=0;private roughnessBase=-1;private roughnessVariance=-1;
   private readonly banks:Bank[];private readonly radii:number[];private readonly sides:number;
   private readonly nearCount:number;private readonly vertexCount:number;private readonly detailRadius:number;
   private readonly preparationBudget:number;private readonly preparationTimeBudget:number;private readonly interval:number;
@@ -122,10 +124,17 @@ export class PlanetWaterView {
     const start=this.radii.at(-1)!/this.seaRadius;
     for(let i=1;i<farRings;i++)this.radii.push(this.seaRadius*start*(Math.PI/start)**(i/farRings));
     this.nearCount=1+(nearRings+4)*this.sides;this.vertexCount=2+this.radii.length*this.sides;
-    this.material=new MeshPhysicalMaterial({color:0xffffff,vertexColors:true,roughness:this.appearance.roughness,metalness:0,ior:1.333,
-      specularIntensity:1,clearcoat:.6,clearcoatRoughness:this.appearance.roughness*.7,side:DoubleSide,envMap:options.envMap??null});
+    this.roughnessPixels=new Uint8Array((this.radii.length+2)*4);
+    this.roughnessTexture=new DataTexture(this.roughnessPixels,1,this.radii.length+2,RGBAFormat,UnsignedByteType);
+    this.roughnessTexture.name='PlanetWater:unresolved-wave-roughness';this.roughnessTexture.colorSpace=NoColorSpace;
+    this.roughnessTexture.minFilter=this.roughnessTexture.magFilter=LinearFilter;this.roughnessTexture.generateMipmaps=false;
+    // Water is one dielectric interface. A second clearcoat layer added a
+    // varnish-like lobe with a different IOR, especially on the orbital sphere.
+    this.material=new MeshPhysicalMaterial({color:0xffffff,vertexColors:true,roughness:1,roughnessMap:this.roughnessTexture,metalness:0,ior:1.333,
+      specularIntensity:1,clearcoat:0,side:DoubleSide,envMap:options.envMap??null});
     this.material.name='PlanetWater:engine-physical-water';this.root.name='PlanetWater';
-    this.proxyMaterial=this.material.clone();this.proxyMaterial.vertexColors=false;this.proxyMaterial.color.setRGB(...this.appearance.color);
+    this.proxyMaterial=this.material.clone();this.proxyMaterial.vertexColors=false;this.proxyMaterial.roughnessMap=null;this.proxyMaterial.color.setRGB(...this.appearance.color);
+    this.updateRoughness(prepareWaterWaves(this.water,0,this.appearance));
     this.proxyMaterial.name='PlanetWater:engine-physical-far-water';
     this.proxy=new Mesh(new SphereGeometry(1,this.farProxySegments,this.farProxySegments/2),this.proxyMaterial);this.proxy.name='PlanetWater:initial-far-proxy';this.proxy.scale.setScalar(this.seaRadius);this.proxy.frustumCulled=false;
     // The former 96x48 proxy sagged almost 7km into an Earth-sized ocean,
@@ -139,10 +148,11 @@ export class PlanetWaterView {
   private bank():Bank {
     const geometry=new BufferGeometry(),count=this.vertexCount;
     for(const name of ['position','normal','color'])geometry.setAttribute(name,new Float32BufferAttribute(new Float32Array(count*3),3).setUsage(DynamicDrawUsage));
-    const uv=new Float32Array(count*2),indices:number[]=[];
+    const uv=new Float32Array(count*2),indices:number[]=[],rows=this.radii.length+2;
+    uv[1]=.5/rows;uv[(count-1)*2+1]=(rows-.5)/rows;
     for(let ring=0;ring<this.radii.length;ring++)for(let side=0;side<this.sides;side++){
       const a=1+ring*this.sides+side,b=1+ring*this.sides+(side+1)%this.sides;
-      uv[a*2]=side/this.sides;uv[a*2+1]=this.radii[ring]/(Math.PI*this.seaRadius);
+      uv[a*2]=side/this.sides;uv[a*2+1]=(ring+1.5)/rows;
       if(ring===0)indices.push(0,a,b);
       else{const c=a-this.sides,d=b-this.sides;indices.push(c,a,b,c,b,d);}
       if(ring===this.radii.length-1)indices.push(a,count-1,b);
@@ -179,6 +189,25 @@ export class PlanetWaterView {
     }
     this.preparationCpuMs=performance.now()-started;
   }
+  private updateRoughness(prepared:PreparedWaterWaves):void {
+    // Each sine wave has mean squared slope (amplitude*k)^2/2. The radial
+    // blend is a convex combination of planar charts; this is a conservative
+    // representative width, not an exact GGX slope moment (its tails diverge).
+    const variance=prepared.components.reduce((sum,component)=>sum+.5*(component.amplitude*component.k)**2,0),base=this.appearance.roughness;
+    this.slopeVariance=variance;
+    const filtered=(resolved:number)=>Math.min(1,Math.pow(base**4+variance*(1-resolved*resolved),.25));
+    this.filteredRoughness=filtered(0);this.proxyMaterial.roughness=this.filteredRoughness;
+    if(base===this.roughnessBase&&variance===this.roughnessVariance)return;
+    this.roughnessBase=base;this.roughnessVariance=variance;
+    let changed=false;
+    for(let row=0;row<this.radii.length+2;row++){
+      const distance=row===0?0:row===this.radii.length+1?Math.PI*this.seaRadius:this.radii[row-1];
+      const resolved=1-clamp((distance-this.detailRadius)/(this.detailRadius*3));
+      const value=Math.round(filtered(resolved)*255),offset=row*4;
+      if(this.roughnessPixels[offset+1]!==value||this.roughnessPixels[offset+3]!==255){this.roughnessPixels.set([255,value,255,255],offset);changed=true;}
+    }
+    if(changed)this.roughnessTexture.needsUpdate=true;
+  }
   private advance(time:number,conditions:WaterConditions):void {
     const dt=this.lastTime===undefined?Infinity:Math.max(0,time-this.lastTime);if(!this.refresh&&dt<this.interval&&time>=this.lastTime!)return;this.refresh=false;
     const target=waterAppearance(this.water,conditions),alpha=1-Math.exp(-dt/.6);
@@ -194,15 +223,13 @@ export class PlanetWaterView {
       this.phases.temporal[i]-=phaseDt*k*this.appearance.speed/(1+i*.3);
       this.phases.currentX[i]+=phaseDt*k*this.appearance.currentSpeed*Math.cos(angle);this.phases.currentZ[i]+=phaseDt*k*this.appearance.currentSpeed*Math.sin(angle);
     }
-    this.lastTime=time;this.material.roughness=this.appearance.roughness;this.material.clearcoatRoughness=this.appearance.roughness*.7;
-    this.proxyMaterial.roughness=this.material.roughness;this.proxyMaterial.clearcoatRoughness=this.material.clearcoatRoughness;
+    this.lastTime=time;const prepared=prepareWaterWaves(this.water,time,this.appearance,this.phases);this.updateRoughness(prepared);
     if(colorChanged){
       this.proxyMaterial.color.setRGB(...this.appearance.color);
       for(const bank of this.banks)if(bank.ready){const colors=bank.geometry.getAttribute('color') as Float32BufferAttribute;
         for(let i=this.nearCount;i<this.vertexCount;i++)colors.setXYZ(i,...this.appearance.color);colors.clearUpdateRanges();colors.addUpdateRange(this.nearCount*3,(this.vertexCount-this.nearCount)*3);colors.needsUpdate=true;}
     }
     if(this.active<0||!this.nearVisible)return;const bank=this.banks[this.active],positions=bank.geometry.getAttribute('position'),normals=bank.geometry.getAttribute('normal'),colors=bank.geometry.getAttribute('color');
-    const prepared=prepareWaterWaves(this.water,time,this.appearance,this.phases);
     for(let i=0;i<this.nearCount;i++){
       const n:Vec=[bank.directions[i*3],bank.directions[i*3+1],bank.directions[i*3+2]],sample=wave(this.planet,n,prepared,bank.depths[i]);
       const ring=i===0?0:Math.floor((i-1)/this.sides),distance=i===0?0:this.radii[ring],blend=1-clamp((distance-this.detailRadius)/(this.detailRadius*3));
@@ -246,10 +273,12 @@ export class PlanetWaterView {
       preparing:this.pending>=0,preparedThisFrame:this.preparedThisFrame,preparationBudget:this.preparationBudget,preparationTimeBudgetMs:this.preparationTimeBudget,swaps:this.swaps,updates:this.updates,
       updateCpuMs:this.updateCpuMs,preparationCpuMs:this.preparationCpuMs,origin:[...this.origin],disposed:this.disposed,
       physicsBodies:0,fluidCells:0,waveSource:'engine-water' as const,farRepresentation:'sea-level physical proxy' as const,
+      surfaceRoughness:this.appearance.roughness,farRoughness:this.filteredRoughness,unresolvedSlopeVariance:this.slopeVariance,roughnessTextureBytes:this.roughnessPixels.byteLength,
+      reflectionModel:'single water dielectric; unresolved engine waves broaden the GGX core' as const,
       farProxySegments:this.farProxySegments,farProxyTriangles:(this.proxy.geometry.index?.count??0)/3,farProxyMaxInwardErrorMeters:this.farProxyError,
       farProxyGeometryBytes:Object.values(this.proxy.geometry.attributes).reduce((bytes,attribute)=>bytes+attribute.array.byteLength,0)+(this.proxy.geometry.index?.array.byteLength??0)};
   }
   dispose():void {
-    if(this.disposed)return;this.disposed=true;for(const bank of this.banks)bank.geometry.dispose();this.proxy.geometry.dispose();this.material.dispose();this.proxyMaterial.dispose();this.root.clear();this.root.removeFromParent();
+    if(this.disposed)return;this.disposed=true;for(const bank of this.banks)bank.geometry.dispose();this.proxy.geometry.dispose();this.material.dispose();this.proxyMaterial.dispose();this.roughnessTexture.dispose();this.root.clear();this.root.removeFromParent();
   }
 }

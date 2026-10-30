@@ -3,10 +3,11 @@ import {NodeMaterial,RenderPipeline,RenderTarget,type ArrayNode,type Node,type W
 import {element,outputStruct,positionLocal,renderOutput,sampler,texture,texture3D,uniform,uv,vec4,wgslFn} from 'three/tsl';
 import {compilePlanetSky,type CompiledPlanetSky,type PlanetSkyBake,type PlanetSkyRecipe} from '../shared/planetSky.ts';
 import {compilePlanet,type PlanetVector} from '../shared/planet.ts';
-import type {PlanetAtmosphereRenderColumn,PlanetAtmosphereSnapshot} from '../shared/planetAtmosphereSnapshot.ts';
+import type {PlanetAtmosphereSnapshot} from '../shared/planetAtmosphereSnapshot.ts';
 import type {PlanetSkyDiagnostic,PlanetSkyFrame} from './planetSkyView.ts';
 import {createPlanetSkyNoiseMipmaps} from './planetSkyWebGPUMips.ts';
 import {PlanetAtmosphereSnapshotBuffer} from './planetAtmosphereSnapshotBuffer.ts';
+import {samplePlanetCloudProfile,type PlanetCloudRenderedColumn} from './planetSkySampling.ts';
 import {planetSkyWebGPUCompositeWGSL,planetSkyWebGPUPaletteWGSL,planetSkyWebGPUVolumeWGSL} from './planetSkyWebGPUShader.ts';
 
 const diagnosticModes:readonly PlanetSkyDiagnostic[]=['composite','scene','radiance','transmittance','depth-rejection','unweighted','nearest','cloud-shadow'];
@@ -14,7 +15,7 @@ const vector=(v:PlanetVector)=>Array.isArray(v)&&v.length===3&&v.every(n=>typeof
 const fract=(n:number)=>n-Math.floor(n);
 function createUniforms(){return{
   projectionInverse:uniform(new Matrix4()),cameraRotation:uniform(new Matrix4()),cameraRadius:uniform(new Vector3()),
-  sunDirection:uniform(new Vector3()),rayleigh:uniform(new Vector3()),shapeWind:uniform(new Vector3()),detailWind:uniform(new Vector3()),
+  sunDirection:uniform(new Vector3()),rayleigh:uniform(new Vector3()),shapeWind:uniform(new Vector3()),detailWind:uniform(new Vector3()),reliefWind:uniform(new Vector3()),
   geometry:uniform(new Vector4()),atmosphere:uniform(new Vector4()),lighting:uniform(new Vector4()),clouds:uniform(new Vector4()),
   details:uniform(new Vector4()),steps:uniform(new Vector4()),dimensions:uniform(new Vector4()),style:uniform(new Vector4()),
   celestial:uniform(new Vector4()),stars:uniform(new Vector4()),clock:uniform(new Vector4()),effects:uniform(new Vector4()),
@@ -141,8 +142,9 @@ export class PlanetSkyWebGPUView {
   }
   enableSimulation():void{if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.enable();}
   clearWeatherSnapshots():void{if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.clear();}
-  sampleWeather(direction:PlanetVector,timeSeconds:number):PlanetAtmosphereRenderColumn|undefined{
-    if(this.disposed)throw Error('Planet sky view is disposed.');return this.snapshotBuffer.sample(direction,timeSeconds);
+  sampleWeather(direction:PlanetVector,timeSeconds:number):PlanetCloudRenderedColumn|undefined{
+    if(this.disposed)throw Error('Planet sky view is disposed.');const frame=this.snapshotBuffer.frame(timeSeconds),column=this.snapshotBuffer.sample(direction,timeSeconds);
+    return column?samplePlanetCloudProfile(column,{noise:{size:32,data:this.noiseMips[0].data},radiusMeters:this.compiled.radiusMeters,shapeScaleMeters:this.compiled.recipe.clouds.shapeScaleMeters,timeSeconds:frame.timeSeconds,windMetersPerSecond:this.compiled.recipe.clouds.windMetersPerSecond}):undefined;
   }
   /** Stage before sampling the shared physical clock when the host owns pause
    * and simulation timing. Pass weatherPrepared:true to render afterwards. */
@@ -227,7 +229,8 @@ export class PlanetSkyWebGPUView {
       // rather than the old decorative spiral's phase, to avoid 54° jumps.
       properties[offset]=storm.spin;properties[offset+1]=((storm.phase*.15)%(Math.PI*2))/.15;properties[offset+2]=storm.strength;properties[offset+3]=storm.type==='tropical'?0:1;
     }
-    for(const [name,scale] of [['shapeWind',r.clouds.shapeScaleMeters],['detailWind',r.clouds.detailScaleMeters]] as const)u[name].value.set(fract(-wind[0]*frame.timeSeconds/(scale*32)),fract(-wind[1]*frame.timeSeconds/(scale*32)),fract(-wind[2]*frame.timeSeconds/(scale*32)));
+    const materialTime=snapshotFrame.enabled?snapshotFrame.timeSeconds:frame.timeSeconds;
+    for(const [name,scale] of [['shapeWind',r.clouds.shapeScaleMeters],['detailWind',r.clouds.detailScaleMeters],['reliefWind',r.clouds.shapeScaleMeters*2]] as const)u[name].value.set(fract(-wind[0]*materialTime/(scale*32)),fract(-wind[1]*materialTime/(scale*32)),fract(-wind[2]*materialTime/(scale*32)));
     const autoClear=renderer.autoClear,scissorTest=renderer.getScissorTest(),toneMapping=renderer.toneMapping,outputColorSpace=renderer.outputColorSpace,xrEnabled=renderer.xr.enabled,mrt=renderer.getMRT(),clearAlpha=renderer.getClearAlpha(),start=performance.now();
     renderer.getClearColor(this.clearColor);
     try{
@@ -258,7 +261,7 @@ export class PlanetSkyWebGPUView {
       captureWidth:this.width,captureHeight:this.height,volumeWidth:this.lowWidth,volumeHeight:this.lowHeight,volumePixels:this.lowWidth*this.lowHeight,
       noiseMipLevels:this.noiseMips.length,filteredNoiseBytes:this.noiseMips.reduce((sum,mip)=>sum+mip.data.byteLength,0),
       cloudLayers:simulation.enabled?2:3,cloudLayerSource:simulation.enabled?'physical-snapshot':'authored',physicalCloudBoundsMeters,authoredCloudLayers:this.compiled.recipe.clouds.layers,circulationAtlasBytes:this.circulationBytes,condensationThreshold:this.condensationThreshold,rotationScale:this.uniforms.weatherParams.value.w,limits:{...this.compiled.quality},volumeDataBytes:32**3*5+this.circulationBytes,estimatedTargetBytes:this.width*this.height*12+this.lowWidth*this.lowHeight*16,
-      transport:{cloudPrimarySamples:this.compiled.quality.cloudSteps,airPrimarySamples:this.compiled.quality.atmosphereSteps,maxCloudIntervals:6,maxCloudLightSamples:6*this.compiled.quality.cloudLightSteps,quadrature:'World-phase logarithmic feature metric; distant intervals use filtered 3D density'},
+      transport:{cloudPrimarySamples:this.compiled.quality.cloudSteps,airPrimarySamples:this.compiled.quality.atmosphereSteps,maxCloudIntervals:6,maxCloudLightSamples:6*this.compiled.quality.cloudLightSteps,quadrature:simulation.enabled?'Coherent midpoint columns and normalized local-volume integration':'World-phase logarithmic feature metric; distant intervals use filtered 3D density'},
       simulation,
       byteMetric:'Estimated attachment payload; excludes driver allocation, MSAA, staging and other scene resources',sceneTriangles:this.sceneTriangles,sceneDrawCalls:this.sceneDrawCalls,renderSubmissionCpuMs:this.renderCpuMs,disposed:this.disposed};
   }

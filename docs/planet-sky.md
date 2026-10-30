@@ -195,11 +195,60 @@ are not implemented.
 
 ## Cloud light, shadows and shafts
 
+Physical cloud profiles also reconstruct subgrid top relief inside their
+diagnosed altitude envelope. Two rounded billow scales follow the
+advected material column and physical clock. Their lattice spacings are twice
+the recipe shape scale and one quarter of that spacing (about 3 km and 750 m
+for Earth defaults); ice favors the finer structure. The base remains fixed; the
+effective top occupies 58–100% of the liquid-cloud envelope thickness, with
+the minimum increasing to 80% for ice. Every profile is divided by its
+effective thickness, preserving column optical mass. View rays, sunlight
+shadows and optical source integration use the same support; no separate
+lighting normal or displaced shading-only surface is introduced. The underlying
+field is independent of the camera and quality preset. Its optical
+representation uses continuous trilinear noise mips when the observer footprint
+exceeds either billow scale; viewing and solar integration use the same
+representative footprint. Each filtered profile remains inside its diagnosed
+envelope and retains the same normalized column mass. This is unresolved visual
+structure, not an additional convective simulation: a thin ice envelope stays
+thin rather than turning into a kilometre-deep cumulus tower.
+
+`sky.sampleWeather(direction,timeSeconds)` retains diagnosed envelope heights
+and adds `lowerProfileTopMetersAsl` and `upperProfileTopMetersAsl` for rendered
+LOD0 point support. The query uses the uploaded pair and held clock, including while
+paused; hosts should use these profile tops for cloud-relative inspection
+cameras. It does not change simulation mass, coverage or snapshot bounds.
+
 Cloud sunlight uses bounded samples through the occupied layers, with forward
-scattering for bright lit edges, self-extinction and a daylight ambient fill.
+scattering for bright lit edges and self-extinction. Physical clouds blend
+from single scattering to a visible-light hemispheric slab escape closure.
+Its conservative two-stream limit uses transport depth `(1-g)*columnTau`,
+reflectance `transport/(1+transport)` and transmittance `1/(1+transport)`;
+visible asymmetry is 0.85 for liquid and 0.75 for ice. The blend probability
+`1-exp(-columnTau)` leaves thin-cloud indirect light second-order. Reflected,
+diffusely transmitted and retained single-scattering budgets sum to at most
+the incident energy. A sunlit opaque deck approaches high diffuse reflectance
+with radiance `irradiance*abs(muSun)*reflectance/pi`, rather than being capped
+by an isotropic 4π phase lobe and appearing dark grey.
+
+The reduced-depth escape kernel is normalized over the complete viewed
+column and averaged with the analytic optical source law. Constant-angle
+illumination is therefore stable under ray subdivision. Real-time procedural
+art clouds retain a bounded local diffuse-tail approximation. Both paths
+reuse the existing solar shadow query, inherit atmospheric RGB attenuation,
+and have no unoccluded blue ambient or emissive fill. These remain gray
+plane-column approximations: thick-edge phase structure, spatially varying
+illumination and full multiple scattering are not solved exactly. The material
+and approximate lighting separation follows the approach discussed in
+[Hillaire's Frostbite cloud-rendering course notes](https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/s2016-pbs-frostbite-sky-clouds-new.pdf).
+For measured satellite radiance context, see
+[Tornow et al.'s comparison of two-stream cloud-albedo closures](https://amt.copernicus.org/articles/13/3909/2020/).
+
 The same cloud attenuation modulates air scattering along view rays;
 `clouds.godRayStrength` controls the resulting volumetric sun shafts. It does not
-draw an unrelated radial-blur overlay.
+draw an unrelated radial-blur overlay. Low sun, cloud gaps and scattering air
+or dust are required for visible shafts, as illustrated by
+[NASA's orbital crepuscular-ray observations](https://science.nasa.gov/earth/earth-observatory/crepuscular-rays-and-light-scattering-150090/).
 
 `clouds.shadowStrength` controls cloud attenuation projected onto captured scene
 geometry. This implementation multiplies the captured lighting color by an
@@ -212,6 +261,9 @@ shadow overlay or second overlapping water surface.
 The lab's Sky inspection views expose captured scene, radiance, optical thickness
 and depth acceptance. They help distinguish volume sampling from compositing
 artifacts. `sky.setDiagnostic('composite')` returns to the normal output.
+The **Sunlit orbit** and **Twilight limb** buttons pause playback and move only
+the inspection camera relative to the current physical sun. Twilight searches
+already formed terminator cloud edges; neither button changes weather or time.
 
 ## Quality and measurement
 

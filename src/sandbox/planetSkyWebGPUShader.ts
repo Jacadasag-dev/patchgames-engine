@@ -11,7 +11,7 @@ fn planetSkyVolume(
  circulationCoverage:texture_2d<f32>,circulationEnvironment:texture_2d<f32>,circulationSampler:sampler,
  snapshotCondensate0:texture_2d<f32>,snapshotCondensate1:texture_2d<f32>,snapshotLower0:texture_2d<f32>,snapshotLower1:texture_2d<f32>,snapshotUpper0:texture_2d<f32>,snapshotUpper1:texture_2d<f32>,snapshotAltitude0:texture_2d<f32>,snapshotAltitude1:texture_2d<f32>,snapshotParams:vec4<f32>,
  projectionInverse:mat4x4<f32>,cameraRotation:mat4x4<f32>,cameraRadius:vec3<f32>,sunDirection:vec3<f32>,rayleigh:vec3<f32>,
- shapeWind:vec3<f32>,detailWind:vec3<f32>,geometry:vec4<f32>,atmosphere:vec4<f32>,lighting:vec4<f32>,clouds:vec4<f32>,
+ shapeWind:vec3<f32>,detailWind:vec3<f32>,reliefWind:vec3<f32>,geometry:vec4<f32>,atmosphere:vec4<f32>,lighting:vec4<f32>,clouds:vec4<f32>,
  details:vec4<f32>,steps:vec4<f32>,dimensions:vec4<f32>,style:vec4<f32>,effects:vec4<f32>,
  fogLayer:vec4<f32>,cumulusLayer:vec4<f32>,cirrusLayer:vec4<f32>,weatherParams:vec4<f32>,condensationThreshold:f32,weatherEvolutionPhase:f32,
  stormCenters0:mat4x4<f32>,stormCenters1:mat4x4<f32>,stormCenters2:mat4x4<f32>,stormCenters3:mat4x4<f32>,
@@ -19,7 +19,7 @@ fn planetSkyVolume(
 )->mat4x4<f32>{
  let centers=array<vec4<f32>,16>(stormCenters0[0],stormCenters0[1],stormCenters0[2],stormCenters0[3],stormCenters1[0],stormCenters1[1],stormCenters1[2],stormCenters1[3],stormCenters2[0],stormCenters2[1],stormCenters2[2],stormCenters2[3],stormCenters3[0],stormCenters3[1],stormCenters3[2],stormCenters3[3]);
  let properties=array<vec4<f32>,16>(stormProperties0[0],stormProperties0[1],stormProperties0[2],stormProperties0[3],stormProperties1[0],stormProperties1[1],stormProperties1[2],stormProperties1[3],stormProperties2[0],stormProperties2[1],stormProperties2[2],stormProperties2[3],stormProperties3[0],stormProperties3[1],stormProperties3[2],stormProperties3[3]);
- let c=SkyConfig(geometry,atmosphere,lighting,clouds,details,steps,dimensions,projectionInverse,rayleigh,sunDirection,shapeWind,detailWind,fogLayer,cumulusLayer,cirrusLayer,effects,weatherParams,condensationThreshold,weatherEvolutionPhase,snapshotParams,centers,properties);
+ let c=SkyConfig(geometry,atmosphere,lighting,clouds,details,steps,dimensions,projectionInverse,rayleigh,sunDirection,shapeWind,detailWind,reliefWind,fogLayer,cumulusLayer,cirrusLayer,effects,weatherParams,condensationThreshold,weatherEvolutionPhase,snapshotParams,centers,properties);
  var uv=uvIn;
  if(style.x>0.5){uv=clamp((floor(uv*dimensions.xy/max(1.0,style.y))+0.5)*max(1.0,style.y)/dimensions.xy,vec2<f32>(0.0),vec2<f32>(1.0));}
  let texel=vec2<i32>(clamp(floor(uv*dimensions.xy),vec2<f32>(0.0),dimensions.xy-1.0));uv=(vec2<f32>(texel)+0.5)/dimensions.xy;
@@ -73,7 +73,7 @@ fn planetSkyVolume(
 }
 struct SkyConfig{
  geometry:vec4<f32>,atmosphere:vec4<f32>,lighting:vec4<f32>,clouds:vec4<f32>,details:vec4<f32>,steps:vec4<f32>,dimensions:vec4<f32>,
- projectionInverse:mat4x4<f32>,rayleigh:vec3<f32>,sun:vec3<f32>,shapeWind:vec3<f32>,detailWind:vec3<f32>,
+ projectionInverse:mat4x4<f32>,rayleigh:vec3<f32>,sun:vec3<f32>,shapeWind:vec3<f32>,detailWind:vec3<f32>,reliefWind:vec3<f32>,
  fogLayer:vec4<f32>,cumulusLayer:vec4<f32>,cirrusLayer:vec4<f32>,effects:vec4<f32>,weatherParams:vec4<f32>,condensationThreshold:f32,weatherEvolutionPhase:f32,snapshotParams:vec4<f32>,stormCenters:array<vec4<f32>,16>,stormProperties:array<vec4<f32>,16>
 }
 fn skySphere(origin:vec3<f32>,direction:vec3<f32>,radius:f32)->vec2<f32>{
@@ -112,7 +112,14 @@ struct SkyAtmosphereCloudColumn{mass:vec4<f32>,lower:vec4<f32>,upper:vec4<f32>,a
 fn skySnapshotMass(c:SkyConfig,previous:texture_2d<f32>,current:texture_2d<f32>,p:vec3<f32>)->vec4<f32>{
  if(c.snapshotParams.x<0.5||c.snapshotParams.z<0.5){return vec4<f32>(0.0);}let direction=normalize(p);return max(vec4<f32>(0.0),mix(skySnapshotBilinear(previous,direction),skySnapshotBilinear(current,direction),c.snapshotParams.y));
 }
-fn skySnapshotColumn(c:SkyConfig,snapshotCondensate0:texture_2d<f32>,snapshotCondensate1:texture_2d<f32>,snapshotLower0:texture_2d<f32>,snapshotLower1:texture_2d<f32>,snapshotUpper0:texture_2d<f32>,snapshotUpper1:texture_2d<f32>,snapshotAltitude0:texture_2d<f32>,snapshotAltitude1:texture_2d<f32>,p:vec3<f32>)->SkyAtmosphereCloudColumn{
+fn skyPhysicalCloudProfileBounds(c:SkyConfig,noise:texture_3d<f32>,ns:sampler,bounds:vec2<f32>,label:vec3<f32>,iceFraction:f32,footprint:f32)->vec2<f32>{
+ if(bounds.y<=bounds.x){return bounds;}
+ let ice=clamp(iceFraction,0.0,1.0);let minimum=0.58+0.22*ice;let uv=skyMorph(c,label*(c.geometry.x+bounds.x))/(c.details.y*32.0*2.0)+c.reliefWind;
+ let broadLod=clamp(log2(max(1.0,footprint/(c.details.y*2.0))),0.0,5.0);let fineLod=clamp(log2(max(1.0,footprint/(c.details.y*0.5))),0.0,5.0);
+ let broad=textureSampleLevel(noise,ns,uv,broadLod).b;let detail=textureSampleLevel(noise,ns,uv*4.0+vec3<f32>(0.173,0.317,0.619),fineLod).a;
+ let signal=pow(smoothstep(0.2,0.8,mix(broad,detail,0.28+0.52*ice)),0.65);return vec2<f32>(bounds.x,bounds.x+(bounds.y-bounds.x)*mix(minimum,1.0,signal));
+}
+fn skySnapshotColumn(c:SkyConfig,noise:texture_3d<f32>,ns:sampler,snapshotCondensate0:texture_2d<f32>,snapshotCondensate1:texture_2d<f32>,snapshotLower0:texture_2d<f32>,snapshotLower1:texture_2d<f32>,snapshotUpper0:texture_2d<f32>,snapshotUpper1:texture_2d<f32>,snapshotAltitude0:texture_2d<f32>,snapshotAltitude1:texture_2d<f32>,p:vec3<f32>,footprint:f32)->SkyAtmosphereCloudColumn{
  let direction=normalize(p);let emptyMaterial=vec4<f32>(direction,0.0);
  if(c.snapshotParams.z<0.5){return SkyAtmosphereCloudColumn(vec4<f32>(0.0),emptyMaterial,emptyMaterial,vec4<f32>(0.0));}
  let alpha=c.snapshotParams.y;
@@ -121,7 +128,7 @@ fn skySnapshotColumn(c:SkyConfig,snapshotCondensate0:texture_2d<f32>,snapshotCon
  let lower=vec4<f32>(skySnapshotLabel(lower0,lower1,alpha,direction),mix(lower0.a,lower1.a,alpha));let upper=vec4<f32>(skySnapshotLabel(upper0,upper1,alpha,direction),mix(upper0.a,upper1.a,alpha));
  let moments=mix(skySnapshotBilinear(snapshotAltitude0,direction),skySnapshotBilinear(snapshotAltitude1,direction),alpha);
  let lowerMass=mass.x+lower.a;let upperMass=mass.y+mass.z;var lowerBounds=vec2<f32>(0.0);var upperBounds=vec2<f32>(0.0);
- if(lowerMass>0.0){lowerBounds=moments.xy/lowerMass;}if(upperMass>0.0){upperBounds=moments.zw/upperMass;}
+ if(lowerMass>0.0){lowerBounds=skyPhysicalCloudProfileBounds(c,noise,ns,moments.xy/lowerMass,lower.xyz,lower.a/lowerMass,footprint);}if(upperMass>0.0){upperBounds=skyPhysicalCloudProfileBounds(c,noise,ns,moments.zw/upperMass,upper.xyz,mass.z/upperMass,footprint);}
  return SkyAtmosphereCloudColumn(mass,lower,upper,vec4<f32>(lowerBounds,upperBounds));
 }
 fn skySnapshotDust(c:SkyConfig,previous:texture_2d<f32>,current:texture_2d<f32>,p:vec3<f32>)->f32{
@@ -151,6 +158,23 @@ fn skyOpticalSourceFraction(tau:f32,slope:f32)->f32{
  else if(rate>0.0){logIntegral=log(skyOneMinusExp(exponent))-log(rate);}
  else{logIntegral=-exponent+log(skyOneMinusExp(-exponent))-log(-rate);}
  return clamp(-(logIntegral-log(skyOneMinusExp(tau)))/(slope*tau),0.0,1.0);
+}
+fn skyCloudReducedVisibility(visibility:f32,observerTau:f32,slope:f32,sourceOptical:f32)->f32{
+ let transmitted=clamp(visibility,0.0,1.0);let reducedExtinction=0.25;let upper=pow(transmitted,reducedExtinction);var mean=upper;
+ if(observerTau>0.0&&transmitted>0.0&&transmitted<1.0){
+  let entry=max(0.0,-log(max(transmitted,1e-35))-slope*sourceOptical);let fraction=skyOpticalSourceFraction(observerTau,reducedExtinction*slope);
+  mean=exp(clamp(-reducedExtinction*entry-reducedExtinction*slope*observerTau*fraction,-80.0,0.0));
+ }
+ return clamp(mean,transmitted,upper);
+}
+fn skyCloudScatteringResponse(visibility:f32,phase:f32,columnTau:f32,observerTau:f32,slope:f32,sourceOptical:f32)->f32{
+ let mean=skyCloudReducedVisibility(visibility,observerTau,slope,sourceOptical);let probability=skyOneMinusExp(max(0.0,columnTau));return phase*visibility+probability*(mean-visibility)/(4.0*3.141592653589793);
+}
+fn skyCloudSlabScatteringResponse(visibility:f32,phase:f32,columnTau:f32,observerTau:f32,slope:f32,sourceOptical:f32,muSun:f32,muOut:f32,iceFraction:f32)->f32{
+ let mean=skyCloudReducedVisibility(visibility,observerTau,slope,sourceOptical);let activation=skyOneMinusExp(max(0.0,columnTau));let transport=columnTau*(0.15+0.1*clamp(iceFraction,0.0,1.0));let reflection=transport/(1.0+transport);let passing=1.0/(1.0+transport);var diffuse=0.0;
+ if(muSun*muOut>0.0&&columnTau>0.0){let view=columnTau/max(abs(muOut),0.001);let rate=1.0+0.25*max(0.0,slope);let normalization=skyOneMinusExp(rate*view)/rate;diffuse=activation*abs(muSun)*reflection*mean/(3.141592653589793*max(1e-12,normalization));}
+ else{let unscattered=exp(-columnTau/max(abs(muSun),0.001));diffuse=activation*abs(muSun)*max(0.0,passing-unscattered)*mean/3.141592653589793;}
+ return (1.0-activation)*phase*visibility+diffuse;
 }
 fn skyRayMetric(c:SkyConfig,rayStart:f32,rayEnd:f32,feature:f32)->f32{return skyLog1p(max(0.0,rayEnd-rayStart)/(max(0.0,rayStart)+feature/c.geometry.x));}
 fn skyRayEdge(c:SkyConfig,rayStart:f32,rayEnd:f32,metric:f32,feature:f32,fraction:f32)->f32{
@@ -256,7 +280,7 @@ fn skyPhysicalCloudSourceDistance(c:SkyConfig,origin:vec3<f32>,direction:vec3<f3
  return point;
 }
 fn skyCloudLayer(c:SkyConfig,noise:texture_3d<f32>,ns:sampler,weather:texture_3d<f32>,ws:sampler,circulationCoverage:texture_2d<f32>,circulationEnvironment:texture_2d<f32>,cs:sampler,snapshotCondensate0:texture_2d<f32>,snapshotCondensate1:texture_2d<f32>,snapshotLower0:texture_2d<f32>,snapshotLower1:texture_2d<f32>,snapshotUpper0:texture_2d<f32>,snapshotUpper1:texture_2d<f32>,snapshotAltitude0:texture_2d<f32>,snapshotAltitude1:texture_2d<f32>,p:vec3<f32>,footprint:f32,index:i32)->f32{
- if(c.snapshotParams.x>0.5){return skyPhysicalCloudLayer(c,noise,ns,p,footprint,index,skySnapshotColumn(c,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,p));}
+ if(c.snapshotParams.x>0.5){return skyPhysicalCloudLayer(c,noise,ns,p,footprint,index,skySnapshotColumn(c,noise,ns,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,p,footprint));}
  let settings=skyLayer(c,index);
  if(c.lighting.w<0.5||settings.w<0.5||c.clouds.z<=0.0||c.clouds.w<=0.0||c.weatherParams.z<=0.0||settings.z<=0.0){return 0.0;}
  let h=(length(p)-1.0-settings.x)/settings.y;if(h<=0.0||h>=1.0){return 0.0;}
@@ -279,7 +303,7 @@ fn skyCloudLayer(c:SkyConfig,noise:texture_3d<f32>,ns:sampler,weather:texture_3d
 fn skyCloudExtinction(c:SkyConfig,noise:texture_3d<f32>,ns:sampler,weather:texture_3d<f32>,ws:sampler,circulationCoverage:texture_2d<f32>,circulationEnvironment:texture_2d<f32>,cs:sampler,snapshotCondensate0:texture_2d<f32>,snapshotCondensate1:texture_2d<f32>,snapshotLower0:texture_2d<f32>,snapshotLower1:texture_2d<f32>,snapshotUpper0:texture_2d<f32>,snapshotUpper1:texture_2d<f32>,snapshotAltitude0:texture_2d<f32>,snapshotAltitude1:texture_2d<f32>,p:vec3<f32>,footprint:f32)->f32{
  if(c.snapshotParams.x>0.5){
   if(c.lighting.w<0.5||c.snapshotParams.z<0.5){return 0.0;}
-  let column=skySnapshotColumn(c,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,p);
+  let column=skySnapshotColumn(c,noise,ns,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,p,footprint);
   return skyPhysicalCloudLayer(c,noise,ns,p,footprint,0,column)+skyPhysicalCloudLayer(c,noise,ns,p,footprint,1,column);
  }
  var extinction=0.0;for(var index=0;index<3;index++){let settings=skyLayer(c,index);var coefficient=2.0;if(index==0){coefficient=4.0;}else if(index==1){coefficient=8.0;}let density=skyCloudLayer(c,noise,ns,weather,ws,circulationCoverage,circulationEnvironment,cs,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,p,footprint,index);if(density>0.0){extinction+=density*coefficient/(settings.y*c.geometry.x);}}return extinction;
@@ -306,8 +330,8 @@ fn skyCloudSun(c:SkyConfig,noise:texture_3d<f32>,ns:sampler,weather:texture_3d<f
   for(var part=0;part<partCount;part++){let begin=segments[part].x;let end=segments[part].y;if(end<=begin){continue;}let count=clamp(i32(c.steps.w),1,4);let feature=skyFeatureMetres(c,layer);let metric=skyRayMetric(c,begin,end,feature);
    for(var index=0;index<count;index++){
     let start=skyRayEdge(c,begin,end,metric,feature,f32(index)/f32(count));let finish=skyRayEdge(c,begin,end,metric,feature,f32(index+1)/f32(count));let stepRay=finish-start;
-    let middle=p+c.sun*((start+finish)*0.5);let samplePhase=skyWorldPhase(c,noise,ns,middle,feature);let point=p+c.sun*mix(start,finish,samplePhase);
-    if(c.snapshotParams.x>0.5){let column=skySnapshotColumn(c,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,point);optical+=skyPhysicalCloudBinLayer(c,noise,ns,p,c.sun,start,finish,observerFootprint,layer,column).x;}
+    let middle=p+c.sun*((start+finish)*0.5);var samplePhase=0.5;if(c.snapshotParams.x<0.5){samplePhase=skyWorldPhase(c,noise,ns,middle,feature);}let point=p+c.sun*mix(start,finish,samplePhase);
+    if(c.snapshotParams.x>0.5){let column=skySnapshotColumn(c,noise,ns,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,point,observerFootprint);optical+=skyPhysicalCloudBinLayer(c,noise,ns,p,c.sun,start,finish,observerFootprint,layer,column).x;}
     else{var coefficient=2.0;if(layer==0){coefficient=4.0;}else if(layer==1){coefficient=8.0;}let density=skyCloudLayer(c,noise,ns,weather,ws,circulationCoverage,circulationEnvironment,cs,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,point,max(stepRay*c.geometry.x*0.5,observerFootprint),layer);optical+=density*coefficient*stepRay/settings.y;}
    }
   }if(optical>12.0){break;}
@@ -315,8 +339,8 @@ fn skyCloudSun(c:SkyConfig,noise:texture_3d<f32>,ns:sampler,weather:texture_3d<f
 }
 fn skyHG(cosine:f32,g:f32)->f32{return (1.0-g*g)/(4.0*3.141592653589793*pow(max(0.001,1.0+g*g-2.0*g*cosine),1.5));}
 fn skyIntegratePhysicalCloudBin(c:SkyConfig,noise:texture_3d<f32>,ns:sampler,weather:texture_3d<f32>,ws:sampler,circulationCoverage:texture_2d<f32>,circulationEnvironment:texture_2d<f32>,cs:sampler,snapshotCondensate0:texture_2d<f32>,snapshotCondensate1:texture_2d<f32>,snapshotLower0:texture_2d<f32>,snapshotLower1:texture_2d<f32>,snapshotUpper0:texture_2d<f32>,snapshotUpper1:texture_2d<f32>,snapshotAltitude0:texture_2d<f32>,snapshotAltitude1:texture_2d<f32>,origin:vec3<f32>,direction:vec3<f32>,rayStart:f32,rayEnd:f32,columnRay:f32,cloudSegment:bool,phase:vec3<f32>,initial:mat4x4<f32>)->mat4x4<f32>{
- let columnPoint=origin+direction*columnRay;let emptyMaterial=vec4<f32>(normalize(columnPoint),0.0);var column=SkyAtmosphereCloudColumn(vec4<f32>(0.0),emptyMaterial,emptyMaterial,vec4<f32>(0.0));var layerCount=0;
- if(cloudSegment){column=skySnapshotColumn(c,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,columnPoint);layerCount=i32(c.snapshotParams.w);}else{column.mass=skySnapshotMass(c,snapshotCondensate0,snapshotCondensate1,columnPoint);}
+ let columnPoint=origin+direction*columnRay;let columnFootprint=2.0*abs(c.projectionInverse[1][1])*columnRay*c.geometry.x/max(1.0,c.dimensions.w);let emptyMaterial=vec4<f32>(normalize(columnPoint),0.0);var column=SkyAtmosphereCloudColumn(vec4<f32>(0.0),emptyMaterial,emptyMaterial,vec4<f32>(0.0));var layerCount=0;
+ if(cloudSegment){column=skySnapshotColumn(c,noise,ns,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,columnPoint,columnFootprint);layerCount=i32(c.snapshotParams.w);}else{column.mass=skySnapshotMass(c,snapshotCondensate0,snapshotCondensate1,columnPoint);}
  var radiance=initial[0].rgb;var transmission=initial[1].rgb;var cuts:array<f32,6>;cuts[0]=rayStart;cuts[1]=rayEnd;var count=2;
  for(var layer=0;layer<layerCount;layer++){
   var bounds=column.altitude.xy;if(layer==1){bounds=column.altitude.zw;}if(skyPhysicalCloudOptical(layer,column)<=0.0){continue;}
@@ -332,7 +356,7 @@ fn skyIntegratePhysicalCloudBin(c:SkyConfig,noise:texture_3d<f32>,ns:sampler,wea
   for(var layer=0;layer<layerCount;layer++){layerOptical[layer]=skyPhysicalCloudBinLayer(c,noise,ns,origin,direction,begin,end,footprint,layer,column);}let cloudOptical=layerOptical[0].x+layerOptical[1].x;let cloud=cloudOptical/max(0.000001,lengthMetres);
   let altitude=max(0.0,(length(point)-1.0)*c.geometry.x);let dustHeight=max(0.01,c.atmosphere.y);var dust=0.0;
   if(c.details.w>0.5){dust=column.mass.w*${PLANET_ATMOSPHERE_OPTICS.dustExtinctionM2Kg.toFixed(1)}*exp(-altitude/dustHeight)/(dustHeight*max(0.000001,1.0-exp(-c.atmosphere.x*c.geometry.x/dustHeight)));}
-  let dustAlbedo=vec3<f32>(${PLANET_ATMOSPHERE_OPTICS.dustScatteringAlbedo.join(',')});let extinction=rayleigh+vec3<f32>(mie+cloud+dust);var lightPoints:array<vec3<f32>,3>;var lightCoefficients:array<vec3<f32>,3>;var lightCount=1;
+  let dustAlbedo=vec3<f32>(${PLANET_ATMOSPHERE_OPTICS.dustScatteringAlbedo.join(',')});let extinction=rayleigh+vec3<f32>(mie+cloud+dust);var lightPoints:array<vec3<f32>,3>;var lightCoefficients:array<vec3<f32>,3>;var cloudLighting:array<vec4<f32>,2>;var lightCount=1;
   lightPoints[0]=point;lightCoefficients[0]=rayleigh*phase.x+vec3<f32>(mie*phase.y)+dust*dustAlbedo*skyHG(dot(direction,c.sun),0.7);
   let daylight=smoothstep(-0.16,0.2,dot(normalize(point),c.sun));var source=dust*dustAlbedo*(c.lighting.y*0.012*daylight);let cellOptical=max(0.0000001,(extinction.r+extinction.g+extinction.b)*lengthMetres/3.0);
   for(var layer=0;layer<layerCount;layer++){
@@ -340,14 +364,15 @@ fn skyIntegratePhysicalCloudBin(c:SkyConfig,noise:texture_3d<f32>,ns:sampler,wea
    let massPoint=origin+direction*optical.y;let radial=normalize(massPoint);
    if(!skyPlanetShadows(c,massPoint)){
     var muSun=dot(radial,c.sun);if(muSun<0.0){muSun=min(-0.0001,muSun);}else{muSun=max(0.0001,muSun);}
-    let slope=-dot(radial,direction)/muSun;let fraction=skyOpticalSourceFraction(cellOptical,slope*optical.x/cellOptical);let sourceRay=skyPhysicalCloudSourceDistance(c,origin,direction,begin,end,layer,column,fraction);
-    lightPoints[lightCount]=origin+direction*sourceRay;lightCoefficients[lightCount]=vec3<f32>(phase.z*optical.x/max(0.000001,lengthMetres));lightCount++;
+    let slope=-dot(radial,direction)/muSun;let effectiveSlope=slope*optical.x/cellOptical;let fraction=skyOpticalSourceFraction(cellOptical,effectiveSlope);let sourceRay=skyPhysicalCloudSourceDistance(c,origin,direction,begin,end,layer,column,fraction);
+    let columnOptical=skyPhysicalCloudOptical(layer,column);var iceOptical=column.lower.a*${PLANET_ATMOSPHERE_OPTICS.iceExtinctionM2Kg.toFixed(2)};if(layer==1){iceOptical=column.mass.z*${PLANET_ATMOSPHERE_OPTICS.iceExtinctionM2Kg.toFixed(2)};}
+    cloudLighting[lightCount-1]=vec4<f32>(columnOptical,effectiveSlope,cellOptical*fraction,iceOptical/max(1e-12,columnOptical));lightPoints[lightCount]=origin+direction*sourceRay;lightCoefficients[lightCount]=vec3<f32>(optical.x/max(0.000001,lengthMetres));lightCount++;
    }
-   let cloudDaylight=smoothstep(-0.16,0.2,dot(radial,c.sun));source+=vec3<f32>(0.78,0.87,1.0)*(c.lighting.y*0.035*cloudDaylight)*(optical.x/max(0.000001,lengthMetres));
   }
   for(var light=0;light<lightCount;light++){
-   var visibility=1.0;if(light>0||cloudOptical>0.0||c.effects.y>0.0){visibility=skyCloudSun(c,noise,ns,weather,ws,circulationCoverage,circulationEnvironment,cs,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,lightPoints[light],footprint);}if(light==0&&cloudOptical<=0.0){visibility=mix(1.0,visibility,c.effects.y);}
-   source+=skySun(c,snapshotCondensate0,snapshotCondensate1,lightPoints[light])*visibility*c.lighting.y*lightCoefficients[light];
+   var visibility=1.0;if(light>0||cloudOptical>0.0||c.effects.y>0.0){visibility=skyCloudSun(c,noise,ns,weather,ws,circulationCoverage,circulationEnvironment,cs,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,lightPoints[light],columnFootprint);}if(light==0&&cloudOptical<=0.0){visibility=mix(1.0,visibility,c.effects.y);}
+   var response=visibility;if(light>0){let cloudParameters=cloudLighting[light-1];let radial=normalize(lightPoints[light]);response=skyCloudSlabScatteringResponse(visibility,phase.z,cloudParameters.x,cellOptical,cloudParameters.y,cloudParameters.z,dot(radial,c.sun),-dot(radial,direction),cloudParameters.w);}
+   source+=skySun(c,snapshotCondensate0,snapshotCondensate1,lightPoints[light])*response*c.lighting.y*lightCoefficients[light];
   }
   let segment=exp(-min(vec3<f32>(80.0),extinction*lengthMetres));radiance+=transmission*source*(vec3<f32>(1.0)-segment)/max(extinction,vec3<f32>(0.000000001));transmission*=segment;
  }
@@ -363,7 +388,7 @@ fn skyIntegrate(c:SkyConfig,noise:texture_3d<f32>,ns:sampler,weather:texture_3d<
   var begin=mix(rayStart,rayEnd,f32(index)/f32(count));var end=mix(rayStart,rayEnd,f32(index+1)/f32(count));
   if(cloudSegment){begin=skyRayEdge(c,rayStart,rayEnd,metric,feature,f32(index)/f32(count));end=skyRayEdge(c,rayStart,rayEnd,metric,feature,f32(index+1)/f32(count));}
   let stepMetres=(end-begin)*c.geometry.x;let middle=origin+direction*((begin+end)*0.5);var samplePhase=0.5;
-  if(cloudSegment){samplePhase=skyWorldPhase(c,noise,ns,middle,feature);}
+  if(cloudSegment&&c.snapshotParams.x<0.5){samplePhase=skyWorldPhase(c,noise,ns,middle,feature);}
   let distance=mix(begin,end,samplePhase);let p=origin+direction*distance;
   if(c.snapshotParams.x>0.5){
    let transport=skyIntegratePhysicalCloudBin(c,noise,ns,weather,ws,circulationCoverage,circulationEnvironment,cs,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,origin,direction,begin,end,distance,cloudSegment&&c.snapshotParams.z>0.5,phase,mat4x4<f32>(vec4<f32>(radiance,1.0),vec4<f32>(transmission,0.0),vec4<f32>(0.0),vec4<f32>(0.0)));
@@ -371,13 +396,13 @@ fn skyIntegrate(c:SkyConfig,noise:texture_3d<f32>,ns:sampler,weather:texture_3d<
   }
   let air=skyAir(c,p);let rayleigh=c.rayleigh*air.x;let mie=c.atmosphere.w*air.y;
   let footprint=2.0*abs(c.projectionInverse[1][1])*distance*c.geometry.x/max(1.0,c.dimensions.w);
-  var cloud=0.0;let cloudPoint=p;
+  var cloud=0.0;
   if(c.snapshotParams.x<0.5&&cloudSegment){cloud=skyCloudExtinction(c,noise,ns,weather,ws,circulationCoverage,circulationEnvironment,cs,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,p,max(footprint,stepMetres*0.5));}
   let dust=skySnapshotDust(c,snapshotCondensate0,snapshotCondensate1,p);let extinction=rayleigh+vec3<f32>(mie+cloud+dust);var shadow=1.0;
   if(cloudSegment||c.effects.y>0.0){var shadowFootprint=footprint;if(cloudSegment){shadowFootprint=max(footprint,stepMetres*0.5);}shadow=skyCloudSun(c,noise,ns,weather,ws,circulationCoverage,circulationEnvironment,cs,snapshotCondensate0,snapshotCondensate1,snapshotLower0,snapshotLower1,snapshotUpper0,snapshotUpper1,snapshotAltitude0,snapshotAltitude1,p,shadowFootprint);}if(!cloudSegment){shadow=mix(1.0,shadow,c.effects.y);}
-  let incoming=skySun(c,snapshotCondensate0,snapshotCondensate1,p)*shadow*c.lighting.y;var source=incoming*(rayleigh*phase.x+vec3<f32>(mie*phase.y)+vec3<f32>(${PLANET_ATMOSPHERE_OPTICS.dustScatteringAlbedo.join(',')})*(dust*skyHG(dot(direction,c.sun),0.7)));
-  if(c.snapshotParams.x<0.5){source+=incoming*(cloud*phase.z);}
-  let daylight=smoothstep(-0.16,0.2,dot(normalize(p),c.sun));let cloudDaylight=smoothstep(-0.16,0.2,dot(normalize(cloudPoint),c.sun));source+=vec3<f32>(0.78,0.87,1.0)*(cloud*c.lighting.y*0.035*cloudDaylight)+vec3<f32>(${PLANET_ATMOSPHERE_OPTICS.dustScatteringAlbedo.join(',')})*(dust*c.lighting.y*0.012*daylight);
+  let sunlight=skySun(c,snapshotCondensate0,snapshotCondensate1,p)*c.lighting.y;let incoming=sunlight*shadow;var source=incoming*(rayleigh*phase.x+vec3<f32>(mie*phase.y)+vec3<f32>(${PLANET_ATMOSPHERE_OPTICS.dustScatteringAlbedo.join(',')})*(dust*skyHG(dot(direction,c.sun),0.7)));
+  if(c.snapshotParams.x<0.5){source+=sunlight*(cloud*skyCloudScatteringResponse(shadow,phase.z,cloud*c.details.y,0.0,0.0,0.0));}
+  let daylight=smoothstep(-0.16,0.2,dot(normalize(p),c.sun));source+=vec3<f32>(${PLANET_ATMOSPHERE_OPTICS.dustScatteringAlbedo.join(',')})*(dust*c.lighting.y*0.012*daylight);
   let segment=exp(-min(vec3<f32>(80.0),extinction*stepMetres));let integral=(vec3<f32>(1.0)-segment)/max(extinction,vec3<f32>(0.000000001));radiance+=transmission*source*integral;transmission*=segment;
  }
  return mat4x4<f32>(vec4<f32>(radiance,1.0),vec4<f32>(transmission,0.0),vec4<f32>(0.0),vec4<f32>(0.0));
