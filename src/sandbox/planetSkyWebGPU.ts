@@ -2,9 +2,11 @@ import {Box3,BufferAttribute,BufferGeometry,ClampToEdgeWrapping,Color,Data3DText
 import {NodeMaterial,RenderPipeline,RenderTarget,type ArrayNode,type Node,type WebGPURenderer} from 'three/webgpu';
 import {element,outputStruct,positionLocal,renderOutput,sampler,texture,texture3D,uniform,uv,vec4,wgslFn} from 'three/tsl';
 import {compilePlanetSky,type CompiledPlanetSky,type PlanetSkyBake,type PlanetSkyRecipe} from '../shared/planetSky.ts';
-import type {PlanetVector} from '../shared/planet.ts';
+import {compilePlanet,type PlanetVector} from '../shared/planet.ts';
+import type {PlanetAtmosphereSnapshot} from '../shared/planetAtmosphereSnapshot.ts';
 import type {PlanetSkyDiagnostic,PlanetSkyFrame} from './planetSkyView.ts';
 import {createPlanetSkyNoiseMipmaps} from './planetSkyWebGPUMips.ts';
+import {PlanetAtmosphereSnapshotBuffer} from './planetAtmosphereSnapshotBuffer.ts';
 import {planetSkyWebGPUCompositeWGSL,planetSkyWebGPUPaletteWGSL,planetSkyWebGPUVolumeWGSL} from './planetSkyWebGPUShader.ts';
 
 const diagnosticModes:readonly PlanetSkyDiagnostic[]=['composite','scene','radiance','transmittance','depth-rejection','unweighted','nearest','cloud-shadow'];
@@ -17,7 +19,7 @@ function createUniforms(){return{
   details:uniform(new Vector4()),steps:uniform(new Vector4()),dimensions:uniform(new Vector4()),style:uniform(new Vector4()),
   celestial:uniform(new Vector4()),stars:uniform(new Vector4()),clock:uniform(new Vector4()),effects:uniform(new Vector4()),
   fogLayer:uniform(new Vector4()),cumulusLayer:uniform(new Vector4()),cirrusLayer:uniform(new Vector4()),weatherParams:uniform(new Vector4()),
-  condensationThreshold:uniform(0),weatherEvolutionPhase:uniform(0),
+  condensationThreshold:uniform(0),weatherEvolutionPhase:uniform(0),snapshotParams:uniform(new Vector4()),
   stormCenters0:uniform(new Matrix4()),stormCenters1:uniform(new Matrix4()),stormCenters2:uniform(new Matrix4()),stormCenters3:uniform(new Matrix4()),
   stormProperties0:uniform(new Matrix4()),stormProperties1:uniform(new Matrix4()),stormProperties2:uniform(new Matrix4()),stormProperties3:uniform(new Matrix4()),
 };}
@@ -36,6 +38,8 @@ export class PlanetSkyWebGPUView {
   private readonly circulationGain:number;
   private readonly condensationThreshold:number;
   private readonly noiseMips;
+  private readonly snapshotBuffer:PlanetAtmosphereSnapshotBuffer;
+  private readonly snapshotNodes;
   private readonly geometry=new BufferGeometry();
   private readonly volumeScene=new Scene();
   private readonly screenCamera=new OrthographicCamera(-1,1,1,-1,0,1);
@@ -57,6 +61,9 @@ export class PlanetSkyWebGPUView {
 
   constructor(bake:PlanetSkyBake){
     this.compiled=compilePlanetSky(bake.recipe,bake.radiusMeters);
+    this.snapshotBuffer=new PlanetAtmosphereSnapshotBuffer({radiusMeters:bake.radiusMeters,planetRevision:bake.recipe.surface?compilePlanet(bake.recipe.surface).revision:undefined});
+    const snapshotTextures=this.snapshotBuffer.textures;
+    this.snapshotNodes={snapshotCondensate0:texture(snapshotTextures.condensate0),snapshotCondensate1:texture(snapshotTextures.condensate1),snapshotLower0:texture(snapshotTextures.materialLower0),snapshotLower1:texture(snapshotTextures.materialLower1),snapshotUpper0:texture(snapshotTextures.materialUpper0),snapshotUpper1:texture(snapshotTextures.materialUpper1)};
     if(bake.bakeKey!==this.compiled.bakeKey||bake.revision!==this.compiled.revision||bake.noise?.size!==32||bake.weather?.size!==32
       ||!(bake.noise.data instanceof Uint8Array)||bake.noise.data.length!==32**3*4||!(bake.weather.data instanceof Uint8Array)||bake.weather.data.length!==32**3)throw Error('Planet sky bake does not match its validated recipe or bounded volumes.');
     this.noiseMips=createPlanetSkyNoiseMipmaps(bake.noise.data);
@@ -86,7 +93,7 @@ export class PlanetSkyWebGPUView {
     this.volumeTarget=new RenderTarget(1,1,{count:2,type:HalfFloatType,format:RGBAFormat,minFilter:NearestFilter,magFilter:NearestFilter,depthBuffer:false,stencilBuffer:false});
     this.sceneTarget.texture.name='Planet sky linear scene';this.volumeTarget.textures[0].name='Planet sky radiance';this.volumeTarget.textures[1].name='Planet sky RGB transmission and view depth';
     const noise=texture3D(this.noise),weather=texture3D(this.weather),sceneDepth=texture(this.sceneTarget.depthTexture!),circulationCoverage=texture(this.circulationCoverage),circulationEnvironment=texture(this.circulationEnvironment);
-    const integration=(wgslFn(planetSkyWebGPUVolumeWGSL)({uvIn:uv(),sceneDepth,noise,noiseSampler:sampler(noise),weather,weatherSampler:sampler(weather),circulationCoverage,circulationEnvironment,circulationSampler:sampler(circulationCoverage),...this.uniforms}) as Node<'mat4'>).toVar('planetSkyTransport');
+    const integration=(wgslFn(planetSkyWebGPUVolumeWGSL)({uvIn:uv(),sceneDepth,noise,noiseSampler:sampler(noise),weather,weatherSampler:sampler(weather),circulationCoverage,circulationEnvironment,circulationSampler:sampler(circulationCoverage),...this.snapshotNodes,...this.uniforms}) as Node<'mat4'>).toVar('planetSkyTransport');
     // @types/three currently types element() for arrays only, while native TSL
     // and WGSL also support matrix-column indexing. The stored value is a mat4.
     const columns=integration as unknown as ArrayNode<'vec4'>;
@@ -125,6 +132,18 @@ export class PlanetSkyWebGPUView {
   }
   setDiagnostic(mode:PlanetSkyDiagnostic):void{
     const index=diagnosticModes.indexOf(mode);if(index<0||this.disposed)throw Error('Planet sky diagnostic mode is invalid or the view is disposed.');this.uniforms.style.value.w=index;
+  }
+  /** A persistent atmosphere worker supplies complete physical endpoints.
+   * Staging is bounded to one plane per rendered frame and commits atomically. */
+  setWeatherSnapshots(previous:PlanetAtmosphereSnapshot,current:PlanetAtmosphereSnapshot=previous):boolean{
+    if(this.disposed)throw Error('Planet sky view is disposed.');return this.snapshotBuffer.set(previous,current);
+  }
+  enableSimulation():void{if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.enable();}
+  clearWeatherSnapshots():void{if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.clear();}
+  /** Stage before sampling the shared physical clock when the host owns pause
+   * and simulation timing. Pass weatherPrepared:true to render afterwards. */
+  stageWeather(renderer:{initTexture(texture:DataTexture):void}):void{
+    if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.uploadNext(renderer);
   }
   private resize(width:number,height:number):void{
     const q=this.compiled.quality,r=this.compiled.recipe;
@@ -170,13 +189,18 @@ export class PlanetSkyWebGPUView {
     renderer.getViewport(this.viewport);renderer.getScissor(this.scissor);
     const pixelRatio=renderer.getPixelRatio(),width=Math.floor(this.viewport.z*pixelRatio),height=Math.floor(this.viewport.w*pixelRatio);
     if(width<1||height<1||width>limits.maxTextureDimension2D||height>limits.maxTextureDimension2D||width*height>8_388_608)throw Error('Planet sky capture viewport exceeds its 8-megapixel or device texture limit.');
-    this.renderer=renderer;this.resize(width,height);this.uploadNoise(renderer);
+    this.renderer=renderer;this.resize(width,height);this.uploadNoise(renderer);if(!frame.weatherPrepared)this.stageWeather(renderer);
+    const snapshotFrame=this.snapshotBuffer.frame(frame.timeSeconds),snapshotTextures=this.snapshotBuffer.textures;
+    this.uniforms.snapshotParams.value.set(snapshotFrame.enabled?1:0,snapshotFrame.alpha,snapshotFrame.active?1:0,0);
+    this.snapshotNodes.snapshotCondensate0.value=snapshotTextures.condensate0;this.snapshotNodes.snapshotCondensate1.value=snapshotTextures.condensate1;
+    this.snapshotNodes.snapshotLower0.value=snapshotTextures.materialLower0;this.snapshotNodes.snapshotLower1.value=snapshotTextures.materialLower1;
+    this.snapshotNodes.snapshotUpper0.value=snapshotTextures.materialUpper0;this.snapshotNodes.snapshotUpper1.value=snapshotTextures.materialUpper1;
     if(!this.pipeline){this.pipeline=new RenderPipeline(renderer,this.compositeNode);this.pipeline.outputColorTransform=false;}
     const u=this.uniforms,radius=this.compiled.radiusMeters,wind=r.clouds.windMetersPerSecond;
     u.cameraRadius.value.set(...frame.position).multiplyScalar(1/radius);u.sunDirection.value.set(...frame.sunDirection).normalize();
     u.geometry.value.set(radius,camera.near,camera.far,renderer.logarithmicDepthBuffer?1:0);
     u.clock.value.set(((presentation%4096)+4096)%4096,((rotation%(Math.PI*2))+Math.PI*2)%(Math.PI*2),(this.compiled.recipe.seed>>>16)&65535,this.compiled.recipe.seed&65535);
-    const weatherFrame=this.compiled.weather.frame(frame.timeSeconds);
+    const weatherFrame=snapshotFrame.enabled?{timeDays:snapshotFrame.timeSeconds/86400,cyclones:[],rotationScale:1}:this.compiled.weather.frame(frame.timeSeconds);
     u.weatherParams.value.set(weatherFrame.timeDays,weatherFrame.cyclones.length,this.circulationGain*r.clouds.coverage/.67,weatherFrame.rotationScale);
     u.condensationThreshold.value=this.condensationThreshold;
     u.weatherEvolutionPhase.value=(weatherFrame.timeDays%(1/12))*12*Math.PI*2;
@@ -223,9 +247,10 @@ export class PlanetSkyWebGPUView {
       noiseMipLevels:this.noiseMips.length,filteredNoiseBytes:this.noiseMips.reduce((sum,mip)=>sum+mip.data.byteLength,0),
       cloudLayers:3,circulationAtlasBytes:this.circulationBytes,condensationThreshold:this.condensationThreshold,rotationScale:this.uniforms.weatherParams.value.w,limits:{...this.compiled.quality},volumeDataBytes:32**3*5+this.circulationBytes,estimatedTargetBytes:this.width*this.height*12+this.lowWidth*this.lowHeight*16,
       transport:{cloudPrimarySamples:this.compiled.quality.cloudSteps,airPrimarySamples:this.compiled.quality.atmosphereSteps,maxCloudIntervals:6,maxCloudLightSamples:6*this.compiled.quality.cloudLightSteps,quadrature:'World-phase logarithmic feature metric; distant intervals use filtered 3D density'},
+      simulation:this.snapshotBuffer.inspection(),
       byteMetric:'Estimated attachment payload; excludes driver allocation, MSAA, staging and other scene resources',sceneTriangles:this.sceneTriangles,sceneDrawCalls:this.sceneDrawCalls,renderSubmissionCpuMs:this.renderCpuMs,disposed:this.disposed};
   }
   dispose():void{
-    if(this.disposed)return;this.disposed=true;this.pipeline?.dispose();this.noise.dispose();this.weather.dispose();this.circulationCoverage.dispose();this.circulationEnvironment.dispose();this.sceneTarget.dispose();this.volumeTarget.dispose();this.geometry.dispose();this.volumeMaterial.dispose();this.volumeScene.clear();
+    if(this.disposed)return;this.disposed=true;this.snapshotBuffer.dispose();this.pipeline?.dispose();this.noise.dispose();this.weather.dispose();this.circulationCoverage.dispose();this.circulationEnvironment.dispose();this.sceneTarget.dispose();this.volumeTarget.dispose();this.geometry.dispose();this.volumeMaterial.dispose();this.volumeScene.clear();
   }
 }

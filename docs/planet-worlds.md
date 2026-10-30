@@ -5,6 +5,11 @@ generator, foliage generator, building compiler, water waves and sky density
 field. These are public engine APIs. No MCP service or PatchGames account is
 required to run them.
 
+The default lab uses the [physical planet generator and persistent atmosphere](planet-simulation.md).
+The source terrain, ocean reference sphere and weather share one generated world.
+Biomes and populations remain static generation; they do not yet migrate with
+the evolving atmosphere. Cold/dry presets omit forests and settlements.
+
 Run `npm run demo:planet`, then choose the rendering backend and a destination in
 the lab. The full integration is in `examples/planet-lab.ts`. Keep the tab in the
 foreground when measuring a flight. Exported frame reports distinguish RAF

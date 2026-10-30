@@ -3,8 +3,10 @@
 The planet sky combines wavelength-dependent atmospheric scattering,
 circulation-organized volumetric cloud layers, a rotating sun and an inertial
 star field in the same orbit-to-surface scene. It is presentation data: it does
-not change terrain, collision, gravity or authoritative weather. Run
-`npm run demo:planet` to edit the generators live in the Planet Flight Lab.
+not change terrain, collision or gravity. The renderer also accepts mass snapshots
+from the [persistent planet simulator](planet-simulation.md), which is now the
+default lab mode. Run `npm run demo:planet` and add `?mode=art` to the lab URL
+to edit the procedural sky controls described here.
 
 Choose **Free flight** to keep the current position and viewing direction, then
 click the view. WASD flies forward/backward and sideways, Q/E moves radially

@@ -2,6 +2,7 @@ import {afterEach,describe,expect,it,vi} from 'vitest';
 import {ACESFilmicToneMapping,BufferGeometry,Color,Mesh,MeshStandardMaterial,NoToneMapping,PerspectiveCamera,Scene,Vector4,type WebGLRenderer,type WebGLRenderTarget} from 'three';
 import {compilePlanetSky,createPlanetSkyRecipe} from '../src/shared/planetSky.ts';
 import {PlanetSkyView} from '../src/sandbox/planetSkyView.ts';
+import type {PlanetAtmosphereSnapshot} from '../src/shared/planetAtmosphereSnapshot.ts';
 
 const radius=6_371_000,compiled=compilePlanetSky(createPlanetSkyRecipe(73,radius),radius),bake=compiled.bake();
 const frame={position:[0,radius+75,0] as const,timeSeconds:10,sunDirection:[1,1,0] as const};
@@ -13,6 +14,7 @@ class Renderer {
   color=new Color('#123456');alpha=1;contextAlpha=true;
   autoClear=true;toneMapping=ACESFilmicToneMapping;
   calls=0;throwAt=0;info={render:{triangles:0,calls:0}};
+  uploads=0;initTexture(){this.uploads++;}
   compiles=0;compileHook?:()=>Promise<unknown>;compileStates:{target:WebGLRenderTarget|null;toneMapping:number}[]=[];compileScenes:Scene[]=[];
   compileAsync(scene:Scene){this.compiles++;this.compileScenes.push(scene);this.compileStates.push({target:this.target,toneMapping:this.toneMapping});return this.compileHook?.()??Promise.resolve();}
   getRenderTarget(){return this.target;}
@@ -169,5 +171,17 @@ describe('planet sky view lifecycle',()=>{
       await vi.advanceTimersByTimeAsync(60_000);await rejected;expect(view.inspection().preparation.status).toBe('failed');
       view.render(asRenderer(r),new Scene(),new PerspectiveCamera(),frame);expect(r.calls).toBe(1);
     }finally{vi.useRealTimers();}
+  });
+  it('publishes complete physical texture pairs without rebuilding materials or exposing partial planes',async()=>{
+    const state=(sequence:number):PlanetAtmosphereSnapshot=>{const size=64*32*4,condensate=new Float32Array(size),materialLower=new Float32Array(size),materialUpper=new Float32Array(size);for(let i=2;i<size;i+=4)materialLower[i]=materialUpper[i]=1;return{kind:'planet-atmosphere-snapshot',version:1,revision:'physical',planetRevision:'planet',epoch:1,sequence,timeSeconds:sequence*10,radiusMeters:radius,width:64,height:32,condensate,materialLower,materialUpper};};
+    const view=make(),r=new Renderer(),scene=new Scene(),camera=new PerspectiveCamera(),a=state(1),b=state(2);await view.prepare(asRenderer(r),scene,camera);view.enableSimulation();
+    const resources=view as unknown as {uniforms:Record<string,{value:any}>;volumeMaterial:{version:number}},version=resources.volumeMaterial.version;
+    view.render(asRenderer(r),scene,camera,{...frame,timeSeconds:15});expect(resources.uniforms.uSnapshotParams.value.toArray()).toEqual([1,0,0,0]);
+    expect(view.setWeatherSnapshots(a,b)).toBe(true);
+    view.render(asRenderer(r),scene,camera,{...frame,timeSeconds:15,weatherPrepared:true});expect(r.uploads).toBe(0);expect(view.inspection().simulation.active).toBe(false);
+    for(let i=0;i<6;i++){view.stageWeather(r);view.render(asRenderer(r),scene,camera,{...frame,timeSeconds:15,weatherPrepared:true});expect(r.uploads).toBe(i+1);expect(resources.uniforms.uSnapshotParams.value.z).toBe(i===5?1:0);expect(resources.uniforms.uStormCount.value).toBe(0);expect(resources.volumeMaterial.version).toBe(version);}
+    expect(r.uploads).toBe(6);expect(resources.uniforms.uSnapshotParams.value.y).toBe(.5);expect(view.inspection().simulation).toMatchObject({active:true,sequence:2,fromTime:10,toTime:20,staging:false});
+    expect(resources.uniforms.tSnapshotCondensate0.value.image.data).toBe(a.condensate);expect(resources.uniforms.tSnapshotCondensate1.value.image.data).toBe(b.condensate);expect(()=>view.setWeatherSnapshots(a)).toThrow(/Stale/);
+    view.clearWeatherSnapshots();view.enableSimulation();view.render(asRenderer(r),scene,camera,frame);expect(resources.uniforms.uSnapshotParams.value.toArray()).toEqual([1,0,0,0]);
   });
 });

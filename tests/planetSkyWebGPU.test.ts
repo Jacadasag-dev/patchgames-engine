@@ -5,6 +5,7 @@ import {compilePlanetSky,createPlanetSkyRecipe} from '../src/shared/planetSky.ts
 import {PlanetSkyWebGPUView} from '../src/sandbox/planetSkyWebGPU.ts';
 import {createPlanetSkyNoiseMipmaps} from '../src/sandbox/planetSkyWebGPUMips.ts';
 import {createPlanetWeatherRecipe} from '../src/shared/planetWeather.ts';
+import type {PlanetAtmosphereSnapshot} from '../src/shared/planetAtmosphereSnapshot.ts';
 
 const radius=6_371_000,bake=compilePlanetSky(createPlanetSkyRecipe(73,radius),radius).bake();
 const frame={position:[0,radius+75,0] as const,timeSeconds:10,sunDirection:[1,1,0] as const};
@@ -16,6 +17,7 @@ class Renderer {
   color=new Color('#123456');alpha=1;autoClear=true;toneMapping=ACESFilmicToneMapping;outputColorSpace=SRGBColorSpace;
   calls=0;throwAt=0;info={render:{triangles:900,drawCalls:123}};
   initializedTextures:(Data3DTexture|DataTexture)[]=[];copies:{source:Data3DTexture;destination:Data3DTexture;depth:number;level:number}[]=[];
+  textureAllocations=new Map<Data3DTexture|DataTexture,{width:number;height:number}>();trackedTextures=new WeakSet<Data3DTexture|DataTexture>();
   getRenderTarget(){return this.target;}
   getOutputRenderTarget(){return this.output;}
   getViewport(v:Vector4){return v.copy(this.viewport);}
@@ -32,7 +34,12 @@ class Renderer {
   getClearAlpha(){return this.alpha;}
   setClearColor(v:Color,alpha:number){this.color.copy(v);this.alpha=alpha;}
   clear(){}
-  initTexture(texture:Data3DTexture|DataTexture){this.initializedTextures.push(texture);}
+  initTexture(texture:Data3DTexture|DataTexture){
+    const allocated=this.textureAllocations.get(texture),{width,height}=texture.image;
+    if(allocated&&(allocated.width!==width||allocated.height!==height))throw Error('Native texture allocation size changed without disposal.');
+    if(!this.trackedTextures.has(texture)){this.trackedTextures.add(texture);texture.addEventListener('dispose',()=>this.textureAllocations.delete(texture));}
+    this.textureAllocations.set(texture,{width,height});this.initializedTextures.push(texture);
+  }
   copyTextureToTexture(source:Data3DTexture,destination:Data3DTexture,region:{max:{z:number}},_position:null,_srcLevel:number,level:number){this.copies.push({source,destination,depth:region.max.z,level});}
   render(){
     this.calls++;if(this.calls===this.throwAt)throw Error('native render failed');
@@ -45,6 +52,11 @@ const asRenderer=(r:Renderer)=>r as unknown as WebGPURenderer;
 const views:PlanetSkyWebGPUView[]=[];
 const make=()=>{const view=new PlanetSkyWebGPUView(bake);views.push(view);return view;};
 const camera=()=>new PerspectiveCamera(60,1,.1,radius*8);
+const snapshot=(sequence:number,timeSeconds:number):PlanetAtmosphereSnapshot=>{
+  const width=64,height=32,condensate=new Float32Array(width*height*4),materialLower=new Float32Array(condensate.length),materialUpper=new Float32Array(condensate.length);
+  for(let offset=0;offset<condensate.length;offset+=4){condensate[offset]=.1;materialLower[offset]=1;materialLower[offset+3]=.005;materialUpper[offset]=1;}
+  return{kind:'planet-atmosphere-snapshot',version:1,revision:'physical-atmosphere',planetRevision:'physical-planet',epoch:1,sequence,timeSeconds,radiusMeters:radius,width,height,condensate,materialLower,materialUpper};
+};
 afterEach(()=>{views.forEach(view=>view.dispose());views.length=0;vi.restoreAllMocks();});
 
 describe('native WebGPU planet sky',()=>{
@@ -136,6 +148,48 @@ describe('native WebGPU planet sky',()=>{
       expect(Math.abs(phase*.15)).toBeLessThanOrEqual(Math.PI*2);
       expect(Math.sin(phase*.15)).toBeCloseTo(Math.sin(angle),12);expect(Math.cos(phase*.15)).toBeCloseTo(Math.cos(angle),12);
     }
+  });
+  it('stages complete physical endpoint pairs without exposing partial planes or rebuilding nodes',()=>{
+    const view=make(),r=new Renderer(),scene=new Scene(),c=camera(),previous=snapshot(1,100),current=snapshot(2,200);
+    const resources=view as unknown as {uniforms:{snapshotParams:{value:Vector4};weatherParams:{value:Vector4}};snapshotNodes:Record<string,{value:DataTexture}>;volumeMaterial:{version:number}};
+    const nodes=resources.snapshotNodes,version=resources.volumeMaterial.version;
+    expect(view.setWeatherSnapshots(previous,current)).toBe(true);
+    for(let pass=0;pass<6;pass++){
+      view.render(asRenderer(r),scene,c,{...frame,timeSeconds:150});
+      expect(resources.uniforms.snapshotParams.value.x).toBe(1);expect(resources.uniforms.snapshotParams.value.z).toBe(pass===5?1:0);
+      expect(resources.uniforms.weatherParams.value.y).toBe(0);expect(resources.snapshotNodes).toBe(nodes);expect(resources.volumeMaterial.version).toBe(version);
+    }
+    expect(resources.uniforms.snapshotParams.value.y).toBe(.5);expect(view.inspection().simulation).toMatchObject({active:true,sequence:2,uploads:6,staging:false});
+    expect(nodes.snapshotCondensate0.value.image.data).toBe(previous.condensate);expect(nodes.snapshotCondensate1.value.image.data).toBe(current.condensate);
+    expect(view.setWeatherSnapshots(previous,current)).toBe(false);view.render(asRenderer(r),scene,c,{...frame,timeSeconds:500});expect(resources.uniforms.snapshotParams.value.y).toBe(1);
+    expect(()=>view.setWeatherSnapshots(previous)).toThrow(/Stale/);
+  });
+  it('keeps physical simulation empty until ready and can clear it without leaking a retired snapshot',()=>{
+    const view=make(),r=new Renderer(),scene=new Scene(),c=camera();
+    const resources=view as unknown as {uniforms:{snapshotParams:{value:Vector4}}};view.enableSimulation();view.render(asRenderer(r),scene,c,frame);
+    expect(resources.uniforms.snapshotParams.value.toArray()).toEqual([1,0,0,0]);
+    const state=snapshot(1,10);view.setWeatherSnapshots(state);for(let pass=0;pass<3;pass++)view.render(asRenderer(r),scene,c,frame);
+    expect(resources.uniforms.snapshotParams.value.z).toBe(1);view.clearWeatherSnapshots();view.enableSimulation();view.render(asRenderer(r),scene,c,frame);
+    expect(resources.uniforms.snapshotParams.value.toArray()).toEqual([1,0,0,0]);view.dispose();expect(()=>view.setWeatherSnapshots(state)).toThrow(/disposed/);
+  });
+  it('recreates primed 1x1 snapshot allocations before uploading a larger grid while retaining nodes',()=>{
+    const view=make(),r=new Renderer(),resources=view as unknown as {snapshotNodes:Record<string,{value:DataTexture}>};
+    const nodes=resources.snapshotNodes;for(const node of Object.values(nodes))r.initTexture(node.value);
+    view.setWeatherSnapshots(snapshot(1,10));for(let pass=0;pass<3;pass++)view.render(asRenderer(r),new Scene(),camera(),frame);
+    expect(view.inspection().simulation).toMatchObject({active:true,error:'',uploads:3});expect(resources.snapshotNodes).toBe(nodes);
+    expect(nodes.snapshotCondensate0.value.image.width).toBe(64);expect(r.textureAllocations.get(nodes.snapshotCondensate0.value)).toEqual({width:64,height:32});
+  });
+  it('lets the host freeze staged weather and advances exactly one plane before a prepared render',()=>{
+    const view=make(),r=new Renderer(),scene=new Scene(),c=camera();view.setWeatherSnapshots(snapshot(1,10));
+    for(let pass=0;pass<4;pass++)view.render(asRenderer(r),scene,c,{...frame,weatherPrepared:true});
+    expect(view.inspection().simulation).toMatchObject({active:false,uploads:0});
+    view.stageWeather(r);view.render(asRenderer(r),scene,c,{...frame,weatherPrepared:true});
+    expect(view.inspection().simulation).toMatchObject({active:false,uploads:1});
+    view.stageWeather(r);view.render(asRenderer(r),scene,c,{...frame,weatherPrepared:true});
+    expect(view.inspection().simulation).toMatchObject({active:false,uploads:2});
+    view.stageWeather(r);view.render(asRenderer(r),scene,c,{...frame,weatherPrepared:true});
+    expect(view.inspection().simulation).toMatchObject({active:true,uploads:3});
+    view.dispose();expect(()=>view.stageWeather(r)).toThrow(/disposed/);
   });
 });
 

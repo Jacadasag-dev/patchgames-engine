@@ -1,9 +1,12 @@
 import {BufferAttribute,BufferGeometry,ClampToEdgeWrapping,Color,Data3DTexture,DataTexture,DepthTexture,GLSL3,HalfFloatType,LinearFilter,LinearMipmapLinearFilter,Matrix3,Matrix4,Mesh,NearestFilter,NoBlending,NoColorSpace,NoToneMapping,PerspectiveCamera,RedFormat,RepeatWrapping,RGBAFormat,Scene,ShaderMaterial,UnsignedIntType,Vector2,Vector3,Vector4,WebGLRenderTarget,type Material,type WebGLRenderer} from 'three';
 import {compilePlanetSky,type CompiledPlanetSky,type PlanetSkyBake,type PlanetSkyRecipe} from '../shared/planetSky.ts';
 import type {PlanetVector} from '../shared/planet.ts';
+import {compilePlanet} from '../shared/planet.ts';
+import type {PlanetAtmosphereSnapshot} from '../shared/planetAtmosphereSnapshot.ts';
+import {PlanetAtmosphereSnapshotBuffer} from './planetAtmosphereSnapshotBuffer.ts';
 import {planetSkyCompositeFragmentShader,planetSkyVertexShader,planetSkyVolumeFragmentShader} from './planetSkyShader.ts';
 
-export interface PlanetSkyFrame {position:PlanetVector;timeSeconds:number;sunDirection:PlanetVector;starRotationRadians?:number;presentationTimeSeconds?:number}
+export interface PlanetSkyFrame {position:PlanetVector;timeSeconds:number;sunDirection:PlanetVector;starRotationRadians?:number;presentationTimeSeconds?:number;weatherPrepared?:boolean}
 export type PlanetSkyDiagnostic='composite'|'scene'|'radiance'|'transmittance'|'depth-rejection'|'unweighted'|'nearest'|'cloud-shadow';
 const diagnosticModes:readonly PlanetSkyDiagnostic[]=['composite','scene','radiance','transmittance','depth-rejection','unweighted','nearest','cloud-shadow'];
 const vector=(v:PlanetVector)=>Array.isArray(v)&&v.length===3&&v.every(n=>typeof n==='number'&&Number.isFinite(n)&&Math.abs(n)<=1e9);
@@ -18,6 +21,7 @@ export class PlanetSkyView {
   private readonly circulationCoverage:DataTexture;
   private readonly circulationEnvironment:DataTexture;
   private readonly weatherFacts;
+  private readonly snapshotBuffer:PlanetAtmosphereSnapshotBuffer;
   private readonly geometry=new BufferGeometry();
   private readonly volumeScene=new Scene();
   private readonly compositeScene=new Scene();
@@ -50,6 +54,7 @@ export class PlanetSkyView {
   private preparedMaterials:Material[]=[];
   constructor(bake:PlanetSkyBake) {
     this.compiled=compilePlanetSky(bake.recipe,bake.radiusMeters);
+    this.snapshotBuffer=new PlanetAtmosphereSnapshotBuffer({radiusMeters:bake.radiusMeters,planetRevision:bake.recipe.surface?compilePlanet(bake.recipe.surface).revision:undefined});
     if(bake.bakeKey!==this.compiled.bakeKey||bake.revision!==this.compiled.revision||bake.noise?.size!==32||bake.weather?.size!==32
       ||!(bake.noise.data instanceof Uint8Array)||bake.noise.data.length!==32**3*4||!(bake.weather.data instanceof Uint8Array)||bake.weather.data.length!==32**3)throw Error('Planet sky bake does not match its validated recipe or bounded volumes.');
     this.noise=new Data3DTexture(new Uint8Array(bake.noise.data),32,32,32);
@@ -70,6 +75,7 @@ export class PlanetSkyView {
       tSceneColor:{value:this.sceneTarget.texture},tSceneDepth:{value:this.sceneTarget.depthTexture},tRadiance:{value:this.volumeTarget.textures[0]},tTransmittance:{value:this.volumeTarget.textures[1]},
       uNoiseTexture:{value:this.noise},uWeatherTexture:{value:this.weather},uProjectionInverse:{value:new Matrix4()},uCameraRotation:{value:this.cameraRotation},
       tCirculationCoverage:{value:this.circulationCoverage},tCirculationEnvironment:{value:this.circulationEnvironment},
+      tSnapshotCondensate0:{value:this.snapshotBuffer.textures.condensate0},tSnapshotCondensate1:{value:this.snapshotBuffer.textures.condensate1},tSnapshotLower0:{value:this.snapshotBuffer.textures.materialLower0},tSnapshotLower1:{value:this.snapshotBuffer.textures.materialLower1},tSnapshotUpper0:{value:this.snapshotBuffer.textures.materialUpper0},tSnapshotUpper1:{value:this.snapshotBuffer.textures.materialUpper1},uSnapshotParams:{value:new Vector4()},
       uStormCenters:{value:Array.from({length:16},()=>new Vector4())},uStormProperties:{value:Array.from({length:16},()=>new Vector4())},uStormCount:{value:0},uWeatherTimeDays:{value:0},uWeatherRotationScale:{value:1},uWeatherEvolutionPhase:{value:0},uCondensationThreshold:{value:circulation.condensationThreshold},uCoverageGain:{value:1},uCloudLayers:{value:Array.from({length:3},()=>new Vector4())},
       uCelestial:{value:new Vector4()},uStars:{value:new Vector4()},uSkyClock:{value:new Vector4()},uSkyEffects:{value:new Vector4()},
       uCameraRadius:{value:new Vector3()},uSunDirection:{value:this.sun},uRayleigh:{value:new Vector3()},uShapeWindUV:{value:new Vector3()},uDetailWindUV:{value:new Vector3()},
@@ -108,6 +114,12 @@ export class PlanetSkyView {
     if(next.bakeKey!==this.compiled.bakeKey)throw Error('Planet sky seed or weather changed; prepare a replacement volume in the worker first.');
     this.compiled=next;this.applyRecipe();
   }
+  enableSimulation():void {if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.enable();}
+  setWeatherSnapshots(previous:PlanetAtmosphereSnapshot,current:PlanetAtmosphereSnapshot=previous):boolean {if(this.disposed)throw Error('Planet sky view is disposed.');return this.snapshotBuffer.set(previous,current);}
+  /** Stage before deriving the host's common sun/weather clock. Pass
+   * weatherPrepared:true to render; omit staging while playback is paused. */
+  stageWeather(renderer:{initTexture(texture:DataTexture):void}):void {if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.uploadNext(renderer);}
+  clearWeatherSnapshots():void {if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.clear();}
   /** Host/lab inspection only. Does not change the persisted weather recipe. */
   setDiagnostic(mode:PlanetSkyDiagnostic):void {
     const index=diagnosticModes.indexOf(mode);if(index<0||this.disposed)throw Error('Planet sky diagnostic mode is invalid or the view is disposed.');this.uniforms.uDiagnostic.value=index;
@@ -200,7 +212,12 @@ export class PlanetSkyView {
     if(this.renderer&&this.renderer!==renderer)throw Error('Planet sky GPU resources belong to one renderer; create a separate view for another renderer.');
     if(!this.renderer){if(!renderer.extensions.has('EXT_color_buffer_float'))throw Error('Planet sky HDR integration requires EXT_color_buffer_float.');this.renderer=renderer;}
     const r=this.compiled.recipe;
-    if(!r.atmosphere.enabled&&!r.clouds.enabled&&!r.celestial.sunEnabled&&!r.celestial.starsEnabled){const start=performance.now();renderer.render(scene,camera);this.sceneTriangles=renderer.info.render.triangles;this.sceneDrawCalls=renderer.info.render.calls;this.renderCpuMs=performance.now()-start;this.frames++;return;}
+    if(!frame.weatherPrepared)this.stageWeather(renderer);const snapshotFrame=this.snapshotBuffer.frame(frame.timeSeconds),snapshotTextures=this.snapshotBuffer.textures;
+    this.uniforms.uSnapshotParams.value.set(snapshotFrame.enabled?1:0,snapshotFrame.alpha,snapshotFrame.active?1:0,0);
+    this.uniforms.tSnapshotCondensate0.value=snapshotTextures.condensate0;this.uniforms.tSnapshotCondensate1.value=snapshotTextures.condensate1;
+    this.uniforms.tSnapshotLower0.value=snapshotTextures.materialLower0;this.uniforms.tSnapshotLower1.value=snapshotTextures.materialLower1;
+    this.uniforms.tSnapshotUpper0.value=snapshotTextures.materialUpper0;this.uniforms.tSnapshotUpper1.value=snapshotTextures.materialUpper1;
+    if(!snapshotFrame.enabled&&!r.atmosphere.enabled&&!r.clouds.enabled&&!r.celestial.sunEnabled&&!r.celestial.starsEnabled){const start=performance.now();renderer.render(scene,camera);this.sceneTriangles=renderer.info.render.triangles;this.sceneDrawCalls=renderer.info.render.calls;this.renderCpuMs=performance.now()-start;this.frames++;return;}
     if(this.preparationStatus!=='ready'||this.preparedToneMapping!==renderer.toneMapping||this.preparedScene!==scene||this.preparedCamera!==camera){
       if(this.preparationStatus!=='failed')void this.prepare(renderer,scene,camera).catch(()=>{});
       this.renderFallback(renderer,scene,camera);return;
@@ -212,8 +229,9 @@ export class PlanetSkyView {
     const u=this.uniforms,radius=this.compiled.radiusMeters,wind=r.clouds.windMetersPerSecond;
     camera.updateWorldMatrix(true,false);u.uProjectionInverse.value.copy(camera.projectionMatrixInverse);this.cameraRotation.setFromMatrix4(camera.matrixWorld);
     u.uCameraRadius.value.set(...frame.position).multiplyScalar(1/radius);this.sun.set(...frame.sunDirection).normalize();u.uNear.value=camera.near;u.uFar.value=camera.far;u.uLogDepth.value=renderer.capabilities.logarithmicDepthBuffer?1:0;
-    for(const [name,scale] of [['uShapeWindUV',r.clouds.shapeScaleMeters],['uDetailWindUV',r.clouds.detailScaleMeters]] as const)u[name].value.set(...wind.map(value=>fract(-value*frame.timeSeconds/(scale*32))));
-    const weatherFrame=this.compiled.weather.frame(frame.timeSeconds);u.uStormCount.value=weatherFrame.cyclones.length;u.uWeatherTimeDays.value=weatherFrame.timeDays;u.uWeatherRotationScale.value=weatherFrame.rotationScale;u.uWeatherEvolutionPhase.value=(weatherFrame.timeDays%(1/12))*12*Math.PI*2;
+    const windTime=snapshotFrame.enabled?snapshotFrame.timeSeconds:frame.timeSeconds;
+    for(const [name,scale] of [['uShapeWindUV',r.clouds.shapeScaleMeters],['uDetailWindUV',r.clouds.detailScaleMeters]] as const)u[name].value.set(...wind.map(value=>fract(-value*windTime/(scale*32))));
+    const weatherFrame=snapshotFrame.enabled?{timeDays:snapshotFrame.timeSeconds/86400,rotationScale:1,cyclones:[]}:this.compiled.weather.frame(frame.timeSeconds);u.uStormCount.value=weatherFrame.cyclones.length;u.uWeatherTimeDays.value=weatherFrame.timeDays;u.uWeatherRotationScale.value=weatherFrame.rotationScale;u.uWeatherEvolutionPhase.value=(weatherFrame.timeDays%(1/12))*12*Math.PI*2;
     for(let index=0;index<16;index++){const storm=weatherFrame.cyclones[index];if(storm){u.uStormCenters.value[index].set(...storm.center,storm.angularRadius);u.uStormProperties.value[index].set(storm.spin,(storm.phase*.15%(Math.PI*2))/.15,storm.strength,storm.type==='tropical'?0:1);}else{u.uStormCenters.value[index].set(0,0,0,0);u.uStormProperties.value[index].set(0,0,0,0);}}
     u.uSkyClock.value.set((frame.presentationTimeSeconds??frame.timeSeconds)%4096,(frame.starRotationRadians??0)%(Math.PI*2),(r.seed>>>16)&65535,r.seed&65535);
     const autoClear=renderer.autoClear,scissorTest=renderer.getScissorTest(),toneMapping=renderer.toneMapping,clearColor=renderer.getClearColor(this.clearColor),clearAlpha=renderer.getClearAlpha(),start=performance.now();
@@ -231,6 +249,7 @@ export class PlanetSkyView {
   inspection(){
     return{backend:'webgl2',style:this.compiled.recipe.style,quality:this.compiled.recipe.quality,diagnostic:diagnosticModes[this.uniforms.uDiagnostic.value],revision:this.compiled.revision,bakeKey:this.compiled.bakeKey,frames:this.frames,
       preparation:{status:this.preparationStatus,phase:this.preparationPhase,ready:this.preparationStatus==='ready',captureReady:!!this.preparedScene&&this.preparationStatus==='ready',error:this.preparationError,elapsedMs:this.preparationStatus==='preparing'?performance.now()-this.preparationStarted:this.preparationElapsedMs},fallbackFrames:this.fallbackFrames,
+      simulation:this.snapshotBuffer.inspection(),
       atmosphereEnabled:this.compiled.recipe.atmosphere.enabled,cloudsEnabled:this.compiled.recipe.clouds.enabled,
       cloudLayers:this.compiled.recipe.clouds.layers,celestial:this.compiled.recipe.celestial,weather:{...this.weatherFacts,cyclones:this.uniforms.uStormCount.value,timeDays:this.uniforms.uWeatherTimeDays.value},
       captureWidth:this.width,captureHeight:this.height,volumeWidth:this.lowWidth,volumeHeight:this.lowHeight,volumePixels:this.lowWidth*this.lowHeight,
@@ -239,6 +258,6 @@ export class PlanetSkyView {
       byteMetric:'Estimated attachment payload; excludes driver allocation, MSAA, staging and other scene resources',sceneTriangles:this.sceneTriangles,sceneDrawCalls:this.sceneDrawCalls,renderSubmissionCpuMs:this.renderCpuMs,disposed:this.disposed};
   }
   dispose():void {
-    if(this.disposed)return;this.disposed=true;this.cancelPreparation?.();this.preparationStatus='disposed';for(const material of this.preparedMaterials)material.dispose();this.preparedMaterials=[];this.noise.dispose();this.weather.dispose();this.circulationCoverage.dispose();this.circulationEnvironment.dispose();this.sceneTarget.dispose();this.volumeTarget.dispose();this.geometry.dispose();this.volumeMaterial.dispose();this.compositeMaterial.dispose();this.volumeScene.clear();this.compositeScene.clear();
+    if(this.disposed)return;this.disposed=true;this.cancelPreparation?.();this.preparationStatus='disposed';for(const material of this.preparedMaterials)material.dispose();this.preparedMaterials=[];this.snapshotBuffer.dispose();this.noise.dispose();this.weather.dispose();this.circulationCoverage.dispose();this.circulationEnvironment.dispose();this.sceneTarget.dispose();this.volumeTarget.dispose();this.geometry.dispose();this.volumeMaterial.dispose();this.compositeMaterial.dispose();this.volumeScene.clear();this.compositeScene.clear();
   }
 }

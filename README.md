@@ -32,10 +32,16 @@ Run `npm run demo:leaf-lod` for the [Leaf Coverage Lab](examples/leaf-lod-lab.ht
 compare full and two-triangle leaf cards at fixed distances, inspect mip opacity,
 and measure the rendered canopy with and without multisampling.
 
-Run `npm run demo:planet` for the [Planet Flight Lab](examples/planet-lab.html):
+Run `npm run demo:planet` for the [Planet Simulator](examples/planet-lab.html):
 fly from orbit to local terrain on an Earth-sized procedural sphere while bounded
 worker jobs refine the visible surface. Read [planet integration and scope](docs/planet-generation.md)
-before connecting spherical terrain to gameplay.
+before connecting spherical terrain to gameplay. Its [physical generator](docs/planet-simulation.md)
+accepts radius, gravity, rotation, orbit, starlight, atmospheric pressure/composition,
+oceans and moisture. A persistent worker transports air, heat, water and dust;
+cloud mass is an output, with no cloud-coverage target. Earth-like, Mars-like and
+warm ocean presets provide starting conditions. This is a coarse game simulation,
+not a scientific climate forecast or a resolved hurricane model. It is experimental:
+the Earth-like setup still develops excessive widespread high cirrus in long runs.
 
 The same lab includes [atmosphere and volumetric cloud generators](docs/planet-sky.md)
 with live realistic/pixel styles, shared weather fields and bounded quality.
@@ -43,7 +49,7 @@ It also supports native WebGPU, generated terrain materials, nine climate biomes
 seven forest species, compiled buildings and spherical engine water. Read
 [populated planet integration](docs/planet-worlds.md) for worker setup and budgets.
 The sky includes a rotating sun, day/night stars, fog, cumulus and cirrus,
-cloud shadows and volumetric shafts. Its [circulation-driven weather](docs/planet-weather.md)
+cloud shadows and volumetric shafts. The optional `?mode=art` demo retains [procedural weather](docs/planet-weather.md), which
 uses latitude regimes, cyclone tracks, coastlines and terrain instead of a uniform cloud noise shell.
 
 ## Complete starter games

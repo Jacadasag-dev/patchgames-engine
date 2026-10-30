@@ -1,5 +1,9 @@
 # Coupled planetary weather
 
+For physical planet inputs and persistent evolving weather, use the
+[planet simulator](planet-simulation.md). This guide describes the optional
+art-directed `?mode=art` path, whose coverage controls do not drive the simulator.
+
 `shared/planetWeather.ts` is a deterministic, physically inspired procedural
 weather model. Pressure, moisture, temperature and wind produce a shared
 condensation field for every cloud layer. It supplies coherent generated weather
