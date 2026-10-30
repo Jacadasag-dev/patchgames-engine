@@ -58,18 +58,19 @@ export class PlanetSkyView {
     this.noise.generateMipmaps=true;this.noise.minFilter=LinearMipmapLinearFilter;
     const circulation=bake.circulation;
     if(!circulation||circulation.revision!==this.compiled.weather.revision||circulation.radiusMeters!==bake.radiusMeters)throw Error('Planet sky circulation bake does not match its validated recipe.');
+    if(!Number.isFinite(circulation.condensationThreshold)||Math.abs(circulation.condensationThreshold)>2)throw Error('Planet sky circulation condensation threshold is invalid.');
     for(const data of [circulation.coverage,circulation.environment])if(![128,256,512].includes(data?.width)||data.height!==data.width/2||!(data.data instanceof Uint8Array)||data.data.length!==data.width*data.height*4)throw Error('Planet sky circulation atlas exceeds its bounded data layout.');
     this.circulationCoverage=new DataTexture(new Uint8Array(circulation.coverage.data),circulation.coverage.width,circulation.coverage.height,RGBAFormat);
     this.circulationEnvironment=new DataTexture(new Uint8Array(circulation.environment.data),circulation.environment.width,circulation.environment.height,RGBAFormat);
     for(const texture of [this.circulationCoverage,this.circulationEnvironment]){texture.minFilter=texture.magFilter=LinearFilter;texture.wrapS=RepeatWrapping;texture.wrapT=ClampToEdgeWrapping;texture.generateMipmaps=false;texture.colorSpace=NoColorSpace;texture.unpackAlignment=1;texture.needsUpdate=true;}
-    this.weatherFacts={targetCoverage:circulation.targetCoverage,achievedCoverage:circulation.achievedCoverage,coverageGain:circulation.coverageGain,coverageMetric:circulation.metric,atlasWidth:circulation.coverage.width,atlasHeight:circulation.coverage.height,atlasBytes:circulation.coverage.data.byteLength+circulation.environment.data.byteLength};
+    this.weatherFacts={targetCoverage:circulation.targetCoverage,achievedCoverage:circulation.achievedCoverage,coverageGain:circulation.coverageGain,condensationThreshold:circulation.condensationThreshold,coverageMetric:circulation.metric,atlasWidth:circulation.coverage.width,atlasHeight:circulation.coverage.height,atlasBytes:circulation.coverage.data.byteLength+circulation.environment.data.byteLength};
     this.sceneTarget=new WebGLRenderTarget(1,1,{type:HalfFloatType,format:RGBAFormat,minFilter:LinearFilter,magFilter:LinearFilter,depthBuffer:true,stencilBuffer:false,depthTexture:new DepthTexture(1,1,UnsignedIntType)});
     this.volumeTarget=new WebGLRenderTarget(1,1,{count:2,type:HalfFloatType,format:RGBAFormat,minFilter:NearestFilter,magFilter:NearestFilter,depthBuffer:false,stencilBuffer:false});
     this.uniforms={
       tSceneColor:{value:this.sceneTarget.texture},tSceneDepth:{value:this.sceneTarget.depthTexture},tRadiance:{value:this.volumeTarget.textures[0]},tTransmittance:{value:this.volumeTarget.textures[1]},
       uNoiseTexture:{value:this.noise},uWeatherTexture:{value:this.weather},uProjectionInverse:{value:new Matrix4()},uCameraRotation:{value:this.cameraRotation},
       tCirculationCoverage:{value:this.circulationCoverage},tCirculationEnvironment:{value:this.circulationEnvironment},
-      uStormCenters:{value:Array.from({length:16},()=>new Vector4())},uStormProperties:{value:Array.from({length:16},()=>new Vector4())},uStormCount:{value:0},uWeatherTimeDays:{value:0},uCoverageGain:{value:1},uCloudLayers:{value:Array.from({length:3},()=>new Vector4())},
+      uStormCenters:{value:Array.from({length:16},()=>new Vector4())},uStormProperties:{value:Array.from({length:16},()=>new Vector4())},uStormCount:{value:0},uWeatherTimeDays:{value:0},uWeatherRotationScale:{value:1},uWeatherEvolutionPhase:{value:0},uCondensationThreshold:{value:circulation.condensationThreshold},uCoverageGain:{value:1},uCloudLayers:{value:Array.from({length:3},()=>new Vector4())},
       uCelestial:{value:new Vector4()},uStars:{value:new Vector4()},uSkyClock:{value:new Vector4()},uSkyEffects:{value:new Vector4()},
       uCameraRadius:{value:new Vector3()},uSunDirection:{value:this.sun},uRayleigh:{value:new Vector3()},uShapeWindUV:{value:new Vector3()},uDetailWindUV:{value:new Vector3()},
       uRadius:{value:bake.radiusMeters},uNear:{value:.1},uFar:{value:bake.radiusMeters*8},uLogDepth:{value:0},
@@ -211,9 +212,9 @@ export class PlanetSkyView {
     const u=this.uniforms,radius=this.compiled.radiusMeters,wind=r.clouds.windMetersPerSecond;
     camera.updateWorldMatrix(true,false);u.uProjectionInverse.value.copy(camera.projectionMatrixInverse);this.cameraRotation.setFromMatrix4(camera.matrixWorld);
     u.uCameraRadius.value.set(...frame.position).multiplyScalar(1/radius);this.sun.set(...frame.sunDirection).normalize();u.uNear.value=camera.near;u.uFar.value=camera.far;u.uLogDepth.value=renderer.capabilities.logarithmicDepthBuffer?1:0;
-    for(const [name,scale] of [['uShapeWindUV',r.clouds.shapeScaleMeters],['uDetailWindUV',r.clouds.detailScaleMeters]] as const)u[name].value.set(...wind.map(value=>fract(value*frame.timeSeconds/(scale*32))));
-    const weatherFrame=this.compiled.weather.frame(frame.timeSeconds);u.uStormCount.value=weatherFrame.cyclones.length;u.uWeatherTimeDays.value=weatherFrame.timeDays*(6_371_000/radius);
-    for(let index=0;index<16;index++){const storm=weatherFrame.cyclones[index];if(storm){u.uStormCenters.value[index].set(...storm.center,storm.angularRadius);u.uStormProperties.value[index].set(storm.spin,storm.phase%(Math.PI*2),storm.strength,storm.type==='tropical'?0:1);}else{u.uStormCenters.value[index].set(0,0,0,0);u.uStormProperties.value[index].set(0,0,0,0);}}
+    for(const [name,scale] of [['uShapeWindUV',r.clouds.shapeScaleMeters],['uDetailWindUV',r.clouds.detailScaleMeters]] as const)u[name].value.set(...wind.map(value=>fract(-value*frame.timeSeconds/(scale*32))));
+    const weatherFrame=this.compiled.weather.frame(frame.timeSeconds);u.uStormCount.value=weatherFrame.cyclones.length;u.uWeatherTimeDays.value=weatherFrame.timeDays;u.uWeatherRotationScale.value=weatherFrame.rotationScale;u.uWeatherEvolutionPhase.value=(weatherFrame.timeDays%(1/12))*12*Math.PI*2;
+    for(let index=0;index<16;index++){const storm=weatherFrame.cyclones[index];if(storm){u.uStormCenters.value[index].set(...storm.center,storm.angularRadius);u.uStormProperties.value[index].set(storm.spin,(storm.phase*.15%(Math.PI*2))/.15,storm.strength,storm.type==='tropical'?0:1);}else{u.uStormCenters.value[index].set(0,0,0,0);u.uStormProperties.value[index].set(0,0,0,0);}}
     u.uSkyClock.value.set((frame.presentationTimeSeconds??frame.timeSeconds)%4096,(frame.starRotationRadians??0)%(Math.PI*2),(r.seed>>>16)&65535,r.seed&65535);
     const autoClear=renderer.autoClear,scissorTest=renderer.getScissorTest(),toneMapping=renderer.toneMapping,clearColor=renderer.getClearColor(this.clearColor),clearAlpha=renderer.getClearAlpha(),start=performance.now();
     try{
@@ -234,6 +235,7 @@ export class PlanetSkyView {
       cloudLayers:this.compiled.recipe.clouds.layers,celestial:this.compiled.recipe.celestial,weather:{...this.weatherFacts,cyclones:this.uniforms.uStormCount.value,timeDays:this.uniforms.uWeatherTimeDays.value},
       captureWidth:this.width,captureHeight:this.height,volumeWidth:this.lowWidth,volumeHeight:this.lowHeight,volumePixels:this.lowWidth*this.lowHeight,
       limits:{...this.compiled.quality},volumeDataBytes:32**3*5+this.weatherFacts.atlasBytes,estimatedTargetBytes:this.width*this.height*12+this.lowWidth*this.lowHeight*16,
+      transport:{cloudPrimarySamples:this.compiled.quality.cloudSteps,airPrimarySamples:this.compiled.quality.atmosphereSteps,maxCloudIntervals:6,maxCloudLightSamples:6*this.compiled.quality.cloudLightSteps,quadrature:'World-phase logarithmic feature metric; distant intervals use filtered 3D density'},
       byteMetric:'Estimated attachment payload; excludes driver allocation, MSAA, staging and other scene resources',sceneTriangles:this.sceneTriangles,sceneDrawCalls:this.sceneDrawCalls,renderSubmissionCpuMs:this.renderCpuMs,disposed:this.disposed};
   }
   dispose():void {

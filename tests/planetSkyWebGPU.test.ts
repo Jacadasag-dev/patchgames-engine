@@ -1,9 +1,10 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
-import {ACESFilmicToneMapping,Color,PerspectiveCamera,Scene,SRGBColorSpace,Vector4,WebGPUCoordinateSystem,type Data3DTexture,type DataTexture,type RenderTarget} from 'three';
+import {ACESFilmicToneMapping,Color,PerspectiveCamera,Scene,SRGBColorSpace,Vector3,Vector4,WebGPUCoordinateSystem,type Data3DTexture,type DataTexture,type RenderTarget} from 'three';
 import type {WebGPURenderer} from 'three/webgpu';
 import {compilePlanetSky,createPlanetSkyRecipe} from '../src/shared/planetSky.ts';
 import {PlanetSkyWebGPUView} from '../src/sandbox/planetSkyWebGPU.ts';
 import {createPlanetSkyNoiseMipmaps} from '../src/sandbox/planetSkyWebGPUMips.ts';
+import {createPlanetWeatherRecipe} from '../src/shared/planetWeather.ts';
 
 const radius=6_371_000,bake=compilePlanetSky(createPlanetSkyRecipe(73,radius),radius).bake();
 const frame={position:[0,radius+75,0] as const,timeSeconds:10,sunDirection:[1,1,0] as const};
@@ -109,6 +110,32 @@ describe('native WebGPU planet sky',()=>{
     view.render(asRenderer(r),new Scene(),camera(),{...frame,timeSeconds:86400,presentationTimeSeconds:4100,starRotationRadians:Math.PI*3});
     expect(r.initializedTextures).toHaveLength(4);expect(resources.uniforms.stormCenters0.value.elements).toBe(bank);expect(resources.uniforms.clock.value.x).toBe(4);expect(resources.uniforms.clock.value.y).toBeCloseTo(Math.PI);
     expect(view.inspection()).toMatchObject({cloudShadowStrength:.8,godRayStrength:.9});
+  });
+  it('keeps physical weather clocks independent of planet radius and uploads the coupled column controls',()=>{
+    const smallRadius=1000,compiled=compilePlanetSky({kind:'planet-sky',version:1,seed:73,celestial:{dayLengthSeconds:43200},clouds:{windMetersPerSecond:[7,-3,2],circulation:{...createPlanetWeatherRecipe(73),resolution:128,timeScale:3}}},smallRadius),smallBake=compiled.bake();
+    const view=new PlanetSkyWebGPUView(smallBake);views.push(view);const r=new Renderer(),timeSeconds=-12345,weatherFrame=compiled.weather.frame(timeSeconds);
+    view.render(asRenderer(r),new Scene(),new PerspectiveCamera(60,1,.1,smallRadius*8),{position:[0,smallRadius+75,0],timeSeconds,sunDirection:[1,1,0]});
+    const resources=view as unknown as {uniforms:{weatherParams:{value:Vector4};condensationThreshold:{value:number};weatherEvolutionPhase:{value:number};shapeWind:{value:Vector3}}};
+    expect(resources.uniforms.weatherParams.value.x).toBe(weatherFrame.timeDays);expect(resources.uniforms.weatherParams.value.w).toBe(2);
+    expect(resources.uniforms.condensationThreshold.value).toBe(smallBake.circulation.condensationThreshold);
+    expect(resources.uniforms.weatherEvolutionPhase.value).toBe((weatherFrame.timeDays%(1/12))*12*Math.PI*2);
+    const shapeScale=compiled.recipe.clouds.shapeScaleMeters,offset=compiled.recipe.clouds.windMetersPerSecond.map(w=>{const x=-w*timeSeconds/(shapeScale*32);return x-Math.floor(x);});
+    expect(resources.uniforms.shapeWind.value.toArray()).toEqual(offset);expect(offset.every(value=>value>=0&&value<1)).toBe(true);
+    expect(view.inspection().transport).toMatchObject({cloudPrimarySamples:20,airPrimarySamples:12,maxCloudIntervals:6,maxCloudLightSamples:18});
+  });
+  it.each([NaN,Infinity,-2.01,2.01])('rejects an invalid baked condensation threshold %s before drawing',threshold=>{
+    expect(()=>new PlanetSkyWebGPUView({...bake,circulation:{...bake.circulation,condensationThreshold:threshold}})).toThrow(/circulation/);
+  });
+  it('preserves the physical pressure ellipse through repeated phase turns',()=>{
+    const view=make(),r=new Renderer(),timeSeconds=86400*100,storms=compilePlanetSky(bake.recipe,radius).weather.frame(timeSeconds).cyclones;
+    view.render(asRenderer(r),new Scene(),camera(),{...frame,timeSeconds});
+    const resources=view as unknown as {uniforms:Record<string,{value:{elements:number[]}}>};
+    expect(storms.some(storm=>Math.abs(storm.phase)>Math.PI*2)).toBe(true);
+    for(let index=0;index<storms.length;index++){
+      const phase=resources.uniforms['stormProperties'+Math.floor(index/4)].value.elements[index%4*4+1],angle=storms[index].phase*.15;
+      expect(Math.abs(phase*.15)).toBeLessThanOrEqual(Math.PI*2);
+      expect(Math.sin(phase*.15)).toBeCloseTo(Math.sin(angle),12);expect(Math.cos(phase*.15)).toBeCloseTo(Math.cos(angle),12);
+    }
   });
 });
 

@@ -17,10 +17,15 @@ describe('planetary sky circulation contracts',()=>{
   });
   it('reuses prepared weather for sun, stars, uniform wind, quality and optical edits',()=>{
     const source=compilePlanetSky(base(),R),edited=compilePlanetSky({...source.recipe,quality:'high',style:'pixel',
-      celestial:{...source.recipe.celestial,dayLengthSeconds:120,phaseTurns:.25,axialTiltDegrees:40,seasonTurns:.75,sunEnabled:false,starsEnabled:false,starDensity:.2},
+      celestial:{...source.recipe.celestial,phaseTurns:.25,axialTiltDegrees:40,seasonTurns:.75,sunEnabled:false,starsEnabled:false,starDensity:.2},
       clouds:{...source.recipe.clouds,windMetersPerSecond:[35,2,-11],shadowStrength:.2,godRayStrength:0,density:2.5,erosion:.1,layers:{...source.recipe.clouds.layers,fog:{...source.recipe.clouds.layers.fog,density:1.7}}},
       atmosphere:{...source.recipe.atmosphere,mieStrength:2,sunIntensity:12}},R);
     expect(edited.revision).not.toBe(source.revision);expect(edited.bakeKey).toBe(source.bakeKey);expect(edited.weather.frame(12345)).toEqual(source.weather.frame(12345));
+  });
+  it('uses one physical rotation period for sunlight and pressure-driven circulation',()=>{
+    const source=compilePlanetSky(base(),R),fast=compilePlanetSky({...source.recipe,celestial:{...source.recipe.celestial,dayLengthSeconds:43200}},R);
+    expect(fast.recipe.clouds.circulation.rotationPeriodSeconds).toBe(43200);
+    expect(fast.weather.frame().rotationScale).toBe(2);expect(fast.bakeKey).not.toBe(source.bakeKey);
   });
   it('rejects intersecting cloud shells and clouds outside the atmosphere before preparation',()=>{
     expect(()=>compilePlanetSky({...base(),clouds:{layers:{fog:{bottomMeters:900,thicknessMeters:600}}}},R)).toThrow(/ordered|overlap/);
@@ -29,8 +34,8 @@ describe('planetary sky circulation contracts',()=>{
     expect(()=>compilePlanetSky({...base(),atmosphere:{heightMeters:9000}},R)).toThrow(/atmosphere/);
   });
   it('supports dense sea-level fog at two metres while retaining exact lower and upper boundaries',()=>{
-    const sky=compilePlanetSky({...base(),clouds:{layers:{cumulus:{enabled:false},cirrus:{enabled:false}}}},R);
-    const close=sky.sampleCloudDensity(polar(2),0,[1,0,0]);expect(close).toBeGreaterThan(.25);expect(close).toBeGreaterThan(sky.sampleCloudDensity(polar(100),0,[1,0,0]));
+    const sky=compilePlanetSky({...base(),clouds:{circulation:{...createPlanetWeatherRecipe(73),coverageTarget:1},layers:{cumulus:{enabled:false},cirrus:{enabled:false}}}},R);
+    const close=sky.sampleCloudDensity(polar(2),0,[1,0,0]);expect(close).toBeGreaterThan(0);expect(close).toBeGreaterThan(sky.sampleCloudDensity(polar(100),0,[1,0,0]));
     expect(sky.sampleCloudDensity(polar(0),0,[1,0,0])).toBe(0);expect(sky.sampleCloudDensity(polar(800),0,[1,0,0])).toBe(0);
     const disabled=compilePlanetSky({...sky.recipe,clouds:{...sky.recipe.clouds,layers:{...sky.recipe.clouds.layers,fog:{...sky.recipe.clouds.layers.fog,enabled:false}}}},R);expect(disabled.sampleCloudDensity(polar(2),0,[1,0,0])).toBe(0);
   });

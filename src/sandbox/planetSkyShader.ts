@@ -1,4 +1,5 @@
 import {planetWeatherCoverageGLSL} from '../shared/planetWeather.ts';
+import {planetSkyQuadratureGLSL} from './planetSkySampling.ts';
 
 /** Engine-owned GLSL3 volume integration. Density comes from the same prepared
  * fields as the CPU recipe sampler. Lighting is bounded single scattering with
@@ -27,6 +28,9 @@ uniform vec4 uStormCenters[16];
 uniform vec4 uStormProperties[16];
 uniform int uStormCount;
 uniform float uWeatherTimeDays;
+uniform float uWeatherRotationScale;
+uniform float uCondensationThreshold;
+uniform float uWeatherEvolutionPhase;
 uniform float uCoverageGain;
 uniform vec4 uCloudLayers[3];
 uniform vec4 uSkyEffects;
@@ -86,21 +90,30 @@ float positiveViewDepth(float depth) {
 
 ${planetWeatherCoverageGLSL}
 
-vec3 cloudRegionalCoverage(vec3 position) {
-  vec3 coverage=planetWeatherCoverage(tCirculationCoverage,tCirculationEnvironment,normalize(position),uSunDirection,uWeatherTimeDays,uStormCenters,uStormProperties,uStormCount,uCoverageGain);
-  return clamp(coverage*(textureLod(uWeatherTexture,position/2.2+0.5,0.0).r*2.0),vec3(0.0),vec3(1.0));
+PlanetWeatherState cloudWeather(vec3 position) {
+  PlanetWeatherState state=planetWeatherState(tCirculationCoverage,tCirculationEnvironment,normalize(position),uSunDirection,uWeatherTimeDays,uStormCenters,uStormProperties,uStormCount,uCoverageGain,uWeatherRotationScale,uCondensationThreshold,uRadius);
+  state.coverage=clamp(state.coverage*(textureLod(uWeatherTexture,position/2.2+0.5,0.0).r*2.0),vec3(0.0),vec3(1.0));
+  return state;
 }
+
+vec3 cloudMorph(vec3 metres) {
+  float evolution=uWeatherEvolutionPhase;
+  vec3 q=metres/uNoiseShapeScale*0.35;
+  return metres+sin(q.yzx+0.6*sin(q.zxy+vec3(evolution,-evolution,evolution)))*(uNoiseShapeScale*0.28);
+}
+
+${planetSkyQuadratureGLSL}
 
 float cloudLayerDensity(vec3 position,float footprintMetres,int layer) {
   vec4 settings=uCloudLayers[layer];
   if(!uCloudEnabled||uCloudCoverage<=0.0||uCoverageGain<=0.0||uCloudDensity<=0.0||settings.w<0.5||settings.z<=0.0)return 0.0;
   float h=(length(position)-1.0-settings.x)/settings.y;
   if(h<=0.0||h>=1.0)return 0.0;
-  vec3 metres=position*uRadius;vec3 radial=normalize(position);
-  float latitudeDegrees=abs(asin(clamp(radial.y,-1.0,1.0)))*180.0/PI;
-  float zonalWind=-8.0+30.0*smoothstep(25.0,38.0,latitudeDegrees)*(1.0-smoothstep(60.0,72.0,latitudeDegrees));
-  float flowAngle=-zonalWind*uWeatherTimeDays*86400.0/6371000.0,flowCos=cos(flowAngle),flowSin=sin(flowAngle);
-  metres=vec3(flowCos*metres.x+flowSin*metres.z,metres.y,-flowSin*metres.x+flowCos*metres.z);
+  PlanetWeatherState state=cloudWeather(position);
+  // No texture mip, erosion feather or lighting approximation may create a
+  // cloud outside the common pressure/humidity condensation support.
+  if(state.support<=0.0||state.coverage[layer]<=0.0)return 0.0;
+  vec3 metres=cloudMorph(state.flowDirection*(length(position)*uRadius));
   float filterScale=layer==2?min(uNoiseShapeScale*0.22,settings.y*uRadius/4.0):uNoiseShapeScale;
   float shapeLod=clamp(log2(max(1.0,footprintMetres/filterScale)),0.0,5.0);
   float detailLod=clamp(log2(max(1.0,footprintMetres/uNoiseDetailScale)),0.0,5.0);
@@ -113,15 +126,14 @@ float cloudLayerDensity(vec3 position,float footprintMetres,int layer) {
   vec4 shapeNoise=textureLod(uNoiseTexture,shapeUV,shapeLod);
   float base=shapeNoise.r;
   float detail=textureLod(uNoiseTexture,metres/(uNoiseDetailScale*32.0)+uDetailWindUV,detailLod).g;
-  vec3 coverage=cloudRegionalCoverage(position);
-  if(coverage[layer]<=0.0)return 0.0;
-  float feather=0.06+0.1*clamp(footprintMetres/uNoiseShapeScale,0.0,2.0);
-  float shape=smoothstep(1.0-coverage[layer]-feather,1.0-coverage[layer]+feather,base);
-  float cumulusHeight=h/(0.55+0.45*shapeNoise.b);
+  float shape=smoothstep(0.30,0.68,base);
+  vec3 column=cloudMorph(state.flowDirection*((1.0+settings.x)*uRadius));
+  float top=layer==1?textureLod(uNoiseTexture,column/(uNoiseShapeScale*32.0)+uShapeWindUV,shapeLod).b:shapeNoise.b;
+  float cumulusHeight=h/(0.55+0.45*top);
   float height=layer==0?smoothstep(0.0,0.002,h)*exp(-3.0*h)*(1.0-smoothstep(0.65,1.0,h)):
     layer==1?smoothstep(0.0,0.08,cumulusHeight)*(1.0-smoothstep(0.55,1.0,cumulusHeight)):smoothstep(0.0,0.18,h)*(1.0-smoothstep(0.65,1.0,h));
   float erosion=layer==2?0.12:uCloudErosion;
-  return max(0.0,(shape*height-erosion*(1.0-detail)*0.35)/(1.0-0.35*erosion))*uCloudDensity*settings.z;
+  return state.coverage[layer]*max(0.0,(shape*height-erosion*(1.0-detail)*0.35)/(1.0-0.35*erosion))*uCloudDensity*settings.z;
 }
 
 float cloudExtinction(vec3 position,float footprintMetres) {
@@ -176,10 +188,14 @@ float cloudSunTransmittance(vec3 position,float observerFootprintMetres) {
       // A bounded cone average avoids highly aliased sun shafts. At shallow
       // angles the finite cloud-shell segment is sampled, never the empty gap
       // below the cloud. The same extinction drives surfaces and air lighting.
-      int count=clamp(uCloudLightSteps,1,4);float stepRay=(end-start)/float(count);
+      int count=clamp(uCloudLightSteps,1,4);float feature=cloudFeatureMetres(layer),metric=cloudRayMetric(start,end,feature);
       for(int i=0;i<count;i++) {
-        vec3 point=position+uSunDirection*(start+(float(i)+0.5)*stepRay);
-        float density=cloudLayerDensity(point,max(observerFootprintMetres,stepRay*uRadius*0.3),layer);
+        float begin=cloudRayEdge(start,end,metric,feature,float(i)/float(count)),finish=cloudRayEdge(start,end,metric,feature,float(i+1)/float(count));
+        float stepRay=finish-begin;
+        vec3 middle=position+uSunDirection*((begin+finish)*0.5);
+        float phase=cloudWorldPhase(middle,feature);
+        vec3 point=position+uSunDirection*mix(begin,finish,phase);
+        float density=cloudLayerDensity(point,max(observerFootprintMetres,stepRay*uRadius*0.5),layer);
         opticalDepth+=density*(layer==0?4.0:layer==1?8.0:2.0)*stepRay/settings.y;
       }
     }
@@ -192,24 +208,32 @@ float hgPhase(float cosine,float g) {
   return (1.0-g*g)/(4.0*PI*pow(max(0.001,1.0+g*g-2.0*g*cosine),1.5));
 }
 
-void integrateSegment(vec3 origin,vec3 direction,float from,float to,int requested,bool cloudSegment,
+void integrateSegment(vec3 origin,vec3 direction,float from,float to,int requested,int cloudLayer,
                       float rayleighPhase,float miePhase,float cloudPhase,inout vec3 radiance,inout vec3 transmission) {
+  bool cloudSegment=cloudLayer>=0;
   if(to<=from||(!cloudSegment&&!uAtmosphereEnabled)||max(transmission.r,max(transmission.g,transmission.b))<0.01)return;
   int count=clamp(requested,1,32);
-  float stepRay=(to-from)/float(count),stepMetres=stepRay*uRadius;
+  float feature=cloudSegment?cloudFeatureMetres(cloudLayer):1.0;
+  float metric=cloudSegment?cloudRayMetric(from,to,feature):0.0;
   // Runtime-bounded GLSL 3 transport keeps the exact clamped 1..32 budget.
   // Avoid expanding the nested weather and light evaluations at compile time.
   for(int i=0;i<count;i++) {
     if(max(transmission.r,max(transmission.g,transmission.b))<0.01)break;
-    vec3 point=origin+direction*(from+(float(i)+0.5)*stepRay);
+    float begin=cloudSegment?cloudRayEdge(from,to,metric,feature,float(i)/float(count)):mix(from,to,float(i)/float(count));
+    float end=cloudSegment?cloudRayEdge(from,to,metric,feature,float(i+1)/float(count)):mix(from,to,float(i+1)/float(count));
+    float stepMetres=(end-begin)*uRadius;
+    vec3 middle=origin+direction*((begin+end)*0.5);
+    float phase=cloudSegment?cloudWorldPhase(middle,feature):0.5;
+    float sampleRay=mix(begin,end,phase);
+    vec3 point=origin+direction*sampleRay;
     vec2 air=airDensity(point);
     vec3 rayleigh=uRayleigh*air.x;
     float mie=uMie*air.y;
-    float distanceMetres=(from+(float(i)+0.5)*stepRay)*uRadius;
+    float distanceMetres=sampleRay*uRadius;
     float pixelFootprint=2.0*abs(uProjectionInverse[1][1])*distanceMetres/max(1.0,uLowSize.y);
     float cloud=cloudSegment?cloudExtinction(point,max(pixelFootprint,stepMetres*.5)):0.0;
     vec3 extinction=rayleigh+vec3(mie+cloud);
-    float shadow=cloudSegment||uSkyEffects.y>0.0?cloudSunTransmittance(point,pixelFootprint):1.0;
+    float shadow=cloudSegment||uSkyEffects.y>0.0?cloudSunTransmittance(point,max(pixelFootprint,cloudSegment?stepMetres*0.5:0.0)):1.0;
     if(!cloudSegment)shadow=mix(1.0,shadow,uSkyEffects.y);
     vec3 incoming=sunTransmittance(point)*shadow*uSunIntensity;
     vec3 source=incoming*(rayleigh*rayleighPhase+vec3(mie*miePhase+cloud*cloudPhase));
@@ -222,13 +246,6 @@ void integrateSegment(vec3 origin,vec3 direction,float from,float to,int request
     radiance+=transmission*source*integral;
     transmission*=segmentTransmission;
   }
-}
-
-int airSteps(float from,float to,float totalAirLength) {
-  float fraction=clamp(max(0.0,to-from)/max(0.0000001,totalAirLength),0.0,1.0);
-  // Divide before multiplying. N*length/length can round just above integer N
-  // and ceil into N+1 in alternating pixels, visibly changing the quadrature.
-  return clamp(int(ceil(float(clamp(uAtmosphereSteps,1,24))*fraction-0.0001)),1,24);
 }
 
 void main() {
@@ -270,42 +287,32 @@ void main() {
     cutCount=clamp(cutCount,2,14);
     for(int i=1;i<cutCount;i++){float value=cuts[i];int at=i;for(int j=0;j<i;j++){if(at<=0)break;if(cuts[at-1]<=value)break;cuts[at]=cuts[at-1];at--;}cuts[at]=value;}
     int segmentCount=cutCount-1;
-    float cloudLength=0.0;
+    float airLength=0.0,cloudMetric=0.0;
+    int cloudIntervals=0,airIntervals=0;
     for(int i=0;i<segmentCount;i++) {
+      if(cuts[i+1]<=cuts[i])continue;
       float altitude=length(uCameraRadius+direction*((cuts[i]+cuts[i+1])*0.5))-1.0;
-      bool cloudy=false;for(int layer=0;layer<3;layer++){vec4 settings=uCloudLayers[layer];if(uCloudEnabled&&uCloudCoverage>0.0&&uCoverageGain>0.0&&uCloudDensity>0.0&&settings.w>0.5&&settings.z>0.0&&altitude>=settings.x&&altitude<=settings.x+settings.y)cloudy=true;}
-      if(cloudy)cloudLength+=max(0.0,cuts[i+1]-cuts[i]);
+      bool cloudy=false;int cloudLayer=0;for(int layer=0;layer<3;layer++){vec4 settings=uCloudLayers[layer];if(uCloudEnabled&&uCloudCoverage>0.0&&uCoverageGain>0.0&&uCloudDensity>0.0&&settings.w>0.5&&settings.z>0.0&&altitude>=settings.x&&altitude<=settings.x+settings.y){cloudy=true;cloudLayer=layer;}}
+      if(cloudy){cloudMetric+=cloudRayMetric(cuts[i],cuts[i+1],cloudFeatureMetres(cloudLayer));cloudIntervals++;}
+      else{airLength+=cuts[i+1]-cuts[i];airIntervals++;}
     }
-    float airLength=max(0.0000001,to-from-cloudLength);
+    airLength=max(1e-30,airLength);
     float cosine=dot(direction,uSunDirection);
     float rayleighPhase=3.0*(1.0+cosine*cosine)/(16.0*PI);
     float miePhase=hgPhase(cosine,uMieG);
     float cloudPhase=0.8*hgPhase(cosine,0.65)+0.2*hgPhase(cosine,-0.25);
+    float cloudPrefix=0.0,airPrefix=0.0;
     for(int i=0;i<segmentCount;i++) {
       float begin=cuts[i],end=cuts[i+1];if(end<=begin)continue;
       vec3 midpoint=uCameraRadius+direction*((begin+end)*0.5);float altitude=length(midpoint)-1.0;
       bool cloudy=false;int cloudLayer=0;for(int layer=0;layer<3;layer++){vec4 settings=uCloudLayers[layer];if(uCloudEnabled&&uCloudCoverage>0.0&&uCoverageGain>0.0&&uCloudDensity>0.0&&settings.w>0.5&&settings.z>0.0&&altitude>=settings.x&&altitude<=settings.x+settings.y){cloudy=true;cloudLayer=layer;}}
-      int steps=cloudy?clamp(int(ceil(float(uCloudSteps)*(end-begin)/max(cloudLength,0.0000001))),4,32):airSteps(begin,end,airLength);
-      vec3 beforeRadiance=radiance,beforeTransmission=transmission;
-      integrateSegment(uCameraRadius,direction,begin,end,steps,cloudy,rayleighPhase,miePhase,cloudPhase,radiance,transmission);
-      if(cloudy) {
-        float footprint=2.0*abs(uProjectionInverse[1][1])*((begin+end)*0.5)*uRadius/max(1.0,uLowSize.y);
-        float scale=cloudLayer==2?min(uNoiseShapeScale*0.22,uCloudLayers[cloudLayer].y*uRadius/4.0):uNoiseShapeScale;
-        float far=smoothstep(scale,scale*4.0,footprint);
-        if(far>0.0) {
-          // Filter column transmittance, not average microscopic density. A
-          // half-covered distant pixel is half clear; it must not accumulate
-          // twenty half-dense samples into an almost opaque white sheet.
-          // A one-point clear-air alternative preserves Rayleigh transport in
-          // long grazing shells. It is independent of the full cloud column;
-          // mixing the two transmittances keeps unresolved coverage coherent.
-          float occupied=mix(1.0,cloudRegionalCoverage(midpoint)[cloudLayer],far);
-          vec3 clearRadiance=beforeRadiance,clearTransmission=beforeTransmission;
-          integrateSegment(uCameraRadius,direction,begin,end,1,false,rayleighPhase,miePhase,cloudPhase,clearRadiance,clearTransmission);
-          radiance=mix(clearRadiance,radiance,occupied);
-          transmission=mix(clearTransmission,transmission,occupied);
-        }
-      }
+      float measure=cloudy?cloudRayMetric(begin,end,cloudFeatureMetres(cloudLayer)):end-begin;
+      int steps=cloudy?apportionedSteps(cloudPrefix,cloudPrefix+measure,cloudMetric,cloudIntervals,max(cloudIntervals,clamp(uCloudSteps,1,32))):apportionedSteps(airPrefix,airPrefix+measure,airLength,airIntervals,max(airIntervals,clamp(uAtmosphereSteps,1,24)));
+      if(cloudy)cloudPrefix+=measure;else airPrefix+=measure;
+      // One transport law from the ground to orbit: the common macro support
+      // stays exact-zero and filtered 3D density erodes only its occupied banks.
+      // No separate far-distance occupancy mixture changes the column physics.
+      integrateSegment(uCameraRadius,direction,begin,end,steps,cloudy?cloudLayer:-1,rayleighPhase,miePhase,cloudPhase,radiance,transmission);
     }
   }
   float surfaceVisibility=1.0;
@@ -441,6 +448,29 @@ float compatibleDepth(float actual,float candidate,float tolerance) {
   return exp(-difference/max(0.000000001,tolerance*0.35));
 }
 
+bool conservativeTransport(vec2 uv,float actualDepth,out vec3 radiance,out vec3 transmission,out float visibility) {
+  bool emptyActual=actualDepth>=EMPTY_DEPTH,skyOnly=false;
+  float expected=emptyActual?0.0:positiveViewDepth(actualDepth)/uRadius,total=0.0;
+  ivec2 center=ivec2(clamp(floor(uv*uLowSize),vec2(0.0),uLowSize-1.0));
+  radiance=vec3(0.0);transmission=vec3(0.0);visibility=0.0;
+  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++) {
+    ivec2 texel=clamp(center+ivec2(x,y),ivec2(0),ivec2(uLowSize)-1);
+    vec4 path=texelFetch(tTransmittance,texel,0);bool emptyCandidate=path.a<0.0;
+    // A longer or empty ray may contain clouds behind a foreground object.
+    // Never use it to repair that object's missing low-resolution sample.
+    if(!emptyActual&&(emptyCandidate||path.a>expected))continue;
+    if(emptyActual) {
+      if(skyOnly&&!emptyCandidate)continue;
+      if(emptyCandidate&&!skyOnly){skyOnly=true;total=0.0;radiance=vec3(0.0);transmission=vec3(0.0);visibility=0.0;}
+    }
+    vec2 delta=vec2(texel)+0.5-uv*uLowSize;
+    float weight=1.0/(0.25+dot(delta,delta));vec4 light=texelFetch(tRadiance,texel,0);
+    radiance+=light.rgb*weight;transmission+=path.rgb*weight;visibility+=light.a*weight;total+=weight;
+  }
+  if(total<=0.0)return false;
+  radiance/=total;transmission/=total;visibility/=total;return true;
+}
+
 void main() {
   vec2 uv=vUv;
   if(uPixelStyle)uv=clamp((floor(uv*uOutputSize/max(1.0,uPixelSize))+0.5)*max(1.0,uPixelSize)/uOutputSize,vec2(0.0),vec2(1.0));
@@ -468,11 +498,12 @@ void main() {
       totalWeight+=weight;
     }
   }
-  // A foreground silhouette with no depth-compatible low-resolution sample gets
-  // identity instead of borrowing a behind-terrain cloud and producing a halo.
+  // Horizon disocclusions can lack a bilaterally compatible sample. Reconstruct
+  // only from the local foreground transport; a near silhouette with no such
+  // sample keeps identity rather than receiving clouds from behind the object.
   if(totalWeight>0.00001) {
     radiance/=totalWeight;transmission/=totalWeight;surfaceVisibility/=totalWeight;
-  }else {radiance=vec3(0.0);transmission=vec3(1.0);surfaceVisibility=1.0;}
+  }else if(!conservativeTransport(uv,actualDepth,radiance,transmission,surfaceVisibility)){radiance=vec3(0.0);transmission=vec3(1.0);surfaceVisibility=1.0;}
   vec3 source=sceneColor.rgb*surfaceVisibility;
   if(actualDepth>=EMPTY_DEPTH) {
     vec4 projected=uProjectionInverse*vec4(uv*2.0-1.0,0.0,1.0);

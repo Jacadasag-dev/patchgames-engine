@@ -1,6 +1,6 @@
 import {compileGenerationMaps,generationDataRevision,type GenerationMapRecipe} from './generationMaps.ts';
 import {compilePlanet,PLANET_LIMITS,type PlanetVector,type PlanetRecipe} from './planet.ts';
-import {compilePlanetWeather,createPlanetWeatherRecipe,planetWeatherZonalWind,type PlanetWeatherRecipe,type ResolvedPlanetWeatherRecipe,type PlanetWeatherBake,type CompiledPlanetWeather} from './planetWeather.ts';
+import {compilePlanetWeather,createPlanetWeatherRecipe,type PlanetWeatherRecipe,type ResolvedPlanetWeatherRecipe,type PlanetWeatherBake,type CompiledPlanetWeather} from './planetWeather.ts';
 import {resolvePlanetCelestialRecipe,samplePlanetCelestial,type PlanetCelestialRecipe,type ResolvedPlanetCelestialRecipe} from './planetCelestial.ts';
 
 export type PlanetSkyStyle='realistic'|'pixel';
@@ -138,7 +138,10 @@ export function compilePlanetSky(input:PlanetSkyRecipe,radiusMeters:number):Comp
   if(layers.fog.bottomMeters+layers.fog.thicknessMeters>layers.cumulus.bottomMeters||layers.cumulus.bottomMeters+layers.cumulus.thicknessMeters>layers.cirrus.bottomMeters)throw Error('Planet sky cloud altitude layers must be ordered without overlap: fog, cumulus, cirrus.');
   const surface=data.surface===undefined?undefined:compilePlanet(data.surface as PlanetRecipe);
   if(surface&&surface.radius!==radius)throw Error('Planet sky terrain and atmosphere radii must match.');
-  const circulation=compilePlanetWeather((c.circulation??createPlanetWeatherRecipe(seed)) as PlanetWeatherRecipe,radius,surface);
+  const celestial=resolvePlanetCelestialRecipe((data.celestial??{}) as PlanetCelestialRecipe);
+  const weatherInput=(c.circulation??createPlanetWeatherRecipe(seed)) as PlanetWeatherRecipe;
+  generationDataRevision(weatherInput); // Validate data before spreading authored properties.
+  const circulation=compilePlanetWeather({...weatherInput,rotationPeriodSeconds:celestial.dayLengthSeconds},radius,surface);
   const w=c.weather===undefined?defaultWeather(seed)!:plain(c.weather,['maps','output'],'weather');
   if(typeof w.output!=='string'||!w.output.length)throw Error('Planet sky weather requires an output map ID.');
   const weatherMaps=compileGenerationMaps(w.maps as GenerationMapRecipe),weatherOutput=weatherMaps.output(w.output);
@@ -157,7 +160,7 @@ export function compilePlanetSky(input:PlanetSkyRecipe,radiusMeters:number):Comp
   const recipe=freeze({kind:'planet-sky',version:1,seed,
     style:choice(data.style??'realistic',['realistic','pixel'],'style'),quality:choice(data.quality??'balanced',['low','balanced','high'],'quality'),
     pixelSize:numeric(data.pixelSize??4,'pixel size',1,32,true),paletteSteps:numeric(data.paletteSteps??12,'palette steps',2,64,true),
-    atmosphere,clouds,celestial:resolvePlanetCelestialRecipe((data.celestial??{}) as PlanetCelestialRecipe),...(surface?{surface:surface.recipe}:{})} satisfies ResolvedPlanetSkyRecipe);
+    atmosphere,clouds,celestial,...(surface?{surface:surface.recipe}:{})} satisfies ResolvedPlanetSkyRecipe);
   const revision=generationDataRevision({radiusMeters:radius,recipe});
   const bakeKey=generationDataRevision({kind:'planet-sky-volumes',version:2,size:VOLUME_SIZE,radiusMeters:radius,seed,weather:clouds.weather,circulation:circulation.recipe,circulationRevision:circulation.revision,surface:surface?.revision??null});
   const weatherByte=(x:number,y:number,z:number)=>{
@@ -172,28 +175,35 @@ export function compilePlanetSky(input:PlanetSkyRecipe,radiusMeters:number):Comp
       const altitude=Math.hypot(...p)-radius;
       const active=Object.entries(clouds.layers).filter(([,layer])=>layer.enabled&&layer.density>0&&altitude>layer.bottomMeters&&altitude<layer.bottomMeters+layer.thicknessMeters);
       if(!active.length)return 0;
-      const latitude=Math.asin(p[1]/Math.hypot(...p)),flowAngle=-planetWeatherZonalWind(latitude)*time*clouds.circulation.timeScale/radius,c=Math.cos(flowAngle),s=Math.sin(flowAngle);
-      const flowed:[number,number,number]=[c*p[0]+s*p[2],p[1],-s*p[0]+c*p[2]];
-      const uvw=(meters:number)=>flowed.map((value,index)=>(value+clouds.windMetersPerSecond[index]*time)/(meters*VOLUME_SIZE)) as [number,number,number];
+      const regional=circulation.sample(p,time,sunDirection??samplePlanetCelestial(recipe.celestial,time).sunDirection);
+      if(regional.support<=0)return 0;
+      const phase=2*Math.PI*((circulation.frame(time).timeDays*12)%1),shapeScale=clouds.shapeScaleMeters;
+      const morph=(metres:PlanetVector):[number,number,number]=>{
+        const q=metres.map(n=>n/shapeScale*.35),e=[phase,-phase,phase];
+        return metres.map((n,i)=>n+Math.sin(q[(i+1)%3]+.6*Math.sin(q[(i+2)%3]+e[i]))*shapeScale*.28) as [number,number,number];
+      };
+      const flowed=morph(regional.flowDirection.map(n=>n*Math.hypot(...p)) as [number,number,number]);
+      const uvw=(meters:number,point:PlanetVector=flowed)=>point.map((value,index)=>(value-clouds.windMetersPerSecond[index]*time)/(meters*VOLUME_SIZE)) as [number,number,number];
       const detail=trilinear(uvw(clouds.detailScaleMeters),(x,y,z)=>noiseByte(seed,x,y,z,1));
       const legacyWeather=trilinear(p.map(value=>value/(radius*2.2)+.5) as [number,number,number],weatherByte);
-      const regional=circulation.sample(p,time,sunDirection??samplePlanetCelestial(recipe.celestial,time).sunDirection),coverageGain=legacyWeather*2*clouds.coverage/.67;
+      const coverageGain=legacyWeather*2*clouds.coverage/.67;
       let result=0;
       for(const [name,layer]of active){
         const h=(altitude-layer.bottomMeters)/layer.thicknessMeters,shapeUV=uvw(clouds.shapeScaleMeters);
         if(name==='cirrus'){
           const period=Math.max(1,Math.round(2*Math.PI*radius/(clouds.shapeScaleMeters*32*8)));
           const wind=clouds.windMetersPerSecond;
-          shapeUV[0]=(Math.atan2(flowed[0],flowed[2])/(2*Math.PI)+.5)*period+wind[0]*time/(clouds.shapeScaleMeters*32);
-          shapeUV[1]=Math.asin(p[1]/Math.hypot(...p))*radius/(clouds.shapeScaleMeters*32*.22)+wind[1]*time/(clouds.shapeScaleMeters*32);
-          shapeUV[2]=h*.125+wind[2]*time/(clouds.shapeScaleMeters*32);
+          shapeUV[0]=(Math.atan2(flowed[0],flowed[2])/(2*Math.PI)+.5)*period-wind[0]*time/(clouds.shapeScaleMeters*32);
+          shapeUV[1]=Math.asin(clamp(flowed[1]/Math.hypot(...flowed),-1,1))*radius/(clouds.shapeScaleMeters*32*.22)-wind[1]*time/(clouds.shapeScaleMeters*32);
+          shapeUV[2]=h*.125-wind[2]*time/(clouds.shapeScaleMeters*32);
         }
-        const base=trilinear(shapeUV,(x,y,z)=>noiseByte(seed,x,y,z,0)),top=trilinear(uvw(clouds.shapeScaleMeters),(x,y,z)=>noiseByte(seed,x,y,z,2));
+        const column=morph(regional.flowDirection.map(n=>n*(radius+layer.bottomMeters)) as [number,number,number]);
+        const base=trilinear(shapeUV,(x,y,z)=>noiseByte(seed,x,y,z,0)),top=trilinear(uvw(clouds.shapeScaleMeters,column),(x,y,z)=>noiseByte(seed,x,y,z,2));
         const local=clamp((name==='fog'?regional.low:name==='cumulus'?regional.cumulus:regional.cirrus)*coverageGain);if(local<=0)continue;
-        const shape=smooth(1-local-.06,1-local+.06,base);
+        const shape=smooth(.30,.68,base);
         const hh=name==='cumulus'?h/(.55+.45*top):h,profile=name==='fog'?smooth(0,.002,hh)*Math.exp(-3*hh)*(1-smooth(.65,1,hh)):name==='cumulus'?smooth(0,.08,hh)*(1-smooth(.55,1,hh)):smooth(0,.18,hh)*(1-smooth(.65,1,hh));
         const erosion=name==='cirrus'?.12:clouds.erosion;
-        result+=Math.max(0,(shape*profile-erosion*(1-detail)*.35)/(1-.35*erosion))*clouds.density*layer.density;
+        result+=local*Math.max(0,(shape*profile-erosion*(1-detail)*.35)/(1-.35*erosion))*clouds.density*layer.density;
       }
       return result;
     },

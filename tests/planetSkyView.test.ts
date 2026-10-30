@@ -99,6 +99,19 @@ describe('planet sky view lifecycle',()=>{
     expect(uniforms.uSkyClock.value.z).toBe(0x1234);expect(uniforms.uSkyClock.value.w).toBe(0x5678);
     expect(()=>new PlanetSkyView({...prepared,circulation:{...prepared.circulation,coverage:{...prepared.circulation.coverage,data:new Uint8Array(1)}}})).toThrow(/bounded/);
   });
+  it('keeps physical weather clocks radius independent, bounds morphology phase and backtraces extra wind',async()=>{
+    const smallRadius=80_000,recipe=createPlanetSkyRecipe(73,smallRadius),compiled=compilePlanetSky({...recipe,clouds:{...recipe.clouds,windMetersPerSecond:[3,0,0]}},smallRadius),prepared=compiled.bake();
+    const view=new PlanetSkyView(prepared),r=new Renderer(),scene=new Scene(),camera=new PerspectiveCamera();views.push(view);await view.prepare(asRenderer(r),scene,camera);
+    const timeSeconds=123_456,weather=compiled.weather.frame(timeSeconds);view.render(asRenderer(r),scene,camera,{...frame,timeSeconds,position:[0,smallRadius+75,0]});
+    const uniforms=(view as unknown as {uniforms:Record<string,{value:any}>}).uniforms;
+    expect(uniforms.uWeatherTimeDays.value).toBe(weather.timeDays);expect(uniforms.uWeatherRotationScale.value).toBe(weather.rotationScale);
+    expect(uniforms.uWeatherEvolutionPhase.value).toBeCloseTo((weather.timeDays%(1/12))*12*Math.PI*2);expect(Math.abs(uniforms.uWeatherEvolutionPhase.value)).toBeLessThanOrEqual(Math.PI*2);
+    expect(uniforms.uCondensationThreshold.value).toBe(prepared.circulation.condensationThreshold);
+    for(let index=0;index<weather.cyclones.length;index++)expect(uniforms.uStormProperties.value[index].y).toBeCloseTo((weather.cyclones[index].phase*.15%(Math.PI*2))/.15);
+    const shift=-3*timeSeconds/(compiled.recipe.clouds.shapeScaleMeters*32);expect(uniforms.uShapeWindUV.value.x).toBeCloseTo(shift-Math.floor(shift));
+    expect(view.inspection().transport).toMatchObject({cloudPrimarySamples:20,airPrimarySamples:12,maxCloudIntervals:6,maxCloudLightSamples:18});
+    expect(()=>new PlanetSkyView({...prepared,circulation:{...prepared.circulation,condensationThreshold:NaN}})).toThrow(/threshold/);
+  });
   it('starts one asynchronous preparation and keeps drawing raw scene until sky and HDR capture programs are ready',async()=>{
     const view=make(),r=new Renderer(),scene=new Scene(),camera=new PerspectiveCamera(),pending:(()=>void)[]=[];r.compileHook=()=>new Promise<void>(resolve=>pending.push(resolve));
     const before={viewport:r.viewport.clone(),scissor:r.scissor.clone(),toneMapping:r.toneMapping};

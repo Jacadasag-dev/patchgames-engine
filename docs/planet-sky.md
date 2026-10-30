@@ -176,6 +176,11 @@ to accept nearby volume samples without introducing untreated horizontal rows.
 Sky/geometry classification and discontinuity rejection remain separate. The
 slope test uses the smaller same-side slope at a depth step and does not widen
 tolerance when a thin foreground object has background on both sides.
+If every bilateral sample is rejected at a horizon, a local 3x3 fallback uses
+only transport ending in front of an opaque pixel, never a sky or longer path
+behind it. Empty sky pixels prefer complete sky samples. Identity remains the
+fallback when no conservative sample exists. The depth-rejection diagnostic
+continues to expose the original rejected footprint, including repaired pixels.
 Atmospheric scattering and cloud illumination are bounded real-time
 approximations, not an offline multiple-scattering renderer.
 
@@ -208,13 +213,21 @@ artifacts. `sky.setDiagnostic('composite')` returns to the normal output.
 
 ## Quality and measurement
 
-Distant unresolved clouds blend a coherent clear-air column with the cloudy
-column once per cloud interval. This preserves fractional coverage instead of
-applying Beer–Lambert extinction to an averaged density, which otherwise makes
-partly cloudy orbital pixels almost opaque. The far clear-air alternative uses
-one midpoint sample; it is a bounded filtering approximation. Ground and
-in-cloud detail retains full point-density transport, and CPU point queries
-continue to describe that source density.
+Cloud density uses one pressure/humidity condensation support from the ground
+to orbit. A clear atmospheric column stays exactly empty at every noise mip.
+Continuous 3D noise erodes occupied banks; its coordinates follow the common
+weather flow and a bounded, physical-time deformation. Cumulus top height is
+coherent through each column, rather than changing with sample altitude.
+
+View and cloud-light rays use feature-scaled logarithmic intervals: nearby
+volume receives finer samples, while distant intervals grow and filter the 3D
+noise over their footprint. A stationary world-space phase decorrelates samples
+without animated screen noise. Prefix allocation shares each quality preset's
+primary cloud and clear-air budgets across all crossed layers; it does not grant
+each layer another full budget. `inspection().transport` reports these limits.
+There is one extinction law and no separate far-distance occupancy mixture.
+Unresolved distant cloud structure remains a filtered-volume approximation;
+bounded rays do not resolve every small puff along a long grazing sightline.
 
 Low, balanced and high presets bound render-target pixels and view/light sample
 counts. `sky.inspection()` reports the selected resolution, sample budgets and

@@ -17,6 +17,7 @@ function createUniforms(){return{
   details:uniform(new Vector4()),steps:uniform(new Vector4()),dimensions:uniform(new Vector4()),style:uniform(new Vector4()),
   celestial:uniform(new Vector4()),stars:uniform(new Vector4()),clock:uniform(new Vector4()),effects:uniform(new Vector4()),
   fogLayer:uniform(new Vector4()),cumulusLayer:uniform(new Vector4()),cirrusLayer:uniform(new Vector4()),weatherParams:uniform(new Vector4()),
+  condensationThreshold:uniform(0),weatherEvolutionPhase:uniform(0),
   stormCenters0:uniform(new Matrix4()),stormCenters1:uniform(new Matrix4()),stormCenters2:uniform(new Matrix4()),stormCenters3:uniform(new Matrix4()),
   stormProperties0:uniform(new Matrix4()),stormProperties1:uniform(new Matrix4()),stormProperties2:uniform(new Matrix4()),stormProperties3:uniform(new Matrix4()),
 };}
@@ -33,6 +34,7 @@ export class PlanetSkyWebGPUView {
   private readonly circulationEnvironment:DataTexture;
   private readonly circulationBytes:number;
   private readonly circulationGain:number;
+  private readonly condensationThreshold:number;
   private readonly noiseMips;
   private readonly geometry=new BufferGeometry();
   private readonly volumeScene=new Scene();
@@ -59,14 +61,15 @@ export class PlanetSkyWebGPUView {
       ||!(bake.noise.data instanceof Uint8Array)||bake.noise.data.length!==32**3*4||!(bake.weather.data instanceof Uint8Array)||bake.weather.data.length!==32**3)throw Error('Planet sky bake does not match its validated recipe or bounded volumes.');
     this.noiseMips=createPlanetSkyNoiseMipmaps(bake.noise.data);
     const circulation=bake.circulation,atlasWidth=this.compiled.weather.recipe.resolution;
-    if(!circulation||circulation.revision!==this.compiled.weather.revision||circulation.radiusMeters!==bake.radiusMeters||!Number.isFinite(circulation.coverageGain)||circulation.coverageGain<0||circulation.coverageGain>2
+    if(!circulation||circulation.revision!==this.compiled.weather.revision||circulation.radiusMeters!==bake.radiusMeters||!Number.isFinite(circulation.coverageGain)||circulation.coverageGain<0||circulation.coverageGain>2||!Number.isFinite(circulation.condensationThreshold)||circulation.condensationThreshold< -2||circulation.condensationThreshold>2
       ||[circulation.coverage,circulation.environment].some(atlas=>!atlas||atlas.width!==atlasWidth||atlas.height!==atlasWidth/2||!(atlas.data instanceof Uint8Array)||atlas.data.length!==atlasWidth*atlasWidth/2*4))throw Error('Planet sky circulation bake does not match its validated recipe or bounded atlases.');
     this.circulationCoverage=new DataTexture(new Uint8Array(circulation.coverage.data),atlasWidth,atlasWidth/2,RGBAFormat);
     this.circulationEnvironment=new DataTexture(new Uint8Array(circulation.environment.data),atlasWidth,atlasWidth/2,RGBAFormat);
     this.circulationBytes=circulation.coverage.data.byteLength+circulation.environment.data.byteLength;
     this.circulationGain=circulation.coverageGain;
+    this.condensationThreshold=circulation.condensationThreshold;
     for(const atlas of [this.circulationCoverage,this.circulationEnvironment]){atlas.minFilter=atlas.magFilter=LinearFilter;atlas.wrapS=RepeatWrapping;atlas.wrapT=ClampToEdgeWrapping;atlas.generateMipmaps=false;atlas.colorSpace=NoColorSpace;atlas.unpackAlignment=1;atlas.needsUpdate=true;}
-    this.circulationCoverage.name='Planet circulation low deck, convection, cirrus, land';this.circulationEnvironment.name='Planet weather terrain and coast controls';
+    this.circulationCoverage.name='Planet weather humidity, pressure, temperature and land';this.circulationEnvironment.name='Planet weather elevation, east/north slope and coast';
     this.noise=new Data3DTexture(this.noiseMips[0].data,32,32,32);
     this.weather=new Data3DTexture(new Uint8Array(bake.weather.data),32,32,32);
     for(const data of [this.noise,this.weather]){
@@ -174,7 +177,9 @@ export class PlanetSkyWebGPUView {
     u.geometry.value.set(radius,camera.near,camera.far,renderer.logarithmicDepthBuffer?1:0);
     u.clock.value.set(((presentation%4096)+4096)%4096,((rotation%(Math.PI*2))+Math.PI*2)%(Math.PI*2),(this.compiled.recipe.seed>>>16)&65535,this.compiled.recipe.seed&65535);
     const weatherFrame=this.compiled.weather.frame(frame.timeSeconds);
-    u.weatherParams.value.set(weatherFrame.timeDays*6_371_000/radius,weatherFrame.cyclones.length,this.circulationGain*r.clouds.coverage/.67,0);
+    u.weatherParams.value.set(weatherFrame.timeDays,weatherFrame.cyclones.length,this.circulationGain*r.clouds.coverage/.67,weatherFrame.rotationScale);
+    u.condensationThreshold.value=this.condensationThreshold;
+    u.weatherEvolutionPhase.value=(weatherFrame.timeDays%(1/12))*12*Math.PI*2;
     // Matrix columns are a portable fixed uniform bank for wgslFn. Native TSL's
     // function parser cannot type array arguments; this keeps storage bounded
     // without private bindings or per-frame texture/geometry allocation.
@@ -183,9 +188,11 @@ export class PlanetSkyWebGPUView {
     for(let index=0;index<weatherFrame.cyclones.length;index++){const storm=weatherFrame.cyclones[index],bank=Math.floor(index/4),offset=index%4*4;
       const center=centerBanks[bank].value.elements,properties=propertyBanks[bank].value.elements;
       center[offset]=storm.center[0];center[offset+1]=storm.center[1];center[offset+2]=storm.center[2];center[offset+3]=storm.angularRadius;
-      properties[offset]=storm.spin;properties[offset+1]=storm.phase%(Math.PI*2);properties[offset+2]=storm.strength;properties[offset+3]=storm.type==='tropical'?0:1;
+      // The pressure ellipse rotates at 0.15 * phase. Wrap its actual angle,
+      // rather than the old decorative spiral's phase, to avoid 54° jumps.
+      properties[offset]=storm.spin;properties[offset+1]=((storm.phase*.15)%(Math.PI*2))/.15;properties[offset+2]=storm.strength;properties[offset+3]=storm.type==='tropical'?0:1;
     }
-    for(const [name,scale] of [['shapeWind',r.clouds.shapeScaleMeters],['detailWind',r.clouds.detailScaleMeters]] as const)u[name].value.set(fract(wind[0]*frame.timeSeconds/(scale*32)),fract(wind[1]*frame.timeSeconds/(scale*32)),fract(wind[2]*frame.timeSeconds/(scale*32)));
+    for(const [name,scale] of [['shapeWind',r.clouds.shapeScaleMeters],['detailWind',r.clouds.detailScaleMeters]] as const)u[name].value.set(fract(-wind[0]*frame.timeSeconds/(scale*32)),fract(-wind[1]*frame.timeSeconds/(scale*32)),fract(-wind[2]*frame.timeSeconds/(scale*32)));
     const autoClear=renderer.autoClear,scissorTest=renderer.getScissorTest(),toneMapping=renderer.toneMapping,outputColorSpace=renderer.outputColorSpace,xrEnabled=renderer.xr.enabled,mrt=renderer.getMRT(),clearAlpha=renderer.getClearAlpha(),start=performance.now();
     renderer.getClearColor(this.clearColor);
     try{
@@ -214,7 +221,8 @@ export class PlanetSkyWebGPUView {
       sunEnabled:this.compiled.recipe.celestial.sunEnabled,starsEnabled:this.compiled.recipe.celestial.starsEnabled,cloudShadowStrength:this.compiled.recipe.clouds.shadowStrength,godRayStrength:this.compiled.recipe.clouds.godRayStrength,cyclones:this.uniforms.weatherParams.value.y,
       captureWidth:this.width,captureHeight:this.height,volumeWidth:this.lowWidth,volumeHeight:this.lowHeight,volumePixels:this.lowWidth*this.lowHeight,
       noiseMipLevels:this.noiseMips.length,filteredNoiseBytes:this.noiseMips.reduce((sum,mip)=>sum+mip.data.byteLength,0),
-      cloudLayers:3,circulationAtlasBytes:this.circulationBytes,limits:{...this.compiled.quality},volumeDataBytes:32**3*5+this.circulationBytes,estimatedTargetBytes:this.width*this.height*12+this.lowWidth*this.lowHeight*16,
+      cloudLayers:3,circulationAtlasBytes:this.circulationBytes,condensationThreshold:this.condensationThreshold,rotationScale:this.uniforms.weatherParams.value.w,limits:{...this.compiled.quality},volumeDataBytes:32**3*5+this.circulationBytes,estimatedTargetBytes:this.width*this.height*12+this.lowWidth*this.lowHeight*16,
+      transport:{cloudPrimarySamples:this.compiled.quality.cloudSteps,airPrimarySamples:this.compiled.quality.atmosphereSteps,maxCloudIntervals:6,maxCloudLightSamples:6*this.compiled.quality.cloudLightSteps,quadrature:'World-phase logarithmic feature metric; distant intervals use filtered 3D density'},
       byteMetric:'Estimated attachment payload; excludes driver allocation, MSAA, staging and other scene resources',sceneTriangles:this.sceneTriangles,sceneDrawCalls:this.sceneDrawCalls,renderSubmissionCpuMs:this.renderCpuMs,disposed:this.disposed};
   }
   dispose():void{
