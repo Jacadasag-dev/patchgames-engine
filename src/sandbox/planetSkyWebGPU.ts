@@ -1,4 +1,4 @@
-import {Box3,BufferAttribute,BufferGeometry,ClampToEdgeWrapping,Color,Data3DTexture,DepthTexture,HalfFloatType,LinearFilter,LinearMipmapLinearFilter,Matrix4,Mesh,NearestFilter,NoBlending,NoColorSpace,NoToneMapping,OrthographicCamera,PerspectiveCamera,RedFormat,RepeatWrapping,RGBAFormat,Scene,UnsignedIntType,Vector3,Vector4,WebGPUCoordinateSystem} from 'three';
+import {Box3,BufferAttribute,BufferGeometry,ClampToEdgeWrapping,Color,Data3DTexture,DataTexture,DepthTexture,HalfFloatType,LinearFilter,LinearMipmapLinearFilter,Matrix4,Mesh,NearestFilter,NoBlending,NoColorSpace,NoToneMapping,OrthographicCamera,PerspectiveCamera,RedFormat,RepeatWrapping,RGBAFormat,Scene,UnsignedIntType,Vector3,Vector4,WebGPUCoordinateSystem} from 'three';
 import {NodeMaterial,RenderPipeline,RenderTarget,type ArrayNode,type Node,type WebGPURenderer} from 'three/webgpu';
 import {element,outputStruct,positionLocal,renderOutput,sampler,texture,texture3D,uniform,uv,vec4,wgslFn} from 'three/tsl';
 import {compilePlanetSky,type CompiledPlanetSky,type PlanetSkyBake,type PlanetSkyRecipe} from '../shared/planetSky.ts';
@@ -7,7 +7,7 @@ import type {PlanetSkyDiagnostic,PlanetSkyFrame} from './planetSkyView.ts';
 import {createPlanetSkyNoiseMipmaps} from './planetSkyWebGPUMips.ts';
 import {planetSkyWebGPUCompositeWGSL,planetSkyWebGPUPaletteWGSL,planetSkyWebGPUVolumeWGSL} from './planetSkyWebGPUShader.ts';
 
-const diagnosticModes:readonly PlanetSkyDiagnostic[]=['composite','scene','radiance','transmittance','depth-rejection','unweighted','nearest'];
+const diagnosticModes:readonly PlanetSkyDiagnostic[]=['composite','scene','radiance','transmittance','depth-rejection','unweighted','nearest','cloud-shadow'];
 const vector=(v:PlanetVector)=>Array.isArray(v)&&v.length===3&&v.every(n=>typeof n==='number'&&Number.isFinite(n)&&Math.abs(n)<=1e9);
 const fract=(n:number)=>n-Math.floor(n);
 function createUniforms(){return{
@@ -15,6 +15,10 @@ function createUniforms(){return{
   sunDirection:uniform(new Vector3()),rayleigh:uniform(new Vector3()),shapeWind:uniform(new Vector3()),detailWind:uniform(new Vector3()),
   geometry:uniform(new Vector4()),atmosphere:uniform(new Vector4()),lighting:uniform(new Vector4()),clouds:uniform(new Vector4()),
   details:uniform(new Vector4()),steps:uniform(new Vector4()),dimensions:uniform(new Vector4()),style:uniform(new Vector4()),
+  celestial:uniform(new Vector4()),stars:uniform(new Vector4()),clock:uniform(new Vector4()),effects:uniform(new Vector4()),
+  fogLayer:uniform(new Vector4()),cumulusLayer:uniform(new Vector4()),cirrusLayer:uniform(new Vector4()),weatherParams:uniform(new Vector4()),
+  stormCenters0:uniform(new Matrix4()),stormCenters1:uniform(new Matrix4()),stormCenters2:uniform(new Matrix4()),stormCenters3:uniform(new Matrix4()),
+  stormProperties0:uniform(new Matrix4()),stormProperties1:uniform(new Matrix4()),stormProperties2:uniform(new Matrix4()),stormProperties3:uniform(new Matrix4()),
 };}
 type NativeBackend={isWebGPUBackend?:boolean;device?:{limits:{maxTextureDimension2D:number;maxTextureDimension3D:number;maxColorAttachments:number}}};
 
@@ -25,6 +29,10 @@ export class PlanetSkyWebGPUView {
   private compiled:CompiledPlanetSky;
   private readonly noise:Data3DTexture;
   private readonly weather:Data3DTexture;
+  private readonly circulationCoverage:DataTexture;
+  private readonly circulationEnvironment:DataTexture;
+  private readonly circulationBytes:number;
+  private readonly circulationGain:number;
   private readonly noiseMips;
   private readonly geometry=new BufferGeometry();
   private readonly volumeScene=new Scene();
@@ -50,6 +58,15 @@ export class PlanetSkyWebGPUView {
     if(bake.bakeKey!==this.compiled.bakeKey||bake.revision!==this.compiled.revision||bake.noise?.size!==32||bake.weather?.size!==32
       ||!(bake.noise.data instanceof Uint8Array)||bake.noise.data.length!==32**3*4||!(bake.weather.data instanceof Uint8Array)||bake.weather.data.length!==32**3)throw Error('Planet sky bake does not match its validated recipe or bounded volumes.');
     this.noiseMips=createPlanetSkyNoiseMipmaps(bake.noise.data);
+    const circulation=bake.circulation,atlasWidth=this.compiled.weather.recipe.resolution;
+    if(!circulation||circulation.revision!==this.compiled.weather.revision||circulation.radiusMeters!==bake.radiusMeters||!Number.isFinite(circulation.coverageGain)||circulation.coverageGain<0||circulation.coverageGain>2
+      ||[circulation.coverage,circulation.environment].some(atlas=>!atlas||atlas.width!==atlasWidth||atlas.height!==atlasWidth/2||!(atlas.data instanceof Uint8Array)||atlas.data.length!==atlasWidth*atlasWidth/2*4))throw Error('Planet sky circulation bake does not match its validated recipe or bounded atlases.');
+    this.circulationCoverage=new DataTexture(new Uint8Array(circulation.coverage.data),atlasWidth,atlasWidth/2,RGBAFormat);
+    this.circulationEnvironment=new DataTexture(new Uint8Array(circulation.environment.data),atlasWidth,atlasWidth/2,RGBAFormat);
+    this.circulationBytes=circulation.coverage.data.byteLength+circulation.environment.data.byteLength;
+    this.circulationGain=circulation.coverageGain;
+    for(const atlas of [this.circulationCoverage,this.circulationEnvironment]){atlas.minFilter=atlas.magFilter=LinearFilter;atlas.wrapS=RepeatWrapping;atlas.wrapT=ClampToEdgeWrapping;atlas.generateMipmaps=false;atlas.colorSpace=NoColorSpace;atlas.unpackAlignment=1;atlas.needsUpdate=true;}
+    this.circulationCoverage.name='Planet circulation low deck, convection, cirrus, land';this.circulationEnvironment.name='Planet weather terrain and coast controls';
     this.noise=new Data3DTexture(this.noiseMips[0].data,32,32,32);
     this.weather=new Data3DTexture(new Uint8Array(bake.weather.data),32,32,32);
     for(const data of [this.noise,this.weather]){
@@ -65,8 +82,8 @@ export class PlanetSkyWebGPUView {
     this.sceneTarget=new RenderTarget(1,1,{type:HalfFloatType,format:RGBAFormat,minFilter:LinearFilter,magFilter:LinearFilter,depthBuffer:true,stencilBuffer:false,depthTexture:new DepthTexture(1,1,UnsignedIntType)});
     this.volumeTarget=new RenderTarget(1,1,{count:2,type:HalfFloatType,format:RGBAFormat,minFilter:NearestFilter,magFilter:NearestFilter,depthBuffer:false,stencilBuffer:false});
     this.sceneTarget.texture.name='Planet sky linear scene';this.volumeTarget.textures[0].name='Planet sky radiance';this.volumeTarget.textures[1].name='Planet sky RGB transmission and view depth';
-    const noise=texture3D(this.noise),weather=texture3D(this.weather),sceneDepth=texture(this.sceneTarget.depthTexture!);
-    const integration=(wgslFn(planetSkyWebGPUVolumeWGSL)({uvIn:uv(),sceneDepth,noise,noiseSampler:sampler(noise),weather,weatherSampler:sampler(weather),...this.uniforms}) as Node<'mat4'>).toVar('planetSkyTransport');
+    const noise=texture3D(this.noise),weather=texture3D(this.weather),sceneDepth=texture(this.sceneTarget.depthTexture!),circulationCoverage=texture(this.circulationCoverage),circulationEnvironment=texture(this.circulationEnvironment);
+    const integration=(wgslFn(planetSkyWebGPUVolumeWGSL)({uvIn:uv(),sceneDepth,noise,noiseSampler:sampler(noise),weather,weatherSampler:sampler(weather),circulationCoverage,circulationEnvironment,circulationSampler:sampler(circulationCoverage),...this.uniforms}) as Node<'mat4'>).toVar('planetSkyTransport');
     // @types/three currently types element() for arrays only, while native TSL
     // and WGSL also support matrix-column indexing. The stored value is a mat4.
     const columns=integration as unknown as ArrayNode<'vec4'>;
@@ -78,7 +95,7 @@ export class PlanetSkyWebGPUView {
     this.geometry.setAttribute('uv',new BufferAttribute(new Float32Array([0,1,2,1,0,-1]),2));
     const mesh=new Mesh(this.geometry,this.volumeMaterial);mesh.frustumCulled=false;this.volumeScene.add(mesh);
     const sceneColor=texture(this.sceneTarget.texture),radianceTexture=texture(this.volumeTarget.textures[0]),transmissionTexture=texture(this.volumeTarget.textures[1]);
-    const composite=wgslFn(planetSkyWebGPUCompositeWGSL)({uvIn:uv(),sceneColor,sceneSampler:sampler(sceneColor),sceneDepth,radianceTexture,transmissionTexture,geometry:this.uniforms.geometry,dimensions:this.uniforms.dimensions,style:this.uniforms.style});
+    const composite=wgslFn(planetSkyWebGPUCompositeWGSL)({uvIn:uv(),sceneColor,sceneSampler:sampler(sceneColor),sceneDepth,radianceTexture,transmissionTexture,geometry:this.uniforms.geometry,dimensions:this.uniforms.dimensions,style:this.uniforms.style,projectionInverse:this.uniforms.projectionInverse,cameraRotation:this.uniforms.cameraRotation,cameraRadius:this.uniforms.cameraRadius,sunDirection:this.uniforms.sunDirection,celestial:this.uniforms.celestial,stars:this.uniforms.stars,clock:this.uniforms.clock,effects:this.uniforms.effects});
     this.compositeNode=wgslFn(planetSkyWebGPUPaletteWGSL)({color:renderOutput(composite),style:this.uniforms.style});
     this.applyRecipe();
   }
@@ -90,6 +107,11 @@ export class PlanetSkyWebGPUView {
     u.clouds.value.set(c.bottomMeters/radius,c.thicknessMeters/radius,c.coverage,c.density);
     u.details.value.set(c.erosion,c.shapeScaleMeters,c.detailScaleMeters,a.enabled?1:0);
     u.steps.value.set(q.atmosphereSteps,q.atmosphereLightSteps,q.cloudSteps,q.cloudLightSteps);
+    for(const [key,layer] of [['fogLayer',c.layers.fog],['cumulusLayer',c.layers.cumulus],['cirrusLayer',c.layers.cirrus]] as const)u[key].value.set(layer.bottomMeters/radius,layer.thicknessMeters/radius,layer.density,layer.enabled?1:0);
+    const celestial=r.celestial;
+    u.celestial.value.set(celestial.sunEnabled?1:0,celestial.sunAngularRadiusDegrees*Math.PI/180,celestial.sunGlow,0);
+    u.stars.value.set(celestial.starsEnabled?1:0,celestial.starDensity,celestial.starIntensity,celestial.twinkle);
+    u.effects.value.set(c.shadowStrength,c.godRayStrength,a.heightMeters/radius,0);
     const diagnostic=u.style.value.w;u.style.value.set(r.style==='pixel'?1:0,r.pixelSize,r.paletteSteps,diagnostic);
   }
   setRecipe(recipe:PlanetSkyRecipe):void{
@@ -111,7 +133,7 @@ export class PlanetSkyWebGPUView {
   }
   private uploadNoise(renderer:WebGPURenderer):void{
     if(this.uploaded)return;
-    renderer.initTexture(this.noise);renderer.initTexture(this.weather);
+    renderer.initTexture(this.noise);renderer.initTexture(this.weather);renderer.initTexture(this.circulationCoverage);renderer.initTexture(this.circulationEnvironment);
     for(let level=1;level<this.noiseMips.length;level++){
       const mip=this.noiseMips[level],source=new Data3DTexture(mip.data,mip.width,mip.height,mip.depth);
       source.format=RGBAFormat;source.colorSpace=NoColorSpace;source.unpackAlignment=1;source.needsUpdate=true;
@@ -127,6 +149,8 @@ export class PlanetSkyWebGPUView {
     if(!(camera instanceof PerspectiveCamera)||(camera as PerspectiveCamera&{isArrayCamera?:boolean}).isArrayCamera)throw Error('Planet sky requires one perspective camera.');
     if(!Number.isFinite(camera.near)||!Number.isFinite(camera.far)||camera.near<=0||camera.far<=camera.near)throw Error('Planet sky perspective clip planes must be finite with 0 < near < far.');
     if(!vector(frame.position)||!vector(frame.sunDirection)||Math.hypot(...frame.sunDirection)<1e-12||!Number.isFinite(frame.timeSeconds)||Math.abs(frame.timeSeconds)>1e9)throw Error('Planet sky requires finite absolute camera/sun coordinates and explicit bounded time.');
+    const presentation=frame.presentationTimeSeconds??frame.timeSeconds,rotation=frame.starRotationRadians??0;
+    if(!Number.isFinite(presentation)||Math.abs(presentation)>1e9||!Number.isFinite(rotation)||Math.abs(rotation)>1e9)throw Error('Planet sky celestial presentation time and star rotation must be finite and bounded.');
     const backend=renderer.backend as unknown as NativeBackend;
     if(!renderer.initialized||backend?.isWebGPUBackend!==true||!backend.device||renderer.coordinateSystem!==WebGPUCoordinateSystem)throw Error('Planet sky requires an initialized native WebGPU renderer; WebGL fallback is unsupported. Await renderer.init() first.');
     if(renderer.reversedDepthBuffer||renderer.xr?.isPresenting)throw Error('Planet sky requires conventional or native logarithmic depth outside XR.');
@@ -136,7 +160,7 @@ export class PlanetSkyWebGPUView {
     const limits=backend.device.limits;
     if(limits.maxColorAttachments<2||limits.maxTextureDimension3D<32)throw Error('Planet sky WebGPU requires two HDR color attachments and 32 cubed 3D textures.');
     const r=this.compiled.recipe;
-    if(!r.atmosphere.enabled&&!r.clouds.enabled){
+    if(!r.atmosphere.enabled&&!r.clouds.enabled&&!r.celestial.sunEnabled&&!r.celestial.starsEnabled){
       this.renderer=renderer;const start=performance.now(),triangles=renderer.info.render.triangles,drawCalls=renderer.info.render.drawCalls;
       renderer.render(scene,camera);this.sceneTriangles=renderer.info.render.triangles-triangles;this.sceneDrawCalls=renderer.info.render.drawCalls-drawCalls;this.renderCpuMs=performance.now()-start;this.frames++;return;
     }
@@ -148,6 +172,19 @@ export class PlanetSkyWebGPUView {
     const u=this.uniforms,radius=this.compiled.radiusMeters,wind=r.clouds.windMetersPerSecond;
     u.cameraRadius.value.set(...frame.position).multiplyScalar(1/radius);u.sunDirection.value.set(...frame.sunDirection).normalize();
     u.geometry.value.set(radius,camera.near,camera.far,renderer.logarithmicDepthBuffer?1:0);
+    u.clock.value.set(((presentation%4096)+4096)%4096,((rotation%(Math.PI*2))+Math.PI*2)%(Math.PI*2),(this.compiled.recipe.seed>>>16)&65535,this.compiled.recipe.seed&65535);
+    const weatherFrame=this.compiled.weather.frame(frame.timeSeconds);
+    u.weatherParams.value.set(weatherFrame.timeDays*6_371_000/radius,weatherFrame.cyclones.length,this.circulationGain*r.clouds.coverage/.67,0);
+    // Matrix columns are a portable fixed uniform bank for wgslFn. Native TSL's
+    // function parser cannot type array arguments; this keeps storage bounded
+    // without private bindings or per-frame texture/geometry allocation.
+    const centerBanks=[u.stormCenters0,u.stormCenters1,u.stormCenters2,u.stormCenters3],propertyBanks=[u.stormProperties0,u.stormProperties1,u.stormProperties2,u.stormProperties3];
+    for(const bank of [...centerBanks,...propertyBanks])bank.value.elements.fill(0);
+    for(let index=0;index<weatherFrame.cyclones.length;index++){const storm=weatherFrame.cyclones[index],bank=Math.floor(index/4),offset=index%4*4;
+      const center=centerBanks[bank].value.elements,properties=propertyBanks[bank].value.elements;
+      center[offset]=storm.center[0];center[offset+1]=storm.center[1];center[offset+2]=storm.center[2];center[offset+3]=storm.angularRadius;
+      properties[offset]=storm.spin;properties[offset+1]=storm.phase%(Math.PI*2);properties[offset+2]=storm.strength;properties[offset+3]=storm.type==='tropical'?0:1;
+    }
     for(const [name,scale] of [['shapeWind',r.clouds.shapeScaleMeters],['detailWind',r.clouds.detailScaleMeters]] as const)u[name].value.set(fract(wind[0]*frame.timeSeconds/(scale*32)),fract(wind[1]*frame.timeSeconds/(scale*32)),fract(wind[2]*frame.timeSeconds/(scale*32)));
     const autoClear=renderer.autoClear,scissorTest=renderer.getScissorTest(),toneMapping=renderer.toneMapping,outputColorSpace=renderer.outputColorSpace,xrEnabled=renderer.xr.enabled,mrt=renderer.getMRT(),clearAlpha=renderer.getClearAlpha(),start=performance.now();
     renderer.getClearColor(this.clearColor);
@@ -174,12 +211,13 @@ export class PlanetSkyWebGPUView {
   inspection(){
     return{backend:'webgpu',style:this.compiled.recipe.style,quality:this.compiled.recipe.quality,diagnostic:diagnosticModes[this.uniforms.style.value.w],revision:this.compiled.revision,bakeKey:this.compiled.bakeKey,frames:this.frames,
       atmosphereEnabled:this.compiled.recipe.atmosphere.enabled,cloudsEnabled:this.compiled.recipe.clouds.enabled,
+      sunEnabled:this.compiled.recipe.celestial.sunEnabled,starsEnabled:this.compiled.recipe.celestial.starsEnabled,cloudShadowStrength:this.compiled.recipe.clouds.shadowStrength,godRayStrength:this.compiled.recipe.clouds.godRayStrength,cyclones:this.uniforms.weatherParams.value.y,
       captureWidth:this.width,captureHeight:this.height,volumeWidth:this.lowWidth,volumeHeight:this.lowHeight,volumePixels:this.lowWidth*this.lowHeight,
       noiseMipLevels:this.noiseMips.length,filteredNoiseBytes:this.noiseMips.reduce((sum,mip)=>sum+mip.data.byteLength,0),
-      limits:{...this.compiled.quality},volumeDataBytes:32**3*5,estimatedTargetBytes:this.width*this.height*12+this.lowWidth*this.lowHeight*16,
+      cloudLayers:3,circulationAtlasBytes:this.circulationBytes,limits:{...this.compiled.quality},volumeDataBytes:32**3*5+this.circulationBytes,estimatedTargetBytes:this.width*this.height*12+this.lowWidth*this.lowHeight*16,
       byteMetric:'Estimated attachment payload; excludes driver allocation, MSAA, staging and other scene resources',sceneTriangles:this.sceneTriangles,sceneDrawCalls:this.sceneDrawCalls,renderSubmissionCpuMs:this.renderCpuMs,disposed:this.disposed};
   }
   dispose():void{
-    if(this.disposed)return;this.disposed=true;this.pipeline?.dispose();this.noise.dispose();this.weather.dispose();this.sceneTarget.dispose();this.volumeTarget.dispose();this.geometry.dispose();this.volumeMaterial.dispose();this.volumeScene.clear();
+    if(this.disposed)return;this.disposed=true;this.pipeline?.dispose();this.noise.dispose();this.weather.dispose();this.circulationCoverage.dispose();this.circulationEnvironment.dispose();this.sceneTarget.dispose();this.volumeTarget.dispose();this.geometry.dispose();this.volumeMaterial.dispose();this.volumeScene.clear();
   }
 }

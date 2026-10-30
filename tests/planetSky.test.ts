@@ -9,12 +9,12 @@ const point=(altitude:number):[number,number,number]=>[EARTH+altitude,0,0];
 describe('shared planetary sky recipes',()=>{
   it('resolves portable defaults, freezes a detached snapshot, and scales dimensions to the planet',()=>{
     const source=preset({windMetersPerSecond:[12,1,3]}),sky=compilePlanetSky(source,EARTH);
-    expect(sky.recipe).toMatchObject({style:'realistic',quality:'balanced',pixelSize:4,paletteSteps:12,atmosphere:{heightMeters:80_000},clouds:{bottomMeters:4500,thicknessMeters:3000}});
+    expect(sky.recipe).toMatchObject({style:'realistic',quality:'balanced',pixelSize:4,paletteSteps:12,atmosphere:{heightMeters:80_000},clouds:{bottomMeters:1200,thicknessMeters:5800,layers:{fog:{bottomMeters:0,thicknessMeters:800},cirrus:{bottomMeters:8500,thicknessMeters:3500}}},celestial:{dayLengthSeconds:86400}});
     source.clouds!.windMetersPerSecond=[90,0,0];source.seed=10;
     expect(sky.recipe.seed).toBe(712);expect(sky.recipe.clouds.windMetersPerSecond).toEqual([12,1,3]);
     expect(Object.isFrozen(sky.recipe.clouds.weather.maps.maps)).toBe(true);expect(Object.isFrozen(sky.recipe.clouds.windMetersPerSecond)).toBe(true);
     const small=compilePlanetSky({kind:'planet-sky',version:1,seed:712},80_000);
-    expect(small.recipe.clouds.bottomMeters/EARTH).toBeCloseTo(4500*80_000/EARTH**2,12);
+    expect(small.recipe.clouds.bottomMeters/EARTH).toBeCloseTo(1200*80_000/EARTH**2,12);
     expect(small.recipe.atmosphere.heightMeters).toBeCloseTo(80_000*80_000/EARTH,10);
     expect(createPlanetSkyRecipe(2,1000).atmosphere!.heightMeters).toBeGreaterThan(0);
   });
@@ -42,7 +42,8 @@ describe('shared planetary sky recipes',()=>{
   it('uses shared weather graphs while enforcing a bounded static normalized world field',()=>{
     const implicit=compilePlanetSky({kind:'planet-sky',version:1,seed:35},EARTH);
     expect(implicit.recipe.clouds.weather.maps.seed).toBe(35);expect(implicit.recipe.clouds.weather.output).toBe('coverage');
-    expect(implicit.bake().weather.data.some(value=>value!==implicit.bake().weather.data[0])).toBe(true);
+    const implicitBake=implicit.bake();expect(implicitBake.weather.data.every(value=>value===128)).toBe(true);
+    expect(implicitBake.circulation.coverage.data.some((value,i)=>i%4===1&&value!==implicitBake.circulation.coverage.data[1])).toBe(true);
     for(const node of [{type:'constant',value:1,unit:'metres'},{type:'random',scope:'object'},{type:'time',periodSeconds:3},{type:'noise',space:'object',scaleMeters:100}] as const){
       const source=preset({weather:{output:'coverage',maps:{kind:'generation-maps',version:1,seed:3,maps:{coverage:node}}}});
       expect(()=>compilePlanetSky(source,EARTH)).toThrow(/weather/);
@@ -73,11 +74,11 @@ describe('shared planetary sky recipes',()=>{
 
 describe('reference cloud volume sampling',()=>{
   it('is deterministic and spatially continuous inside the bounded spherical layer',()=>{
-    const sky=compilePlanetSky(preset({coverage:.8,erosion:.2}),EARTH),p=point(6000),density=sky.sampleCloudDensity(p,40);
+    const sky=compilePlanetSky(preset({coverage:1,erosion:.2,layers:{fog:{enabled:false},cirrus:{enabled:false}}}),EARTH),p=point(3000),density=sky.sampleCloudDensity(p,40);
     expect(density).toBe(sky.sampleCloudDensity(p,40));expect(density).toBeGreaterThan(0);expect(density).toBeLessThanOrEqual(5);
     expect(Math.abs(sky.sampleCloudDensity([p[0]+.001,p[1],p[2]],40)-density)).toBeLessThan(.001);
     expect(sky.sampleCloudDensity(p,0)).not.toBe(density);
-    for(const height of [0,4499,4500,7500,7501,100_000])expect(sky.sampleCloudDensity(point(height),40)).toBe(0);
+    for(const height of [0,1199,1200,7000,7001,100_000])expect(sky.sampleCloudDensity(point(height),40)).toBe(0);
   });
   it('keeps opacity intact when disabled, uncovered or empty rather than baking a different random field',()=>{
     for(const clouds of [{enabled:false},{coverage:0},{density:0}]){

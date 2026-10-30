@@ -13,12 +13,13 @@ import {createGeneratedMaterialFromPixels} from '../src/sandbox/materialGenerato
 import {PlanetWaterView} from '../src/sandbox/planetWaterView.ts';
 import {PlanetPopulationView,createPreparedPlanetPopulation,type PreparedPlanetPopulation} from '../src/sandbox/planetPopulationView.ts';
 import {preparePlanetPopulation,createPlanetPopulationPreparationSource} from '../src/client/game/planetPopulationPreparation.ts';
+import {samplePlanetCelestial,samplePlanetSunlight} from '../src/shared/planetCelestial.ts';
 
-type FlightMode='auto'|'orbit'|'descend'|'surface';
+type FlightMode='auto'|'orbit'|'descend'|'surface'|'ground'|'clouds'|'cirrus';
 interface FlightSample {
   seconds:number;intervalMs:number;updateCpuMs:number;renderCpuMs:number;callbackCpuMs:number;
   altitudeMeters:number;sourceHeightMeters:number;displayedHeightMeters:number|null;
-  coarseClearanceAdjustmentMeters:number;triangles:number;drawCalls:number;focused:boolean;streaming:unknown;sky:unknown;world:unknown;
+  coarseClearanceAdjustmentMeters:number;triangles:number;drawCalls:number;focused:boolean;streaming:unknown;sky:unknown;world:unknown;weatherTimeSeconds:number;sunDirection:PlanetVector;
 }
 const ROUND_TRIP_SECONDS=40;
 const MAX_SAMPLES=12_000;
@@ -65,7 +66,7 @@ async function startPlanetLab(parent:HTMLElement):Promise<()=>void> {
   const telemetry=element('div',undefined,'telemetry'),altitude=element('div','Orbit','altitude'),phaseLabel=element('div','Six-root globe • camera-relative precision'),scaleLabel=element('div',undefined,'muted');telemetry.append(altitude,phaseLabel,scaleLabel);
   viewport.append(canvas,telemetry,element('div','Drag to look around · wheel adjusts altitude · coarse ground stays visible while detail arrives','hint'));section.append(viewport,sidebar);root.append(section);
   const buttons=element('div',undefined,'buttons'),modeButtons=new Map<FlightMode,HTMLButtonElement>();
-  for(const [mode,label] of [['orbit','Orbit'],['descend','Descend'],['surface','Surface'],['auto','Auto flight']] as const){const button=element('button',label);button.setAttribute('aria-pressed',String(mode==='auto'));buttons.append(button);modeButtons.set(mode,button);}sidebar.append(buttons);
+  for(const [mode,label] of [['orbit','Orbit'],['descend','Descend'],['surface','Surface'],['ground','Ground'],['clouds','Inside clouds'],['cirrus','Above clouds'],['auto','Auto flight']] as const){const button=element('button',label);button.setAttribute('aria-pressed',String(mode==='auto'));buttons.append(button);modeButtons.set(mode,button);}sidebar.append(buttons);
   const nativeGPU=new URL(location.href).searchParams.get('backend')==='webgpu',backendSelect=element('select');backendSelect.setAttribute('aria-label','Renderer backend');
   for(const [value,label] of [['webgl','WebGL 2'],['webgpu','Native WebGPU']]){const option=element('option',label);option.value=value;backendSelect.append(option);}backendSelect.value=nativeGPU?'webgpu':'webgl';
   const backendControl=element('label','Renderer');backendControl.append(backendSelect);sidebar.append(backendControl);backendSelect.onchange=()=>{const url=new URL(location.href);url.searchParams.set('backend',backendSelect.value);location.href=url.href;};
@@ -79,18 +80,36 @@ async function startPlanetLab(parent:HTMLElement):Promise<()=>void> {
   const atmosphereToggle=check('Atmosphere'),cloudToggle=check('Clouds'),switches=element('div',undefined,'switches');switches.append(atmosphereToggle.label,cloudToggle.label);skyPanel.append(switches);
   const choose=(name:string,options:readonly (readonly [string,string])[])=>{const select=element('select');select.setAttribute('aria-label',name);for(const [value,text] of options){const option=element('option',text);option.value=value;select.append(option);}const label=element('label',name);label.append(select);skyPanel.append(label);skyControls.push(select);return select;};
   const skyStyle=choose('Sky style',[['realistic','Realistic'],['pixel','Pixelated']]),skyQuality=choose('Sky quality',[['low','Low'],['balanced','Balanced'],['high','High']]);skyQuality.value='balanced';
-  const skyDiagnostic=choose('Sky inspection',[['composite','Final composite'],['scene','Captured scene'],['radiance','Scattered light'],['transmittance','Optical thickness'],['depth-rejection','Depth acceptance'],['unweighted','Unweighted composite'],['nearest','Nearest composite']]);
+  const skyDiagnostic=choose('Sky inspection',[['composite','Final composite'],['scene','Captured scene'],['radiance','Scattered light'],['transmittance','Optical thickness'],['depth-rejection','Depth acceptance'],['unweighted','Unweighted composite'],['nearest','Nearest composite'],['cloud-shadow','Cloud shadow mask']]);
   const ranges=new Map<HTMLInputElement,{label:HTMLLabelElement;name:string;format:(value:number)=>string}>();
   const range=(name:string,min:number,max:number,step:number,value:number,format:(value:number)=>string=(n=>String(n)))=>{const input=element('input');input.type='range';input.min=String(min);input.max=String(max);input.step=String(step);input.value=String(value);input.setAttribute('aria-label',name);const label=element('label');label.append(element('span'),input);ranges.set(input,{label,name,format});skyPanel.append(label);skyControls.push(input);return input;};
   const percent=(n:number)=>Math.round(n*100)+'%',scaledKm=(n:number)=>{const metres=n*1000*(Number(radiusSelect.value)/EARTH_RADIUS);return metres>=1000?(metres/1000).toFixed(1)+' km':Math.round(metres)+' m';};
-  const coverage=range('Cloud coverage',0,1,.01,.55,percent),cloudDensity=range('Cloud density',0,3,.05,1,n=>n.toFixed(2));
-  const cloudBase=range('Cloud base',.5,20,.1,4.5,scaledKm),cloudThickness=range('Cloud thickness',.5,10,.1,3,scaledKm);
+  const coverage=range('Cloud coverage',0,1,.01,.67,percent),cloudDensity=range('Cloud density',0,3,.05,1.25,n=>n.toFixed(2));
+  const cloudBase=range('Cumulus base',.8,4,.1,1.2,scaledKm),cloudThickness=range('Cumulus thickness',.5,8,.1,5.8,scaledKm);
   const atmosphereHeight=range('Atmosphere height',20,160,1,80,scaledKm),haze=range('Atmospheric haze',0,3,.05,1,n=>n.toFixed(2));
-  const windSpeed=range('Wind speed',0,100,1,20,n=>(n*Number(radiusSelect.value)/EARTH_RADIUS).toFixed(1)+' m/s'),sunElevation=range('Sun elevation',-15,85,1,35,n=>n+'°');
+  const windSpeed=range('Extra cloud drift',0,100,1,0,n=>(n*Number(radiusSelect.value)/EARTH_RADIUS).toFixed(1)+' m/s'),sunElevation=range('Sun elevation',-15,85,1,35,n=>n+'°');
+  const fogDensity=range('Sea-level fog density',0,3,.05,.35,n=>n.toFixed(2)),cirrusDensity=range('Cirrus density',0,2,.05,.22,n=>n.toFixed(2));
+  const cloudShadows=range('Cloud shadows',0,1,.05,.8,percent),godRays=range('God rays',0,1,.05,.8,percent);
+  const sunMotion=choose('Sun motion',[['rotation','Planet rotation'],['fixed','Fixed elevation']]);
+  const clockRunning=check('Run rotation'),starsToggle=check('Stars'),clockSwitches=element('div',undefined,'switches');clockSwitches.append(clockRunning.label,starsToggle.label);skyPanel.append(clockSwitches);
+  const trackSun=check('Look toward sun');trackSun.input.checked=false;skyPanel.append(trackSun.label);
+  const dayDuration=range('Day duration',30,1800,10,300,n=>n+' real seconds'),timeOfDay=range('Reference time',0,24,.05,12,n=>{const hour=Math.floor(n)%24;return String(hour).padStart(2,'0')+':'+String(Math.floor((n%1)*60)).padStart(2,'0');});
+  const axialTilt=range('Axial tilt',0,60,.1,23.4,n=>n.toFixed(1)+'°'),season=range('Season',0,1,.01,0,n=>Math.round(n*100)+'% of orbit');
+  const timePresets=element('div',undefined,'buttons'),solarNotice=element('p','', 'muted');
+  for(const name of ['Noon','Sunset','Night','Dawn'] as const){const button=element('button',name);button.onclick=()=>{
+    if(benchmarkState)return;solarNotice.textContent='';const latitude=Math.asin(lastDirection[1]),declination=samplePlanetCelestial(skyRecipe.celestial,0).declinationRadians;
+    let hourAngle=name==='Night'?Math.PI:0;
+    if(name==='Sunset'||name==='Dawn'){
+      const cosine=-Math.tan(latitude)*Math.tan(declination);
+      if(cosine< -1||cosine>1){solarNotice.textContent='This latitude has polar day or night in this season. Change the season or landing location for a sunrise or sunset.';return;}
+      hourAngle=Math.acos(cosine)*(name==='Dawn'?-1:1);
+    }
+    simulationSeconds=(hourAngle/(2*Math.PI)-Math.atan2(lastDirection[0],lastDirection[2])/(2*Math.PI)+skyRecipe.celestial.phaseTurns)*skyRecipe.celestial.dayLengthSeconds;clockRunning.input.checked=false;sunMotion.value='rotation';trackSun.input.checked=name!=='Night';yaw=0;pitch=name==='Night'?-.55:0;refreshClockLabel();applySkyControls();
+  };timePresets.append(button);skyControls.push(button);}skyPanel.append(timePresets,solarNotice);
   const pixelSize=range('Pixel size',2,12,1,6,n=>n+' screen pixels'),paletteSteps=range('Palette levels',2,24,1,8,n=>String(n));
   const seed=element('input');seed.type='number';seed.min='-2147483648';seed.max='2147483647';seed.step='1';seed.value='73';seed.setAttribute('aria-label','Sky seed');const seedLabel=element('label','Sky seed');seedLabel.append(seed);skyPanel.append(seedLabel);skyControls.push(seed);
   const exportSky=element('button','Export sky recipe');skyPanel.append(exportSky);skyControls.push(exportSky);
-  skyPanel.append(element('p','Both styles and rendering backends use the same seeded 3D density field. Seed changes prepare a replacement in a worker.','muted'));
+  skyPanel.append(element('p','Clouds follow latitude circulation, coasts, terrain and sunlight. Fog, cumulus and cirrus share the same weather on both renderers. Sky rotation changes light and stars while world coordinates remain stable.','muted'));
   const benchmark=element('button','Measure 40 s round trip', 'primary'),exportButton=element('button','Export report');benchmark.disabled=true;exportButton.disabled=true;const benchmarkButtons=element('div',undefined,'buttons');benchmarkButtons.append(benchmark,exportButton);sidebar.append(benchmarkButtons);
   sidebar.append(element('h2','Streaming and precision'));const counters=element('pre');counters.setAttribute('aria-label','Planet streaming counters');sidebar.append(counters);
   sidebar.append(element('h2','Sky rendering'));const skyCounters=element('pre','Preparing reusable density volumes…');skyCounters.setAttribute('aria-label','Planet sky counters');sidebar.append(skyCounters);
@@ -102,7 +121,7 @@ async function startPlanetLab(parent:HTMLElement):Promise<()=>void> {
   const renderer=nativeGPU?new WebGPURenderer({canvas,antialias:true,powerPreference:'high-performance',logarithmicDepthBuffer:true,forceWebGL:false}):new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance',logarithmicDepthBuffer:true});
   if(renderer instanceof WebGPURenderer){await renderer.init();if(!(renderer.backend as unknown as {isWebGPUBackend?:boolean}).isWebGPUBackend){renderer.dispose();throw Error('Native WebGPU is unavailable; choose WebGL explicitly.');}}
   renderer.setPixelRatio(Math.min(devicePixelRatio,1.25));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.setClearColor('#000000');
-  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(60,1,.1,EARTH_RADIUS*8);scene.add(new THREE.HemisphereLight('#b9dcf1','#183147',1.5));const sun=new THREE.DirectionalLight('#fff0d8',2.4);scene.add(sun);
+  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(60,1,.1,EARTH_RADIUS*8);const ambient=new THREE.HemisphereLight('#b9dcf1','#183147',1.5);scene.add(ambient);const sun=new THREE.DirectionalLight('#fff0d8',2.4);scene.add(sun);
   let planet:CompiledPlanet,view:PlanetView;
   let biomes:CompiledPlanetBiomes,water:PlanetWaterView,population:PlanetPopulationView|undefined,library:PreparedPlanetPopulation|undefined;
   let surfaceMaterials:ReturnType<typeof createGeneratedMaterialFromPixels>[]=[],worldAbort=new AbortController(),worldVersion=0,worldPreparing=true,worldError='',landing:PlanetVector=[-1,0,0],biomeSearch:Worker|undefined;
@@ -114,19 +133,24 @@ async function startPlanetLab(parent:HTMLElement):Promise<()=>void> {
   let retained:unknown;
   let sky:PlanetSkyView|PlanetSkyWebGPUView|undefined,skyRecipe:ResolvedPlanetSkyRecipe,skyAbort:AbortController|undefined,skyBakeKey='',pendingBakeKey='',skyPreparing=false,skyError='',skyVersion=0,skySeconds=0;
   let lastTriangles=0,lastDrawCalls=0;
+  let simulationSeconds=0,renderSimulationSeconds=0,starRotationRadians=0;
   const recent:number[]=[];
   const direction=new THREE.Vector3(),tangent=new THREE.Vector3(),north=new THREE.Vector3(),absolute=new THREE.Vector3(),target=new THREE.Vector3(),nearTarget=new THREE.Vector3(),up=new THREE.Vector3(),forward=new THREE.Vector3(),right=new THREE.Vector3(),sunDirection=new THREE.Vector3();
   let altitudeMeters=EARTH_RADIUS*1.4,lastSurface=0,lastDisplaySurface:number|undefined,lastClearanceAdjustment=0,lastDirection:PlanetVector=[0,1,0];
   function refreshSkyLabels(){
     for(const [input,{label,name,format}] of ranges){(label.firstElementChild as HTMLSpanElement).textContent=name+': '+format(Number(input.value));}
     pixelSize.disabled=!!benchmarkState||skyStyle.value!=='pixel';paletteSteps.disabled=pixelSize.disabled;
+    sunElevation.disabled=!!benchmarkState||sunMotion.value==='rotation';dayDuration.disabled=!!benchmarkState||sunMotion.value!=='rotation';timeOfDay.disabled=!!benchmarkState||sunMotion.value!=='rotation';
   }
+  function refreshClockLabel(){timeOfDay.value=String(((simulationSeconds/3600+12)%24+24)%24);const info=ranges.get(timeOfDay)!;(info.label.firstElementChild as HTMLSpanElement).textContent=info.name+': '+info.format(Number(timeOfDay.value));}
   function readSkyControls():ResolvedPlanetSkyRecipe {
     const radius=planet.radius,scale=radius/EARTH_RADIUS;
     const base=skyRecipe?.seed===Number(seed.value)?skyRecipe:compilePlanetSky(createPlanetSkyRecipe(Number(seed.value),radius),radius).recipe;
-    return compilePlanetSky({...base,seed:Number(seed.value),style:skyStyle.value as 'realistic'|'pixel',quality:skyQuality.value as 'low'|'balanced'|'high',pixelSize:Number(pixelSize.value),paletteSteps:Number(paletteSteps.value),
+    const cumulusTop=(Number(cloudBase.value)+Number(cloudThickness.value))*1000*scale,cirrusBase=Math.max(8500*scale,cumulusTop+400*scale);
+    return compilePlanetSky({...base,surface:planet.recipe,seed:Number(seed.value),style:skyStyle.value as 'realistic'|'pixel',quality:skyQuality.value as 'low'|'balanced'|'high',pixelSize:Number(pixelSize.value),paletteSteps:Number(paletteSteps.value),
+      celestial:{...base.celestial,axialTiltDegrees:Number(axialTilt.value),seasonTurns:Number(season.value),starsEnabled:starsToggle.input.checked},
       atmosphere:{...base.atmosphere,enabled:atmosphereToggle.input.checked,heightMeters:Number(atmosphereHeight.value)*1000*scale,mieStrength:Number(haze.value)},
-      clouds:{...base.clouds,enabled:cloudToggle.input.checked,bottomMeters:Number(cloudBase.value)*1000*scale,thicknessMeters:Number(cloudThickness.value)*1000*scale,coverage:Number(coverage.value),density:Number(cloudDensity.value),windMetersPerSecond:[Number(windSpeed.value)*scale,0,Number(windSpeed.value)*scale*.2]}},radius).recipe;
+      clouds:{...base.clouds,enabled:cloudToggle.input.checked,bottomMeters:Number(cloudBase.value)*1000*scale,thicknessMeters:Number(cloudThickness.value)*1000*scale,coverage:Number(coverage.value),density:Number(cloudDensity.value),windMetersPerSecond:[Number(windSpeed.value)*scale,0,Number(windSpeed.value)*scale*.2],shadowStrength:Number(cloudShadows.value),godRayStrength:Number(godRays.value),circulation:{...base.clouds.circulation,itczLatitudeDegrees:Math.sin(Number(season.value)*2*Math.PI)*7},layers:{fog:{...base.clouds.layers.fog,density:Number(fogDensity.value)},cumulus:{...base.clouds.layers.cumulus,bottomMeters:Number(cloudBase.value)*1000*scale,thicknessMeters:Number(cloudThickness.value)*1000*scale},cirrus:{...base.clouds.layers.cirrus,bottomMeters:cirrusBase,density:Number(cirrusDensity.value)}}}},radius).recipe;
   }
   function applySkyControls(){
     if(disposed||benchmarkState)return;
@@ -181,6 +205,7 @@ async function startPlanetLab(parent:HTMLElement):Promise<()=>void> {
   replacePlanet(EARTH_RADIUS);
   districtSelect.onchange=()=>{if(!benchmarkState)findDistrict();};
   for(const control of skyControls){if(control===exportSky)continue;if(control instanceof HTMLInputElement&&control.type==='range')control.oninput=applySkyControls;else control.onchange=applySkyControls;}
+  timeOfDay.oninput=()=>{if(benchmarkState)return;simulationSeconds=(Number(timeOfDay.value)-12)*3600;clockRunning.input.checked=false;refreshClockLabel();};
   exportSky.onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify({recipe:skyRecipe,sunElevationDegrees:Number(sunElevation.value)},null,2)],{type:'application/json'})),anchor=element('a');anchor.href=url;anchor.download='planet-sky-recipe.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
   function setMode(value:FlightMode){mode=value;modeButtons.forEach((button,key)=>button.setAttribute('aria-pressed',String(key===value)));if(value==='auto'||value==='descend')routeSeconds=value==='descend'?6:0;wheelOffset=0;}
   modeButtons.forEach((button,key)=>button.onclick=()=>{if(benchmarkState)return;setMode(key);});
@@ -201,15 +226,19 @@ async function startPlanetLab(parent:HTMLElement):Promise<()=>void> {
     const surfaceAltitude=75,orbitalAltitude=planet.radius*1.4;
     let requested:number,phase:string;
     if(!forced&&mode==='orbit'){requested=orbitalAltitude;phase='Orbit';}
+    else if(!forced&&mode==='ground'){requested=2;phase='Ground sky';}
+    else if(!forced&&mode==='clouds'){requested=Math.max(2,(skyRecipe.clouds.layers.cumulus.bottomMeters+skyRecipe.clouds.layers.cumulus.thicknessMeters*.38)-lastSurface);phase='Inside cumulus';}
+    else if(!forced&&mode==='cirrus'){requested=Math.max(2,skyRecipe.clouds.layers.cirrus.bottomMeters+skyRecipe.clouds.layers.cirrus.thicknessMeters+1000*planet.radius/EARTH_RADIUS-lastSurface);phase='Above cloud layers';}
     else if(!forced&&mode==='surface'){requested=surfaceAltitude;phase='Surface flyover';}
     else if(t<6){requested=orbitalAltitude;phase='Orbit';}
     else if(t<18){requested=Math.exp(lerp(Math.log(orbitalAltitude),Math.log(surfaceAltitude),smooth((t-6)/12)));phase='Descending';}
     else if(t<28){requested=surfaceAltitude;phase='Surface flyover';}
     else{requested=Math.exp(lerp(Math.log(surfaceAltitude),Math.log(orbitalAltitude),smooth((t-28)/12)));phase='Ascending';}
-    altitudeMeters=Math.max(5,requested*Math.exp(wheelOffset));
+    altitudeMeters=Math.max(mode==='ground'?1.7:5,requested*Math.exp(wheelOffset));
     // Stay near the same landing district during descent. Surface movement is
     // measured in metres, rather than racing degrees of latitude each frame.
-    const metres=seconds*35,longitude=Math.atan2(landing[0],landing[2])+metres/planet.radius,latitude=Math.asin(landing[1]);
+    const orbitBlend=smooth((altitudeMeters-skyRecipe.atmosphere.heightMeters*2)/(planet.radius*.15)),bodyRotation=2*Math.PI*(renderSimulationSeconds/skyRecipe.celestial.dayLengthSeconds-skyRecipe.celestial.phaseTurns);
+    const metres=seconds*35,longitude=Math.atan2(landing[0],landing[2])+metres/planet.radius-(sunMotion.value==='rotation'?bodyRotation*orbitBlend:0),latitude=Math.asin(landing[1]);
     direction.set(Math.cos(latitude)*Math.sin(longitude),Math.sin(latitude),Math.cos(latitude)*Math.cos(longitude));
     const sampled=planet.sample(tuple(direction));lastSurface=Math.max(sampled.heightMeters,planet.recipe.seaLevelMeters);lastDirection=tuple(direction);
     lastDisplaySurface=view.displayedSurface(tuple(direction))?.heightMeters;lastClearanceAdjustment=Math.max(0,(lastDisplaySurface??lastSurface)-lastSurface);
@@ -221,32 +250,41 @@ async function startPlanetLab(parent:HTMLElement):Promise<()=>void> {
     const lookAhead=Math.max(200,Math.min(planet.radius*.05,altitudeMeters*7));
     nearTarget.copy(direction).addScaledVector(tangent,lookAhead/planet.radius).normalize();
     const ahead=planet.sample(tuple(nearTarget));nearTarget.multiplyScalar(planet.radius+Math.max(ahead.heightMeters,planet.recipe.seaLevelMeters)+altitudeMeters*.35);
-    const orbital=smooth((Math.log10(altitudeMeters)-3)/2.6);
-    target.copy(nearTarget).multiplyScalar(1-orbital).sub(absolute);
+    const aerialInspection=!forced&&['ground','surface','clouds','cirrus'].includes(mode);
+    const orbital=aerialInspection?0:smooth((Math.log10(altitudeMeters)-3)/2.6);
+    // Blend viewing directions, not absolute planet positions. The latter
+    // unintentionally points an atmospheric camera almost straight down.
+    target.copy(nearTarget).sub(absolute).normalize().multiplyScalar(1-orbital).addScaledVector(direction,-orbital).normalize();
     north.set(0,1,0).addScaledVector(direction,-direction.y).normalize();up.copy(direction).multiplyScalar(1-orbital).addScaledVector(north,orbital).normalize();
-    const elevation=Number(sunElevation.value)*Math.PI/180;
-    sunDirection.copy(direction).multiplyScalar(Math.sin(elevation)).addScaledVector(north,Math.cos(elevation)).normalize();sun.position.copy(sunDirection);
+    const celestial=samplePlanetCelestial(skyRecipe.celestial,renderSimulationSeconds);starRotationRadians=celestial.rotationRadians;
+    if(sunMotion.value==='rotation')sunDirection.set(...celestial.sunDirection);
+    else{const elevation=Number(sunElevation.value)*Math.PI/180;sunDirection.copy(direction).multiplyScalar(Math.sin(elevation)).addScaledVector(north,Math.cos(elevation)).normalize();}
+    const sunlight=samplePlanetSunlight(tuple(direction),tuple(sunDirection)),outside=smooth((altitudeMeters-skyRecipe.atmosphere.heightMeters)/skyRecipe.atmosphere.heightMeters);sun.position.copy(sunDirection);sun.intensity=skyRecipe.atmosphere.sunIntensity*lerp(sunlight.visibility,1,outside);sun.color.setRGB(...sunlight.color.map(v=>lerp(v,1,outside)) as [number,number,number]);ambient.intensity=lerp(.018+1.25*Math.max(0,Math.sin(sunlight.elevationRadians)),.075,outside);
+    // The space-facing camera exposes for a sunlit globe. A continuous exposure
+    // change preserves the same scene/atmosphere irradiance through descent.
+    renderer.toneMappingExposure=lerp(1,.25,outside);
     const time=benchmarkState?.seconds??skySeconds;water.update({position:tuple(absolute),origin:tuple(absolute),timeSeconds:time,sunDirection:tuple(sunDirection)});population?.update(tuple(absolute),tuple(absolute),time);
     camera.position.set(0,0,0);camera.up.copy(up);camera.lookAt(target);
     if(!forced&&(yaw!==0||pitch!==0)){forward.copy(target).normalize();right.crossVectors(forward,up).normalize();forward.applyAxisAngle(up,yaw).applyAxisAngle(right,pitch);camera.lookAt(forward);}
+    if(!forced&&trackSun.input.checked)camera.lookAt(sunDirection);
     return phase;
   }
   function finalizeBenchmark(){
     const run=benchmarkState;if(!run)return;
     const samples=run.samples;
-    retained={version:3,backend:nativeGPU?'webgpu':'webgl2',world:worldFacts(),gpuQueueCompletionMs:distribution(gpuCompletions),gpuQueueCompletionScope:'Asynchronous queue completion latency, includes scheduling and queued work; not a GPU timestamp or physical FPS.',gpuErrors,startedAt:run.startedAt,route:'40-second deterministic orbit → descent → 75 m surface flyover → ascent',metric:'RAF callback intervals and CPU submission; not physical display FPS or GPU completion',callbackCpuScope:'Includes rendering, frame sampling and live telemetry/UI updates; excludes one-time final report construction.',radiusMeters:planet.radius,recipe:planet.recipe,skyRecipe:run.skyRecipe,sunElevationDegrees:run.sunElevationDegrees,viewport:{width:canvas.width,height:canvas.height,pixelRatio:renderer.getPixelRatio()},samples:samples.length,intervalMs:distribution(samples.map(s=>s.intervalMs)),updateCpuMs:distribution(samples.map(s=>s.updateCpuMs)),renderCpuMs:distribution(samples.map(s=>s.renderCpuMs)),callbackCpuMs:distribution(samples.map(s=>s.callbackCpuMs)),focusedSamples:samples.filter(s=>s.focused).length,triangles:{min:Math.min(...samples.map(s=>s.triangles)),max:Math.max(...samples.map(s=>s.triangles))},initialStreaming:run.initialStreaming,finalStreaming:view.inspection(),initialSky:run.initialSky,finalSky:sky?.inspection(),skyError,longIntervals:samples.filter(s=>s.intervalMs>33).slice(0,100),trace:samples};
+    retained={version:4,dayDurationSeconds:Number(dayDuration.value),sunMotion:sunMotion.value,backend:nativeGPU?'webgpu':'webgl2',world:worldFacts(),gpuQueueCompletionMs:distribution(gpuCompletions),gpuQueueCompletionScope:'Asynchronous queue completion latency, includes scheduling and queued work; not a GPU timestamp or physical FPS.',gpuErrors,startedAt:run.startedAt,route:'40-second deterministic orbit → descent → 75 m surface flyover → ascent',metric:'RAF callback intervals and CPU submission; not physical display FPS or GPU completion',callbackCpuScope:'Includes rendering, frame sampling and live telemetry/UI updates; excludes one-time final report construction.',radiusMeters:planet.radius,recipe:planet.recipe,skyRecipe:run.skyRecipe,sunElevationDegrees:run.sunElevationDegrees,viewport:{width:canvas.width,height:canvas.height,pixelRatio:renderer.getPixelRatio()},samples:samples.length,intervalMs:distribution(samples.map(s=>s.intervalMs)),updateCpuMs:distribution(samples.map(s=>s.updateCpuMs)),renderCpuMs:distribution(samples.map(s=>s.renderCpuMs)),callbackCpuMs:distribution(samples.map(s=>s.callbackCpuMs)),focusedSamples:samples.filter(s=>s.focused).length,triangles:{min:Math.min(...samples.map(s=>s.triangles)),max:Math.max(...samples.map(s=>s.triangles))},initialStreaming:run.initialStreaming,finalStreaming:view.inspection(),initialSky:run.initialSky,finalSky:sky?.inspection(),skyError,longIntervals:samples.filter(s=>s.intervalMs>33).slice(0,100),trace:samples};
     report.textContent=JSON.stringify({...retained as Record<string,unknown>,recipe:undefined,skyRecipe:undefined,trace:undefined},null,2);exportButton.disabled=false;benchmarkState=undefined;benchmark.disabled=false;radiusSelect.disabled=false;detail.disabled=false;districtSelect.disabled=false;backendSelect.disabled=false;modeButtons.forEach(button=>button.disabled=false);skyControls.forEach(control=>control.disabled=false);refreshSkyLabels();status.textContent='Round trip measured. Export includes the sky recipe, bounded frame trace and streaming counters.';
   }
-  benchmark.onclick=()=>{if(!sky||skyPreparing||skyError||worldPreparing||worldError||biomeSearch||!view.inspection().coverageReady)return;skyDiagnostic.value='composite';sky.setDiagnostic('composite');setMode('auto');yaw=pitch=0;recent.length=0;benchmarkState={seconds:0,samples:[],startedAt:new Date().toISOString(),initialStreaming:view.inspection(),initialSky:sky.inspection(),skyRecipe,sunElevationDegrees:Number(sunElevation.value)};benchmark.disabled=true;radiusSelect.disabled=true;detail.disabled=true;districtSelect.disabled=true;backendSelect.disabled=true;gpuCompletions.length=0;modeButtons.forEach(button=>button.disabled=true);skyControls.forEach(control=>control.disabled=true);exportButton.disabled=true;previousNow=0;};
+  benchmark.onclick=()=>{if(!sky||skyPreparing||skyError||worldPreparing||worldError||biomeSearch||!view.inspection().coverageReady)return;skyDiagnostic.value='composite';sky.setDiagnostic('composite');setMode('auto');trackSun.input.checked=false;yaw=pitch=0;recent.length=0;benchmarkState={seconds:0,samples:[],startedAt:new Date().toISOString(),initialStreaming:view.inspection(),initialSky:sky.inspection(),skyRecipe,sunElevationDegrees:Number(sunElevation.value)};benchmark.disabled=true;radiusSelect.disabled=true;detail.disabled=true;districtSelect.disabled=true;backendSelect.disabled=true;gpuCompletions.length=0;modeButtons.forEach(button=>button.disabled=true);skyControls.forEach(control=>control.disabled=true);exportButton.disabled=true;previousNow=0;};
   exportButton.onclick=()=>{if(!retained)return;const url=URL.createObjectURL(new Blob([JSON.stringify(retained,null,2)],{type:'application/json'})),a=element('a');a.href=url;a.download='planet-flight-round-trip.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
   function worldFacts(){return {preparing:worldPreparing,error:worldError,searchingDistrict:!!biomeSearch,biome:biomes.sample(lastDirection),biomeRevision:biomes.revision,materialRecipes:surfaceMaterials.length,population:population?.inspection(),water:water.inspection()};}
   function render(now:number){
     if(disposed)return;raf=requestAnimationFrame(render);const started=performance.now(),interval=previousNow?now-previousNow:0;previousNow=now;
     if(document.visibilityState==='hidden')return;
-    const dt=interval/1000;skySeconds+=dt;if(benchmarkState)benchmarkState.seconds+=dt;else routeSeconds+=dt;
+    const dt=interval/1000;skySeconds+=dt;if(!benchmarkState&&clockRunning.input.checked)simulationSeconds+=dt*86400/Number(dayDuration.value);renderSimulationSeconds=benchmarkState?benchmarkState.seconds*86400/Number(dayDuration.value):simulationSeconds;if(benchmarkState)benchmarkState.seconds+=dt;else routeSeconds+=dt;
     const updateStarted=performance.now(),phase=flight(benchmarkState?.seconds??routeSeconds,!!benchmarkState);lastUpdateCpu=performance.now()-updateStarted;
     const renderStarted=performance.now();renderer.info.reset();
-    try{if(sky){if(nativeGPU)(sky as PlanetSkyWebGPUView).render(renderer as WebGPURenderer,scene,camera,{position:tuple(absolute),timeSeconds:benchmarkState?.seconds??skySeconds,sunDirection:tuple(sunDirection)});else (sky as PlanetSkyView).render(renderer as THREE.WebGLRenderer,scene,camera,{position:tuple(absolute),timeSeconds:benchmarkState?.seconds??skySeconds,sunDirection:tuple(sunDirection)});}else renderer.render(scene,camera);}
+    try{if(sky){if(nativeGPU)(sky as PlanetSkyWebGPUView).render(renderer as WebGPURenderer,scene,camera,{position:tuple(absolute),timeSeconds:renderSimulationSeconds,sunDirection:tuple(sunDirection),starRotationRadians,presentationTimeSeconds:skySeconds});else (sky as PlanetSkyView).render(renderer as THREE.WebGLRenderer,scene,camera,{position:tuple(absolute),timeSeconds:renderSimulationSeconds,sunDirection:tuple(sunDirection),starRotationRadians,presentationTimeSeconds:skySeconds});}else renderer.render(scene,camera);}
     catch(error){skyError=error instanceof Error?error.message:String(error);sky?.dispose();sky=undefined;skyBakeKey='';renderer.render(scene,camera);}
     lastRenderCpu=performance.now()-renderStarted;
     if(gpuDevice&&!gpuPending&&gpuCompletions.length<1800){gpuPending=true;const queued=performance.now();void gpuDevice.queue.onSubmittedWorkDone().then(()=>{gpuCompletions.push(performance.now()-queued);gpuPending=false;}).catch(error=>{gpuErrors.push(String(error));gpuPending=false;});}
@@ -254,8 +292,8 @@ async function startPlanetLab(parent:HTMLElement):Promise<()=>void> {
     lastTriangles=sceneFacts?.sceneTriangles??renderer.info.render.triangles;lastDrawCalls=sceneFacts?.sceneDrawCalls??renderer.info.render.calls;
     if(interval>0){recent.push(interval);if(recent.length>600)recent.shift();}
     let sample:FlightSample|undefined;
-    if(benchmarkState&&interval>0&&benchmarkState.samples.length<MAX_SAMPLES){sample={seconds:rounded(benchmarkState.seconds),intervalMs:rounded(interval),updateCpuMs:rounded(lastUpdateCpu),renderCpuMs:rounded(lastRenderCpu),callbackCpuMs:0,altitudeMeters:rounded(altitudeMeters),sourceHeightMeters:rounded(lastSurface),displayedHeightMeters:lastDisplaySurface===undefined?null:rounded(lastDisplaySurface),coarseClearanceAdjustmentMeters:rounded(lastClearanceAdjustment),triangles:lastTriangles,drawCalls:lastDrawCalls,focused:document.hasFocus(),streaming:view.inspection(),sky:skyFacts??{ready:false,error:skyError},world:worldFacts()};benchmarkState.samples.push(sample);}
-    if(now-lastUi>350){lastUi=now;const streaming=view.inspection();if(!benchmarkState)benchmark.disabled=!streaming.coverageReady||!sky||skyPreparing||!!skyError||worldPreparing||!!worldError||!!biomeSearch;altitude.textContent=altitudeLabel(altitudeMeters);phaseLabel.textContent=phase+' · clearance above source/displayed terrain';counters.textContent=JSON.stringify({radiusMeters:planet.radius,sourceHeightMeters:rounded(lastSurface),displayedHeightMeters:lastDisplaySurface===undefined?null:rounded(lastDisplaySurface),coarseClearanceAdjustmentMeters:rounded(lastClearanceAdjustment),actualAltitudeAboveSourceMeters:rounded(altitudeMeters+lastClearanceAdjustment),absoluteCameraMetres:tuple(absolute).map(rounded),direction:lastDirection.map(n=>rounded(n)),origin:'camera position (double)',triangles:lastTriangles,drawCalls:lastDrawCalls,streaming},null,2);skyCounters.textContent=JSON.stringify({preparing:skyPreparing,error:skyError,style:skyRecipe.style,quality:skyRecipe.quality,sunElevationDegrees:Number(sunElevation.value),...(skyFacts??{})},null,2);worldCounters.textContent=JSON.stringify(worldFacts(),null,2);frames.textContent=JSON.stringify({rollingSamples:recent.length,intervalMs:distribution(recent),backend:nativeGPU?'webgpu':'webgl2',gpuQueueCompletions:gpuCompletions.length,gpuErrors,latestCpuMs:{update:rounded(lastUpdateCpu),renderSubmit:rounded(lastRenderCpu),previousCompleteCallback:rounded(lastCallbackCpu)}},null,2);if(benchmarkState)status.textContent='Measuring '+phase.toLowerCase()+' · '+Math.ceil(Math.max(0,ROUND_TRIP_SECONDS-benchmarkState.seconds))+' s remaining';else if(worldError)status.textContent='World preparation error: '+worldError;else if(skyError)status.textContent='Sky unavailable: '+skyError;else status.textContent=phase+' · '+(skyPreparing?'preparing replacement sky in a worker; ':'')+'asynchronous detail requests retain the last complete parent coverage.';}
+    if(benchmarkState&&interval>0&&benchmarkState.samples.length<MAX_SAMPLES){sample={seconds:rounded(benchmarkState.seconds),intervalMs:rounded(interval),updateCpuMs:rounded(lastUpdateCpu),renderCpuMs:rounded(lastRenderCpu),callbackCpuMs:0,altitudeMeters:rounded(altitudeMeters),sourceHeightMeters:rounded(lastSurface),displayedHeightMeters:lastDisplaySurface===undefined?null:rounded(lastDisplaySurface),coarseClearanceAdjustmentMeters:rounded(lastClearanceAdjustment),triangles:lastTriangles,drawCalls:lastDrawCalls,focused:document.hasFocus(),streaming:view.inspection(),sky:skyFacts??{ready:false,error:skyError},world:worldFacts(),weatherTimeSeconds:rounded(renderSimulationSeconds),sunDirection:tuple(sunDirection)};benchmarkState.samples.push(sample);}
+    if(now-lastUi>350){lastUi=now;if(!benchmarkState)refreshClockLabel();const streaming=view.inspection();if(!benchmarkState)benchmark.disabled=!streaming.coverageReady||!sky||skyPreparing||!!skyError||worldPreparing||!!worldError||!!biomeSearch;altitude.textContent=altitudeLabel(altitudeMeters);phaseLabel.textContent=phase+' · clearance above source/displayed terrain';counters.textContent=JSON.stringify({radiusMeters:planet.radius,sourceHeightMeters:rounded(lastSurface),displayedHeightMeters:lastDisplaySurface===undefined?null:rounded(lastDisplaySurface),coarseClearanceAdjustmentMeters:rounded(lastClearanceAdjustment),actualAltitudeAboveSourceMeters:rounded(altitudeMeters+lastClearanceAdjustment),absoluteCameraMetres:tuple(absolute).map(rounded),direction:lastDirection.map(n=>rounded(n)),origin:'camera position (double)',triangles:lastTriangles,drawCalls:lastDrawCalls,streaming},null,2);skyCounters.textContent=JSON.stringify({preparing:skyPreparing,error:skyError,style:skyRecipe.style,quality:skyRecipe.quality,sunElevationDegrees:Number(sunElevation.value),...(skyFacts??{})},null,2);worldCounters.textContent=JSON.stringify({...worldFacts(),solar:{simulationSeconds:rounded(renderSimulationSeconds),sunDirection:tuple(sunDirection),rotationRadians:starRotationRadians,clockRunning:clockRunning.input.checked,dayDurationSeconds:Number(dayDuration.value)}},null,2);frames.textContent=JSON.stringify({rollingSamples:recent.length,intervalMs:distribution(recent),backend:nativeGPU?'webgpu':'webgl2',gpuQueueCompletions:gpuCompletions.length,gpuErrors,latestCpuMs:{update:rounded(lastUpdateCpu),renderSubmit:rounded(lastRenderCpu),previousCompleteCallback:rounded(lastCallbackCpu)}},null,2);if(benchmarkState)status.textContent='Measuring '+phase.toLowerCase()+' · '+Math.ceil(Math.max(0,ROUND_TRIP_SECONDS-benchmarkState.seconds))+' s remaining';else if(worldError)status.textContent='World preparation error: '+worldError;else if(skyError)status.textContent='Sky unavailable: '+skyError;else status.textContent=phase+' · '+(skyPreparing?'preparing replacement sky in a worker; ':'')+'asynchronous detail requests retain the last complete parent coverage.';}
     lastCallbackCpu=performance.now()-started;if(sample)sample.callbackCpuMs=rounded(lastCallbackCpu);
     if(benchmarkState&&benchmarkState.seconds>=ROUND_TRIP_SECONDS)finalizeBenchmark();
   }

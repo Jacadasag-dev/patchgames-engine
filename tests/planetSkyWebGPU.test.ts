@@ -1,5 +1,5 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
-import {ACESFilmicToneMapping,Color,PerspectiveCamera,Scene,SRGBColorSpace,Vector4,WebGPUCoordinateSystem,type Data3DTexture,type RenderTarget} from 'three';
+import {ACESFilmicToneMapping,Color,PerspectiveCamera,Scene,SRGBColorSpace,Vector4,WebGPUCoordinateSystem,type Data3DTexture,type DataTexture,type RenderTarget} from 'three';
 import type {WebGPURenderer} from 'three/webgpu';
 import {compilePlanetSky,createPlanetSkyRecipe} from '../src/shared/planetSky.ts';
 import {PlanetSkyWebGPUView} from '../src/sandbox/planetSkyWebGPU.ts';
@@ -14,7 +14,7 @@ class Renderer {
   viewport=new Vector4(3,5,900,600);scissor=new Vector4(4,6,800,500);scissorTest=true;
   color=new Color('#123456');alpha=1;autoClear=true;toneMapping=ACESFilmicToneMapping;outputColorSpace=SRGBColorSpace;
   calls=0;throwAt=0;info={render:{triangles:900,drawCalls:123}};
-  initializedTextures:Data3DTexture[]=[];copies:{source:Data3DTexture;destination:Data3DTexture;depth:number;level:number}[]=[];
+  initializedTextures:(Data3DTexture|DataTexture)[]=[];copies:{source:Data3DTexture;destination:Data3DTexture;depth:number;level:number}[]=[];
   getRenderTarget(){return this.target;}
   getOutputRenderTarget(){return this.output;}
   getViewport(v:Vector4){return v.copy(this.viewport);}
@@ -31,7 +31,7 @@ class Renderer {
   getClearAlpha(){return this.alpha;}
   setClearColor(v:Color,alpha:number){this.color.copy(v);this.alpha=alpha;}
   clear(){}
-  initTexture(texture:Data3DTexture){this.initializedTextures.push(texture);}
+  initTexture(texture:Data3DTexture|DataTexture){this.initializedTextures.push(texture);}
   copyTextureToTexture(source:Data3DTexture,destination:Data3DTexture,region:{max:{z:number}},_position:null,_srcLevel:number,level:number){this.copies.push({source,destination,depth:region.max.z,level});}
   render(){
     this.calls++;if(this.calls===this.throwAt)throw Error('native render failed');
@@ -55,7 +55,7 @@ describe('native WebGPU planet sky',()=>{
       expect(r.target).toBeNull();expect(r.viewport).toEqual(before.viewport);expect(r.scissor).toEqual(before.scissor);expect(r.mrt).toBe(before.mrt);
       expect(r.color).toEqual(before.color);expect(r.alpha).toBe(1);expect(r.autoClear).toBe(true);expect(r.scissorTest).toBe(true);expect(r.toneMapping).toBe(ACESFilmicToneMapping);expect(r.outputColorSpace).toBe(SRGBColorSpace);expect(r.xr.enabled).toBe(true);
     }
-    expect(r.calls).toBe(6);expect(r.initializedTextures).toHaveLength(2);
+    expect(r.calls).toBe(6);expect(r.initializedTextures).toHaveLength(4);
     expect(r.copies.map(copy=>[copy.level,copy.depth])).toEqual([[1,16],[2,8],[3,4],[4,2],[5,1]]);
     expect(r.copies.every(copy=>copy.destination===r.initializedTextures[0])).toBe(true);
     expect(view.inspection().volumePixels).toBeLessThanOrEqual(view.inspection().limits.maxPixels);
@@ -75,7 +75,7 @@ describe('native WebGPU planet sky',()=>{
     const revision=view.inspection().revision;expect(()=>view.setRecipe({...bake.recipe,seed:74})).toThrow(/replacement/);expect(view.inspection().revision).toBe(revision);
   });
   it('renders the ordinary native scene directly when both effects are disabled',()=>{
-    const view=make(),r=new Renderer();view.setRecipe({...bake.recipe,atmosphere:{...bake.recipe.atmosphere,enabled:false},clouds:{...bake.recipe.clouds,enabled:false}});
+    const view=make(),r=new Renderer();view.setRecipe({...bake.recipe,atmosphere:{...bake.recipe.atmosphere,enabled:false},clouds:{...bake.recipe.clouds,enabled:false},celestial:{...bake.recipe.celestial,sunEnabled:false,starsEnabled:false}});
     view.render(asRenderer(r),new Scene(),camera(),frame);expect(r.calls).toBe(1);expect(r.initializedTextures).toHaveLength(0);expect(r.copies).toHaveLength(0);expect(view.inspection()).toMatchObject({captureWidth:0,sceneTriangles:512,sceneDrawCalls:6});
   });
   it('rejects fallback, uninitialized devices, unsupported targets, invalid depth and oversized captures before drawing',()=>{
@@ -88,12 +88,27 @@ describe('native WebGPU planet sky',()=>{
   });
   it('owns independent bake data and releases each retained GPU resource once',()=>{
     const view=make(),r=new Renderer();view.render(asRenderer(r),new Scene(),camera(),frame);
-    const resources=view as unknown as {noise:Data3DTexture;weather:Data3DTexture;sceneTarget:RenderTarget;volumeTarget:RenderTarget;geometry:{dispose():void};volumeMaterial:{dispose():void};pipeline:{dispose():void}};
+    const resources=view as unknown as {noise:Data3DTexture;weather:Data3DTexture;circulationCoverage:DataTexture;circulationEnvironment:DataTexture;sceneTarget:RenderTarget;volumeTarget:RenderTarget;geometry:{dispose():void};volumeMaterial:{dispose():void};pipeline:{dispose():void}};
     expect(resources.noise.image.data).not.toBe(bake.noise.data);expect(resources.weather.image.data).not.toBe(bake.weather.data);
+    expect(resources.circulationCoverage.image.data).not.toBe(bake.circulation.coverage.data);expect(resources.circulationEnvironment.image.data).not.toBe(bake.circulation.environment.data);
     expect(resources.noise.generateMipmaps).toBe(false);expect(resources.noise.mipmaps).toHaveLength(6);
-    const spies=(['noise','weather','sceneTarget','volumeTarget','geometry','volumeMaterial','pipeline'] as const).map(key=>vi.spyOn(resources[key],'dispose'));
+    const spies=(['noise','weather','circulationCoverage','circulationEnvironment','sceneTarget','volumeTarget','geometry','volumeMaterial','pipeline'] as const).map(key=>vi.spyOn(resources[key],'dispose'));
     view.dispose();view.dispose();expect(view.inspection().disposed).toBe(true);for(const spy of spies)expect(spy).toHaveBeenCalledTimes(1);
     expect(()=>view.render(asRenderer(r),new Scene(),camera(),frame)).toThrow(/disposed/);
+  });
+  it('still composes celestial light when only air and clouds are disabled',()=>{
+    const view=make(),r=new Renderer();view.setRecipe({...bake.recipe,atmosphere:{...bake.recipe.atmosphere,enabled:false},clouds:{...bake.recipe.clouds,enabled:false}});
+    view.render(asRenderer(r),new Scene(),camera(),{...frame,starRotationRadians:Math.PI,presentationTimeSeconds:12});
+    expect(r.calls).toBe(3);expect(view.inspection()).toMatchObject({sunEnabled:true,starsEnabled:true,cloudLayers:3});
+  });
+  it('retains fixed storm banks and reuses every uploaded atlas during day/night and shadow edits',()=>{
+    const view=make(),r=new Renderer();view.render(asRenderer(r),new Scene(),camera(),frame);
+    const resources=view as unknown as {uniforms:{stormCenters0:{value:{elements:number[]}};clock:{value:Vector4}}};
+    const bank=resources.uniforms.stormCenters0.value.elements;
+    view.setRecipe({...bake.recipe,celestial:{...bake.recipe.celestial,starIntensity:2,twinkle:.8},clouds:{...bake.recipe.clouds,shadowStrength:.8,godRayStrength:.9}});
+    view.render(asRenderer(r),new Scene(),camera(),{...frame,timeSeconds:86400,presentationTimeSeconds:4100,starRotationRadians:Math.PI*3});
+    expect(r.initializedTextures).toHaveLength(4);expect(resources.uniforms.stormCenters0.value.elements).toBe(bank);expect(resources.uniforms.clock.value.x).toBe(4);expect(resources.uniforms.clock.value.y).toBeCloseTo(Math.PI);
+    expect(view.inspection()).toMatchObject({cloudShadowStrength:.8,godRayStrength:.9});
   });
 });
 

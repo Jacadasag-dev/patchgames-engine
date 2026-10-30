@@ -57,7 +57,7 @@ describe('planet sky view lifecycle',()=>{
     expect(()=>view.setRecipe({...bake.recipe,seed:74})).toThrow(/replacement/);expect(view.inspection().revision).toBe(revision);
   });
   it('uses the exact native scene path when both effects are disabled',()=>{
-    const view=make(),r=new Renderer();view.setRecipe({...bake.recipe,atmosphere:{...bake.recipe.atmosphere,enabled:false},clouds:{...bake.recipe.clouds,enabled:false}});
+    const view=make(),r=new Renderer();view.setRecipe({...bake.recipe,atmosphere:{...bake.recipe.atmosphere,enabled:false},clouds:{...bake.recipe.clouds,enabled:false},celestial:{...bake.recipe.celestial,sunEnabled:false,starsEnabled:false}});
     view.render(asRenderer(r),new Scene(),new PerspectiveCamera(),frame);expect(r.calls).toBe(1);expect(view.inspection().captureWidth).toBe(0);
   });
   it('rejects invalid bake data, unsupported backends/targets and invalid camera depth before rendering',()=>{
@@ -71,9 +71,26 @@ describe('planet sky view lifecycle',()=>{
   it('releases owned resources exactly once, including after quality and size changes',()=>{
     const view=make(),r=new Renderer();view.render(asRenderer(r),new Scene(),new PerspectiveCamera(),frame);
     view.setRecipe({...bake.recipe,quality:'high'});r.viewport.z=1200;r.current.copy(r.viewport);view.render(asRenderer(r),new Scene(),new PerspectiveCamera(),frame);
-    const resources=view as unknown as {noise:{dispose():void};weather:{dispose():void};sceneTarget:{dispose():void};volumeTarget:{dispose():void};geometry:{dispose():void};volumeMaterial:{dispose():void};compositeMaterial:{dispose():void}};
-    const disposals=(['noise','weather','sceneTarget','volumeTarget','geometry','volumeMaterial','compositeMaterial'] as const).map(key=>vi.spyOn(resources[key],'dispose'));
+    const resources=view as unknown as {noise:{dispose():void};weather:{dispose():void};circulationCoverage:{dispose():void};circulationEnvironment:{dispose():void};sceneTarget:{dispose():void};volumeTarget:{dispose():void};geometry:{dispose():void};volumeMaterial:{dispose():void};compositeMaterial:{dispose():void}};
+    const disposals=(['noise','weather','circulationCoverage','circulationEnvironment','sceneTarget','volumeTarget','geometry','volumeMaterial','compositeMaterial'] as const).map(key=>vi.spyOn(resources[key],'dispose'));
     view.dispose();view.dispose();expect(view.inspection().disposed).toBe(true);for(const dispose of disposals)expect(dispose).toHaveBeenCalledTimes(1);
     expect(()=>view.render(asRenderer(r),new Scene(),new PerspectiveCamera(),frame)).toThrow(/disposed/);
+  });
+  it('keeps celestial sources active without atmosphere and uploads bounded cyclone/layer state',()=>{
+    const view=make(),r=new Renderer();view.setRecipe({...bake.recipe,atmosphere:{...bake.recipe.atmosphere,enabled:false},clouds:{...bake.recipe.clouds,enabled:false}});
+    view.render(asRenderer(r),new Scene(),new PerspectiveCamera(60,1,.1,radius*8),{...frame,starRotationRadians:Math.PI,presentationTimeSeconds:10});
+    expect(r.calls).toBe(3);const uniforms=(view as unknown as {uniforms:Record<string,{value:any}>}).uniforms;
+    expect(uniforms.uSkyClock.value.x).toBe(10);expect(uniforms.uSkyClock.value.y).toBe(Math.PI);expect(uniforms.uStormCenters.value).toHaveLength(16);expect(uniforms.uStormProperties.value).toHaveLength(16);expect(uniforms.uCloudLayers.value).toHaveLength(3);
+    expect(uniforms.uStormCount.value).toBeLessThanOrEqual(16);expect(view.inspection().weather.achievedCoverage).toBeGreaterThan(.6);
+    expect(()=>view.render(asRenderer(r),new Scene(),new PerspectiveCamera(),{...frame,presentationTimeSeconds:NaN})).toThrow(/bounded time/);
+  });
+  it('keeps zero target coverage empty and preserves every star seed bit in exact uniform halves',()=>{
+    const seed=0x12345678,recipe=createPlanetSkyRecipe(seed,radius);
+    const prepared=compilePlanetSky({...recipe,clouds:{...recipe.clouds,circulation:{...bake.recipe.clouds.circulation,seed,coverageTarget:0}}},radius).bake();
+    const view=new PlanetSkyView(prepared);views.push(view);view.render(asRenderer(new Renderer()),new Scene(),new PerspectiveCamera(),frame);
+    const uniforms=(view as unknown as {uniforms:Record<string,{value:any}>}).uniforms;
+    expect(uniforms.uCoverageGain.value).toBe(0);expect(uniforms.uStormCount.value).toBe(0);
+    expect(uniforms.uSkyClock.value.z).toBe(0x1234);expect(uniforms.uSkyClock.value.w).toBe(0x5678);
+    expect(()=>new PlanetSkyView({...prepared,circulation:{...prepared.circulation,coverage:{...prepared.circulation.coverage,data:new Uint8Array(1)}}})).toThrow(/bounded/);
   });
 });
