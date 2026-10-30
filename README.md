@@ -37,6 +37,9 @@ fly from orbit to local terrain on an Earth-sized procedural sphere while bounde
 worker jobs refine the visible surface. Read [planet integration and scope](docs/planet-generation.md)
 before connecting spherical terrain to gameplay.
 
+The same lab includes [atmosphere and volumetric cloud generators](docs/planet-sky.md)
+with live realistic/pixel styles, shared weather fields and bounded quality.
+
 ## Complete starter games
 
 Six editable games ship with the engine: Duel, Arena, RPG, Social Lounge,

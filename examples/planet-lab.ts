@@ -2,12 +2,15 @@ import * as THREE from 'three';
 import {compilePlanet,createPlanetRecipe,type CompiledPlanet,type PlanetVector} from '../src/shared/planet.ts';
 import {PlanetView} from '../src/sandbox/planetView.ts';
 import {createPlanetPreparationSource} from '../src/client/game/planetPreparation.ts';
+import {compilePlanetSky,createPlanetSkyRecipe,type ResolvedPlanetSkyRecipe} from '../src/shared/planetSky.ts';
+import {PlanetSkyView,type PlanetSkyDiagnostic} from '../src/sandbox/planetSkyView.ts';
+import {preparePlanetSky} from '../src/client/game/planetSkyPreparation.ts';
 
 type FlightMode='auto'|'orbit'|'descend'|'surface';
 interface FlightSample {
   seconds:number;intervalMs:number;updateCpuMs:number;renderCpuMs:number;callbackCpuMs:number;
   altitudeMeters:number;sourceHeightMeters:number;displayedHeightMeters:number|null;
-  coarseClearanceAdjustmentMeters:number;triangles:number;drawCalls:number;focused:boolean;streaming:unknown;
+  coarseClearanceAdjustmentMeters:number;triangles:number;drawCalls:number;focused:boolean;streaming:unknown;sky:unknown;
 }
 const ROUND_TRIP_SECONDS=40;
 const MAX_SAMPLES=12_000;
@@ -35,9 +38,9 @@ export function mountPlanetLab(parent:HTMLElement):()=>void {
     .planetlab canvas{display:block;width:100%;height:100%}.planetlab .telemetry{position:absolute;left:20px;top:18px;background:#06121bc7;border:1px solid #254956;padding:12px 16px;border-radius:8px;pointer-events:none;min-width:220px}
     .planetlab .altitude{font-size:28px;font-weight:650;letter-spacing:-.025em}.planetlab .hint{position:absolute;left:18px;bottom:16px;font-size:11px;background:#06121bc7;color:#bad0db;padding:7px 10px;border-radius:6px;max-width:90%}
     .planetlab aside{overflow:auto;padding:16px;border-left:1px solid #24424c}.planetlab h2{font-size:13px;margin:20px 0 8px;color:#b9dce7}.planetlab .buttons{display:flex;gap:7px;flex-wrap:wrap}
-    .planetlab button,.planetlab select{background:#132832;color:#def0f6;border:1px solid #385b69;border-radius:6px;padding:8px 10px;font:inherit;font-size:12px;cursor:pointer}
+    .planetlab button,.planetlab select,.planetlab input[type=number]{background:#132832;color:#def0f6;border:1px solid #385b69;border-radius:6px;padding:8px 10px;font:inherit;font-size:12px;cursor:pointer}
     .planetlab button:hover,.planetlab button[aria-pressed=true]{background:#254954;border-color:#7abac8}.planetlab button:disabled{opacity:.4;cursor:default}.planetlab .primary{background:#416a62;border-color:#85c6b1;color:#f1fff9}
-    .planetlab label{display:block;margin-top:14px;font-size:12px;color:#bad0db}.planetlab input[type=range]{display:block;width:100%;accent-color:#9bd8c1;margin:8px 0}.planetlab select{display:block;width:100%;margin-top:5px}
+    .planetlab label{display:block;margin-top:14px;font-size:12px;color:#bad0db}.planetlab input[type=range]{display:block;width:100%;accent-color:#9bd8c1;margin:8px 0}.planetlab select,.planetlab input[type=number]{display:block;width:100%;margin-top:5px}.planetlab .switches{display:flex;gap:18px}.planetlab .switches label{margin-top:9px}.planetlab details{border-top:1px solid #24424c;margin-top:16px;padding-top:12px}.planetlab summary{cursor:pointer;color:#b9dce7;font-weight:600}
     .planetlab pre{white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.5 ui-monospace,monospace;color:#bcd6df;background:#07131b;border:1px solid #1d3944;padding:9px;border-radius:6px;margin:5px 0}
     .planetlab .muted{font-size:11px;color:#8eafb9}.planetlab footer{padding:8px 18px;font-size:11px;color:#acd6c9;border-top:1px solid #24424c;min-height:34px}
     @media(max-width:850px){.planetlab section{grid-template-columns:minmax(0,1fr) 260px}.planetlab header p{display:none}.planetlab aside{padding:12px}.planetlab .telemetry{left:10px;top:10px;min-width:180px;padding:8px 10px}.planetlab .altitude{font-size:23px}}
@@ -53,28 +56,90 @@ export function mountPlanetLab(parent:HTMLElement):()=>void {
   const radiusSelect=element('select');radiusSelect.setAttribute('aria-label','Planet radius');for(const [value,label] of [[EARTH_RADIUS,'Earth scale · 6,371 km radius'],[80_000,'Small world · 80 km radius']] as const){const option=element('option',label);option.value=String(value);radiusSelect.append(option);}const radiusControl=element('label','Planet scale');radiusControl.append(radiusSelect);sidebar.append(radiusControl);
   const detail=element('input');detail.type='range';detail.min='2';detail.max='16';detail.step='1';detail.value='6';detail.setAttribute('aria-label','Target terrain cell pixels');const detailLabel=element('label','Target cell footprint: 6 px');detailLabel.append(detail);sidebar.append(detailLabel);
   sidebar.append(element('p','Smaller targets request finer terrain. Patch and memory budgets still cap detail.','muted'));
+  const skyPanel=element('details');skyPanel.open=true;skyPanel.append(element('summary','Atmosphere and volumetric clouds'));sidebar.append(skyPanel);
+  const skyControls:(HTMLInputElement|HTMLSelectElement|HTMLButtonElement)[]=[];
+  const check=(name:string)=>{const input=element('input');input.type='checkbox';input.checked=true;input.setAttribute('aria-label',name);const label=element('label',' '+name);label.prepend(input);skyControls.push(input);return{input,label};};
+  const atmosphereToggle=check('Atmosphere'),cloudToggle=check('Clouds'),switches=element('div',undefined,'switches');switches.append(atmosphereToggle.label,cloudToggle.label);skyPanel.append(switches);
+  const choose=(name:string,options:readonly (readonly [string,string])[])=>{const select=element('select');select.setAttribute('aria-label',name);for(const [value,text] of options){const option=element('option',text);option.value=value;select.append(option);}const label=element('label',name);label.append(select);skyPanel.append(label);skyControls.push(select);return select;};
+  const skyStyle=choose('Sky style',[['realistic','Realistic'],['pixel','Pixelated']]),skyQuality=choose('Sky quality',[['low','Low'],['balanced','Balanced'],['high','High']]);skyQuality.value='balanced';
+  const skyDiagnostic=choose('Sky inspection',[['composite','Final composite'],['scene','Captured scene'],['radiance','Scattered light'],['transmittance','Optical thickness'],['depth-rejection','Depth acceptance'],['unweighted','Unweighted composite'],['nearest','Nearest composite']]);
+  const ranges=new Map<HTMLInputElement,{label:HTMLLabelElement;name:string;format:(value:number)=>string}>();
+  const range=(name:string,min:number,max:number,step:number,value:number,format:(value:number)=>string=(n=>String(n)))=>{const input=element('input');input.type='range';input.min=String(min);input.max=String(max);input.step=String(step);input.value=String(value);input.setAttribute('aria-label',name);const label=element('label');label.append(element('span'),input);ranges.set(input,{label,name,format});skyPanel.append(label);skyControls.push(input);return input;};
+  const percent=(n:number)=>Math.round(n*100)+'%',scaledKm=(n:number)=>{const metres=n*1000*(Number(radiusSelect.value)/EARTH_RADIUS);return metres>=1000?(metres/1000).toFixed(1)+' km':Math.round(metres)+' m';};
+  const coverage=range('Cloud coverage',0,1,.01,.55,percent),cloudDensity=range('Cloud density',0,3,.05,1,n=>n.toFixed(2));
+  const cloudBase=range('Cloud base',.5,20,.1,4.5,scaledKm),cloudThickness=range('Cloud thickness',.5,10,.1,3,scaledKm);
+  const atmosphereHeight=range('Atmosphere height',20,160,1,80,scaledKm),haze=range('Atmospheric haze',0,3,.05,1,n=>n.toFixed(2));
+  const windSpeed=range('Wind speed',0,100,1,20,n=>(n*Number(radiusSelect.value)/EARTH_RADIUS).toFixed(1)+' m/s'),sunElevation=range('Sun elevation',-15,85,1,35,n=>n+'°');
+  const pixelSize=range('Pixel size',2,12,1,6,n=>n+' screen pixels'),paletteSteps=range('Palette levels',2,24,1,8,n=>String(n));
+  const seed=element('input');seed.type='number';seed.min='-2147483648';seed.max='2147483647';seed.step='1';seed.value='73';seed.setAttribute('aria-label','Sky seed');const seedLabel=element('label','Sky seed');seedLabel.append(seed);skyPanel.append(seedLabel);skyControls.push(seed);
+  const exportSky=element('button','Export sky recipe');skyPanel.append(exportSky);skyControls.push(exportSky);
+  skyPanel.append(element('p','Both styles use the same seeded 3D volume. Shape and lighting edits update live; seed changes prepare a replacement in a worker. WebGL 2 rendering.','muted'));
   const benchmark=element('button','Measure 40 s round trip', 'primary'),exportButton=element('button','Export report');benchmark.disabled=true;exportButton.disabled=true;const benchmarkButtons=element('div',undefined,'buttons');benchmarkButtons.append(benchmark,exportButton);sidebar.append(benchmarkButtons);
   sidebar.append(element('h2','Streaming and precision'));const counters=element('pre');counters.setAttribute('aria-label','Planet streaming counters');sidebar.append(counters);
+  sidebar.append(element('h2','Sky rendering'));const skyCounters=element('pre','Preparing reusable density volumes…');skyCounters.setAttribute('aria-label','Planet sky counters');sidebar.append(skyCounters);
   sidebar.append(element('h2','Recent frame intervals'));const frames=element('pre');frames.setAttribute('aria-label','Planet live frame timings');sidebar.append(frames,element('p','RAF intervals and CPU submission are measured here. These are not physical display FPS or GPU completion timings.','muted'));
   sidebar.append(element('h2','Retained round trip'));const report=element('pre','No measured trip yet.');report.setAttribute('aria-label','Planet benchmark report');sidebar.append(report,element('p','This flight validates visual terrain streaming. Buildings, foliage, water simulation and multiplayer surface physics need their own local adapters.','muted'));
   const status=element('footer','Preparing six globe roots asynchronously. Flight remains active while detail is requested.');status.setAttribute('aria-live','polite');root.append(status);parent.append(root);
 
-  const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance',logarithmicDepthBuffer:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.25));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.setClearColor('#030810');
-  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(60,1,.1,EARTH_RADIUS*8);scene.add(new THREE.HemisphereLight('#b9dcf1','#183147',1.5));const sun=new THREE.DirectionalLight('#fff0d8',2.4);sun.position.set(2,4,3);scene.add(sun);
+  const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance',logarithmicDepthBuffer:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.25));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.setClearColor('#000000');
+  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(60,1,.1,EARTH_RADIUS*8);scene.add(new THREE.HemisphereLight('#b9dcf1','#183147',1.5));const sun=new THREE.DirectionalLight('#fff0d8',2.4);scene.add(sun);
   let planet:CompiledPlanet,view:PlanetView;
   let disposed=false,raf=0,previousNow=0,routeSeconds=0,lastUi=0,lastUpdateCpu=0,lastRenderCpu=0,lastCallbackCpu=0,mode:FlightMode='auto',wheelOffset=0,yaw=0,pitch=0;
-  let benchmarkState:{seconds:number;samples:FlightSample[];startedAt:string;initialStreaming:unknown}|undefined;
+  let benchmarkState:{seconds:number;samples:FlightSample[];startedAt:string;initialStreaming:unknown;initialSky:unknown;skyRecipe:ResolvedPlanetSkyRecipe;sunElevationDegrees:number}|undefined;
   let retained:unknown;
+  let sky:PlanetSkyView|undefined,skyRecipe:ResolvedPlanetSkyRecipe,skyAbort:AbortController|undefined,skyBakeKey='',pendingBakeKey='',skyPreparing=false,skyError='',skyVersion=0,skySeconds=0;
+  let lastTriangles=0,lastDrawCalls=0;
   const recent:number[]=[];
-  const direction=new THREE.Vector3(),tangent=new THREE.Vector3(),north=new THREE.Vector3(),absolute=new THREE.Vector3(),target=new THREE.Vector3(),nearTarget=new THREE.Vector3(),up=new THREE.Vector3(),forward=new THREE.Vector3(),right=new THREE.Vector3();
+  const direction=new THREE.Vector3(),tangent=new THREE.Vector3(),north=new THREE.Vector3(),absolute=new THREE.Vector3(),target=new THREE.Vector3(),nearTarget=new THREE.Vector3(),up=new THREE.Vector3(),forward=new THREE.Vector3(),right=new THREE.Vector3(),sunDirection=new THREE.Vector3();
   let altitudeMeters=EARTH_RADIUS*1.4,lastSurface=0,lastDisplaySurface:number|undefined,lastClearanceAdjustment=0,lastDirection:PlanetVector=[0,1,0];
+  function refreshSkyLabels(){
+    for(const [input,{label,name,format}] of ranges){(label.firstElementChild as HTMLSpanElement).textContent=name+': '+format(Number(input.value));}
+    pixelSize.disabled=!!benchmarkState||skyStyle.value!=='pixel';paletteSteps.disabled=pixelSize.disabled;
+  }
+  function readSkyControls():ResolvedPlanetSkyRecipe {
+    const radius=planet.radius,scale=radius/EARTH_RADIUS;
+    const base=skyRecipe?.seed===Number(seed.value)?skyRecipe:compilePlanetSky(createPlanetSkyRecipe(Number(seed.value),radius),radius).recipe;
+    return compilePlanetSky({...base,seed:Number(seed.value),style:skyStyle.value as 'realistic'|'pixel',quality:skyQuality.value as 'low'|'balanced'|'high',pixelSize:Number(pixelSize.value),paletteSteps:Number(paletteSteps.value),
+      atmosphere:{...base.atmosphere,enabled:atmosphereToggle.input.checked,heightMeters:Number(atmosphereHeight.value)*1000*scale,mieStrength:Number(haze.value)},
+      clouds:{...base.clouds,enabled:cloudToggle.input.checked,bottomMeters:Number(cloudBase.value)*1000*scale,thicknessMeters:Number(cloudThickness.value)*1000*scale,coverage:Number(coverage.value),density:Number(cloudDensity.value),windMetersPerSecond:[Number(windSpeed.value)*scale,0,Number(windSpeed.value)*scale*.2]}},radius).recipe;
+  }
+  function applySkyControls(){
+    if(disposed||benchmarkState)return;
+    refreshSkyLabels();
+    try{
+      const recipe=readSkyControls(),compiled=compilePlanetSky(recipe,planet.radius);skyRecipe=recipe;
+      if(sky&&skyBakeKey===compiled.bakeKey){sky.setRecipe(recipe);sky.setDiagnostic(skyDiagnostic.value as PlanetSkyDiagnostic);skyError='';return;}
+      if(skyPreparing&&pendingBakeKey===compiled.bakeKey)return;
+      void replaceSky(recipe,compiled.bakeKey);
+    }catch(error){skyError=error instanceof Error?error.message:String(error);status.textContent='Sky recipe rejected: '+skyError;}
+  }
+  async function replaceSky(recipe:ResolvedPlanetSkyRecipe,bakeKey:string){
+    skyAbort?.abort();const abort=new AbortController(),version=++skyVersion,radius=planet.radius;skyAbort=abort;skyPreparing=true;pendingBakeKey=bakeKey;skyError='';benchmark.disabled=true;
+    try{
+      const bake=await preparePlanetSky(recipe,radius,abort.signal);
+      if(disposed||abort.signal.aborted||version!==skyVersion)return;
+      const replacement=new PlanetSkyView(bake);
+      try{replacement.setRecipe(skyRecipe);replacement.setDiagnostic(skyDiagnostic.value as PlanetSkyDiagnostic);}catch(error){replacement.dispose();throw error;}
+      const previous=sky;sky=replacement;skyBakeKey=bake.bakeKey;previous?.dispose();
+      skyPreparing=false;pendingBakeKey='';skyAbort=undefined;
+    }catch(error){
+      if(disposed||abort.signal.aborted||version!==skyVersion)return;
+      skyPreparing=false;pendingBakeKey='';skyAbort=undefined;skyError=error instanceof Error?error.message:String(error);
+      status.textContent='Sky preparation failed; terrain remains available. '+skyError;
+    }
+  }
   function replacePlanet(radius:number){
+    const radiusChanged=!planet||planet.radius!==radius;
     if(view){scene.remove(view.root);view.dispose();}
     const recipe=createPlanetRecipe(412,radius);planet=compilePlanet(recipe);view=new PlanetView(planet,createPlanetPreparationSource(recipe),{maxResidentPatches:512,maxSelectedPatches:192,maxInFlight:2,maxUploadsPerFrame:2,targetCellPixels:Number(detail.value),maxResidentBytes:96*1024*1024});scene.add(view.root);
     camera.far=radius*8;camera.updateProjectionMatrix();routeSeconds=0;wheelOffset=0;recent.length=0;previousNow=0;benchmark.disabled=true;
     scaleLabel.textContent='Radius '+(radius/1000).toLocaleString()+' km · local Float32 meshes';
+    if(radiusChanged){skyAbort?.abort();skyVersion++;sky?.dispose();sky=undefined;skyBakeKey='';pendingBakeKey='';skyPreparing=false;skyRecipe=compilePlanetSky(createPlanetSkyRecipe(Number(seed.value),radius),radius).recipe;applySkyControls();}
+    refreshSkyLabels();
   }
   replacePlanet(EARTH_RADIUS);
+  for(const control of skyControls){if(control===exportSky)continue;if(control instanceof HTMLInputElement&&control.type==='range')control.oninput=applySkyControls;else control.onchange=applySkyControls;}
+  exportSky.onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify({recipe:skyRecipe,sunElevationDegrees:Number(sunElevation.value)},null,2)],{type:'application/json'})),anchor=element('a');anchor.href=url;anchor.download='planet-sky-recipe.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
   function setMode(value:FlightMode){mode=value;modeButtons.forEach((button,key)=>button.setAttribute('aria-pressed',String(key===value)));if(value==='auto'||value==='descend')routeSeconds=value==='descend'?6:0;wheelOffset=0;}
   modeButtons.forEach((button,key)=>button.onclick=()=>{if(benchmarkState)return;setMode(key);});
   radiusSelect.onchange=()=>{if(!benchmarkState)replacePlanet(Number(radiusSelect.value));};
@@ -117,6 +182,8 @@ export function mountPlanetLab(parent:HTMLElement):()=>void {
     const orbital=smooth((Math.log10(altitudeMeters)-3)/2.6);
     target.copy(nearTarget).multiplyScalar(1-orbital).sub(absolute);
     north.set(0,1,0).addScaledVector(direction,-direction.y).normalize();up.copy(direction).multiplyScalar(1-orbital).addScaledVector(north,orbital).normalize();
+    const elevation=Number(sunElevation.value)*Math.PI/180;
+    sunDirection.copy(direction).multiplyScalar(Math.sin(elevation)).addScaledVector(north,Math.cos(elevation)).normalize();sun.position.copy(sunDirection);
     camera.position.set(0,0,0);camera.up.copy(up);camera.lookAt(target);
     if(!forced&&(yaw!==0||pitch!==0)){forward.copy(target).normalize();right.crossVectors(forward,up).normalize();forward.applyAxisAngle(up,yaw).applyAxisAngle(right,pitch);camera.lookAt(forward);}
     return phase;
@@ -124,22 +191,29 @@ export function mountPlanetLab(parent:HTMLElement):()=>void {
   function finalizeBenchmark(){
     const run=benchmarkState;if(!run)return;
     const samples=run.samples;
-    retained={version:1,startedAt:run.startedAt,route:'40-second deterministic orbit → descent → 75 m surface flyover → ascent',metric:'RAF callback intervals and CPU submission; not physical display FPS or GPU completion',radiusMeters:planet.radius,recipe:planet.recipe,viewport:{width:canvas.width,height:canvas.height,pixelRatio:renderer.getPixelRatio()},samples:samples.length,intervalMs:distribution(samples.map(s=>s.intervalMs)),updateCpuMs:distribution(samples.map(s=>s.updateCpuMs)),renderCpuMs:distribution(samples.map(s=>s.renderCpuMs)),callbackCpuMs:distribution(samples.map(s=>s.callbackCpuMs)),focusedSamples:samples.filter(s=>s.focused).length,triangles:{min:Math.min(...samples.map(s=>s.triangles)),max:Math.max(...samples.map(s=>s.triangles))},initialStreaming:run.initialStreaming,finalStreaming:view.inspection(),longIntervals:samples.filter(s=>s.intervalMs>33).slice(0,100),trace:samples};
-    report.textContent=JSON.stringify({...retained as Record<string,unknown>,recipe:undefined,trace:undefined},null,2);exportButton.disabled=false;benchmarkState=undefined;benchmark.disabled=false;radiusSelect.disabled=false;detail.disabled=false;modeButtons.forEach(button=>button.disabled=false);status.textContent='Round trip measured. Export includes the bounded frame trace and streaming counters.';
+    retained={version:2,startedAt:run.startedAt,route:'40-second deterministic orbit → descent → 75 m surface flyover → ascent',metric:'RAF callback intervals and CPU submission; not physical display FPS or GPU completion',callbackCpuScope:'Includes rendering, frame sampling and live telemetry/UI updates; excludes one-time final report construction.',radiusMeters:planet.radius,recipe:planet.recipe,skyRecipe:run.skyRecipe,sunElevationDegrees:run.sunElevationDegrees,viewport:{width:canvas.width,height:canvas.height,pixelRatio:renderer.getPixelRatio()},samples:samples.length,intervalMs:distribution(samples.map(s=>s.intervalMs)),updateCpuMs:distribution(samples.map(s=>s.updateCpuMs)),renderCpuMs:distribution(samples.map(s=>s.renderCpuMs)),callbackCpuMs:distribution(samples.map(s=>s.callbackCpuMs)),focusedSamples:samples.filter(s=>s.focused).length,triangles:{min:Math.min(...samples.map(s=>s.triangles)),max:Math.max(...samples.map(s=>s.triangles))},initialStreaming:run.initialStreaming,finalStreaming:view.inspection(),initialSky:run.initialSky,finalSky:sky?.inspection(),skyError,longIntervals:samples.filter(s=>s.intervalMs>33).slice(0,100),trace:samples};
+    report.textContent=JSON.stringify({...retained as Record<string,unknown>,recipe:undefined,skyRecipe:undefined,trace:undefined},null,2);exportButton.disabled=false;benchmarkState=undefined;benchmark.disabled=false;radiusSelect.disabled=false;detail.disabled=false;modeButtons.forEach(button=>button.disabled=false);skyControls.forEach(control=>control.disabled=false);refreshSkyLabels();status.textContent='Round trip measured. Export includes the sky recipe, bounded frame trace and streaming counters.';
   }
-  benchmark.onclick=()=>{setMode('auto');yaw=pitch=0;recent.length=0;benchmarkState={seconds:0,samples:[],startedAt:new Date().toISOString(),initialStreaming:view.inspection()};benchmark.disabled=true;radiusSelect.disabled=true;detail.disabled=true;modeButtons.forEach(button=>button.disabled=true);exportButton.disabled=true;previousNow=0;};
+  benchmark.onclick=()=>{if(!sky||skyPreparing||skyError||!view.inspection().coverageReady)return;skyDiagnostic.value='composite';sky.setDiagnostic('composite');setMode('auto');yaw=pitch=0;recent.length=0;benchmarkState={seconds:0,samples:[],startedAt:new Date().toISOString(),initialStreaming:view.inspection(),initialSky:sky.inspection(),skyRecipe,sunElevationDegrees:Number(sunElevation.value)};benchmark.disabled=true;radiusSelect.disabled=true;detail.disabled=true;modeButtons.forEach(button=>button.disabled=true);skyControls.forEach(control=>control.disabled=true);exportButton.disabled=true;previousNow=0;};
   exportButton.onclick=()=>{if(!retained)return;const url=URL.createObjectURL(new Blob([JSON.stringify(retained,null,2)],{type:'application/json'})),a=element('a');a.href=url;a.download='planet-flight-round-trip.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
   function render(now:number){
     if(disposed)return;raf=requestAnimationFrame(render);const started=performance.now(),interval=previousNow?now-previousNow:0;previousNow=now;
     if(document.visibilityState==='hidden')return;
-    const dt=interval/1000;if(benchmarkState)benchmarkState.seconds+=dt;else routeSeconds+=dt;
+    const dt=interval/1000;skySeconds+=dt;if(benchmarkState)benchmarkState.seconds+=dt;else routeSeconds+=dt;
     const updateStarted=performance.now(),phase=flight(benchmarkState?.seconds??routeSeconds,!!benchmarkState);lastUpdateCpu=performance.now()-updateStarted;
-    const renderStarted=performance.now();renderer.render(scene,camera);lastRenderCpu=performance.now()-renderStarted;lastCallbackCpu=performance.now()-started;
+    const renderStarted=performance.now();
+    try{if(sky)sky.render(renderer,scene,camera,{position:tuple(absolute),timeSeconds:benchmarkState?.seconds??skySeconds,sunDirection:tuple(sunDirection)});else renderer.render(scene,camera);}
+    catch(error){skyError=error instanceof Error?error.message:String(error);sky?.dispose();sky=undefined;skyBakeKey='';renderer.render(scene,camera);}
+    lastRenderCpu=performance.now()-renderStarted;
+    const skyFacts=sky?.inspection(),sceneFacts=skyFacts as {sceneTriangles?:number;sceneDrawCalls?:number}|undefined;
+    lastTriangles=sceneFacts?.sceneTriangles??renderer.info.render.triangles;lastDrawCalls=sceneFacts?.sceneDrawCalls??renderer.info.render.calls;
     if(interval>0){recent.push(interval);if(recent.length>600)recent.shift();}
-    if(benchmarkState&&interval>0&&benchmarkState.samples.length<MAX_SAMPLES)benchmarkState.samples.push({seconds:rounded(benchmarkState.seconds),intervalMs:rounded(interval),updateCpuMs:rounded(lastUpdateCpu),renderCpuMs:rounded(lastRenderCpu),callbackCpuMs:rounded(lastCallbackCpu),altitudeMeters:rounded(altitudeMeters),sourceHeightMeters:rounded(lastSurface),displayedHeightMeters:lastDisplaySurface===undefined?null:rounded(lastDisplaySurface),coarseClearanceAdjustmentMeters:rounded(lastClearanceAdjustment),triangles:renderer.info.render.triangles,drawCalls:renderer.info.render.calls,focused:document.hasFocus(),streaming:view.inspection()});
-    if(now-lastUi>350){lastUi=now;const streaming=view.inspection();if(!benchmarkState)benchmark.disabled=!streaming.coverageReady;altitude.textContent=altitudeLabel(altitudeMeters);phaseLabel.textContent=phase+' · clearance above source/displayed terrain';counters.textContent=JSON.stringify({radiusMeters:planet.radius,sourceHeightMeters:rounded(lastSurface),displayedHeightMeters:lastDisplaySurface===undefined?null:rounded(lastDisplaySurface),coarseClearanceAdjustmentMeters:rounded(lastClearanceAdjustment),actualAltitudeAboveSourceMeters:rounded(altitudeMeters+lastClearanceAdjustment),absoluteCameraMetres:tuple(absolute).map(rounded),direction:lastDirection.map(n=>rounded(n)),origin:'camera position (double)',triangles:renderer.info.render.triangles,drawCalls:renderer.info.render.calls,streaming},null,2);frames.textContent=JSON.stringify({rollingSamples:recent.length,intervalMs:distribution(recent),latestCpuMs:{update:rounded(lastUpdateCpu),renderSubmit:rounded(lastRenderCpu),callback:rounded(lastCallbackCpu)}},null,2);if(benchmarkState)status.textContent='Measuring '+phase.toLowerCase()+' · '+Math.ceil(Math.max(0,ROUND_TRIP_SECONDS-benchmarkState.seconds))+' s remaining';else status.textContent=phase+' · asynchronous detail requests retain the last complete parent coverage.';}
+    let sample:FlightSample|undefined;
+    if(benchmarkState&&interval>0&&benchmarkState.samples.length<MAX_SAMPLES){sample={seconds:rounded(benchmarkState.seconds),intervalMs:rounded(interval),updateCpuMs:rounded(lastUpdateCpu),renderCpuMs:rounded(lastRenderCpu),callbackCpuMs:0,altitudeMeters:rounded(altitudeMeters),sourceHeightMeters:rounded(lastSurface),displayedHeightMeters:lastDisplaySurface===undefined?null:rounded(lastDisplaySurface),coarseClearanceAdjustmentMeters:rounded(lastClearanceAdjustment),triangles:lastTriangles,drawCalls:lastDrawCalls,focused:document.hasFocus(),streaming:view.inspection(),sky:skyFacts??{ready:false,error:skyError}};benchmarkState.samples.push(sample);}
+    if(now-lastUi>350){lastUi=now;const streaming=view.inspection();if(!benchmarkState)benchmark.disabled=!streaming.coverageReady||!sky||skyPreparing||!!skyError;altitude.textContent=altitudeLabel(altitudeMeters);phaseLabel.textContent=phase+' · clearance above source/displayed terrain';counters.textContent=JSON.stringify({radiusMeters:planet.radius,sourceHeightMeters:rounded(lastSurface),displayedHeightMeters:lastDisplaySurface===undefined?null:rounded(lastDisplaySurface),coarseClearanceAdjustmentMeters:rounded(lastClearanceAdjustment),actualAltitudeAboveSourceMeters:rounded(altitudeMeters+lastClearanceAdjustment),absoluteCameraMetres:tuple(absolute).map(rounded),direction:lastDirection.map(n=>rounded(n)),origin:'camera position (double)',triangles:lastTriangles,drawCalls:lastDrawCalls,streaming},null,2);skyCounters.textContent=JSON.stringify({preparing:skyPreparing,error:skyError,style:skyRecipe.style,quality:skyRecipe.quality,sunElevationDegrees:Number(sunElevation.value),...(skyFacts??{})},null,2);frames.textContent=JSON.stringify({rollingSamples:recent.length,intervalMs:distribution(recent),latestCpuMs:{update:rounded(lastUpdateCpu),renderSubmit:rounded(lastRenderCpu),previousCompleteCallback:rounded(lastCallbackCpu)}},null,2);if(benchmarkState)status.textContent='Measuring '+phase.toLowerCase()+' · '+Math.ceil(Math.max(0,ROUND_TRIP_SECONDS-benchmarkState.seconds))+' s remaining';else if(skyError)status.textContent='Sky unavailable: '+skyError;else status.textContent=phase+' · '+(skyPreparing?'preparing replacement sky in a worker; ':'')+'asynchronous detail requests retain the last complete parent coverage.';}
+    lastCallbackCpu=performance.now()-started;if(sample)sample.callbackCpuMs=rounded(lastCallbackCpu);
     if(benchmarkState&&benchmarkState.seconds>=ROUND_TRIP_SECONDS)finalizeBenchmark();
   }
   raf=requestAnimationFrame(render);
-  return()=>{disposed=true;cancelAnimationFrame(raf);resize.disconnect();document.removeEventListener('visibilitychange',visibilityChanged);canvas.removeEventListener('pointerdown',pointerDown);canvas.removeEventListener('pointermove',pointerMove);canvas.removeEventListener('pointerup',pointerUp);canvas.removeEventListener('pointercancel',pointerUp);canvas.removeEventListener('wheel',wheel);view.dispose();renderer.dispose();renderer.forceContextLoss();root.remove();};
+  return()=>{disposed=true;skyAbort?.abort();skyVersion++;sky?.dispose();cancelAnimationFrame(raf);resize.disconnect();document.removeEventListener('visibilitychange',visibilityChanged);canvas.removeEventListener('pointerdown',pointerDown);canvas.removeEventListener('pointermove',pointerMove);canvas.removeEventListener('pointerup',pointerUp);canvas.removeEventListener('pointercancel',pointerUp);canvas.removeEventListener('wheel',wheel);view.dispose();renderer.dispose();renderer.forceContextLoss();root.remove();};
 }

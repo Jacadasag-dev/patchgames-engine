@@ -9,6 +9,8 @@ Run the Planet Flight Lab for an Earth-scale orbit → surface → orbit route. 
 viewport stays active while detail arrives. The lab measures actual callback
 intervals, CPU update/submission times, triangles and bounded streaming state;
 these measurements are not physical display FPS or GPU completion timings.
+The optional [atmosphere and cloud generator](planet-sky.md) adds bounded volume
+rendering, stable weather recipes and realistic/pixel styles to that same scene.
 
 ## Host integration
 
