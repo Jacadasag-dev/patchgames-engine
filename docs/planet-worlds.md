@@ -170,6 +170,14 @@ amplitude-scaled threshold); the distant sea remains a physical sea-level
 proxy. Fast travel can outrun a preparing near bank; existing water coverage
 remains, with reduced local wave detail until the bank is ready.
 
+The orbital proxy defaults to 512 longitude by 256 latitude segments
+(261,120 triangles). `farProxySegments` can select 128, 256, 512 or 1024 to
+trade memory and geometry against radial chord error. Inspection reports the
+allocated bytes, triangle count and conservative maximum inward error. At
+Earth scale the default error is about 241 m, rather than the former 6.8 km
+that exposed deep seabed in a regular lattice. Shallow coastlines remain a
+tessellation approximation; the proxy does not provide analytic sphere depth.
+
 `inspection()` reports detail readiness/visibility, preparation budget and CPU
 time, fixed topology counts, swaps, accepted wave updates and sea level.
 `dispose()` releases owned geometry/materials once. An `envMap` is borrowed and

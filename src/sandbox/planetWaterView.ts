@@ -72,6 +72,9 @@ export function samplePlanetWater(planet:CompiledPlanet,input:PlanetVector,timeS
 export interface PlanetWaterViewOptions {
   /** Azimuth segments; topology is allocated once. */
   segments?:number;nearRings?:number;farRings?:number;
+  /** Orbital sphere longitude segments. Latitude uses half as many. Choose
+   * 128/256/512/1024; lower budgets have a larger reported chord-error bound. */
+  farProxySegments?:128|256|512|1024;
   /** Dense near rings resolve metre-scale waves. Outside them waves fade to
    * the far sea-level proxy; a fluid simulation is never allocated. */
   detailRadiusMeters?:number;prepareVerticesPerFrame?:number;prepareTimeBudgetMs?:number;updateHz?:number;
@@ -90,7 +93,8 @@ interface Bank {
  * layers. Two fixed banks amortize recentering and source-height preparation. */
 export class PlanetWaterView {
   readonly root=new Group();readonly planet:CompiledPlanet;readonly water:WaterManifest;
-  private readonly material:MeshPhysicalMaterial;private readonly proxy:Mesh;
+  private readonly material:MeshPhysicalMaterial;private readonly proxyMaterial:MeshPhysicalMaterial;private readonly proxy:Mesh;
+  private readonly farProxySegments:number;private readonly farProxyError:number;
   private readonly banks:Bank[];private readonly radii:number[];private readonly sides:number;
   private readonly nearCount:number;private readonly vertexCount:number;private readonly detailRadius:number;
   private readonly preparationBudget:number;private readonly preparationTimeBudget:number;private readonly interval:number;
@@ -103,6 +107,11 @@ export class PlanetWaterView {
     this.planet=planet;this.water=options.water??compilePlanetWater(planet);if(this.water.kind!=='ocean')throw Error('Planet water requires an ocean manifest.');
     this.seaRadius=planet.radius+planet.recipe.seaLevelMeters;if(!(this.seaRadius>0))throw Error('Planet water sea radius must be positive.');
     this.sides=bounded(options.segments,80,32,256,'segments',true);
+    this.farProxySegments=options.farProxySegments??512;
+    if(![128,256,512,1024].includes(this.farProxySegments))throw Error('Planet water far proxy segments must be 128, 256, 512 or 1024.');
+    // Every face lies inside the sphere. Bound the diagonal chord sag plus
+    // Float32 unit-vector storage error; never inflate the level and flood land.
+    this.farProxyError=this.seaRadius*(1-Math.cos(Math.SQRT2*Math.PI/this.farProxySegments))+this.seaRadius*2e-7;
     const nearRings=bounded(options.nearRings,16,8,64,'near rings',true),farRings=bounded(options.farRings,64,16,96,'far rings',true);
     this.detailRadius=bounded(options.detailRadiusMeters,Math.min(24,this.seaRadius*.02),8,Math.min(512,this.seaRadius*.02),'detail radius');
     this.preparationBudget=bounded(options.prepareVerticesPerFrame,512,32,4096,'preparation budget',true);
@@ -116,12 +125,15 @@ export class PlanetWaterView {
     this.material=new MeshPhysicalMaterial({color:0xffffff,vertexColors:true,roughness:this.appearance.roughness,metalness:0,ior:1.333,
       specularIntensity:1,clearcoat:.6,clearcoatRoughness:this.appearance.roughness*.7,side:DoubleSide,envMap:options.envMap??null});
     this.material.name='PlanetWater:engine-physical-water';this.root.name='PlanetWater';
-    this.proxy=new Mesh(new SphereGeometry(1,96,48),this.material);this.proxy.name='PlanetWater:initial-far-proxy';this.proxy.scale.setScalar(this.seaRadius);this.proxy.frustumCulled=false;
-    // Orbit uses a coarse sea-level proxy. The same physical material also
-    // works while the first near sheet is preparing after descent.
-    const proxyColors=new Float32Array(this.proxy.geometry.getAttribute('position').count*3);
-    for(let i=0;i<proxyColors.length;i+=3)proxyColors.set(this.appearance.color,i);
-    this.proxy.geometry.setAttribute('color',new Float32BufferAttribute(proxyColors,3));this.root.add(this.proxy);
+    this.proxyMaterial=this.material.clone();this.proxyMaterial.vertexColors=false;this.proxyMaterial.color.setRGB(...this.appearance.color);
+    this.proxyMaterial.name='PlanetWater:engine-physical-far-water';
+    this.proxy=new Mesh(new SphereGeometry(1,this.farProxySegments,this.farProxySegments/2),this.proxyMaterial);this.proxy.name='PlanetWater:initial-far-proxy';this.proxy.scale.setScalar(this.seaRadius);this.proxy.frustumCulled=false;
+    // The former 96x48 proxy sagged almost 7km into an Earth-sized ocean,
+    // exposing ordinary deep seabed as a regular grey/cyan lattice. Bounded
+    // tessellation fixes that without replacing engine optics or near waves.
+    // A material colour uniform avoids rewriting the much larger far mesh
+    // whenever weather changes its water tint.
+    this.root.add(this.proxy);
     this.banks=[this.bank(),this.bank()];
   }
   private bank():Bank {
@@ -183,9 +195,9 @@ export class PlanetWaterView {
       this.phases.currentX[i]+=phaseDt*k*this.appearance.currentSpeed*Math.cos(angle);this.phases.currentZ[i]+=phaseDt*k*this.appearance.currentSpeed*Math.sin(angle);
     }
     this.lastTime=time;this.material.roughness=this.appearance.roughness;this.material.clearcoatRoughness=this.appearance.roughness*.7;
+    this.proxyMaterial.roughness=this.material.roughness;this.proxyMaterial.clearcoatRoughness=this.material.clearcoatRoughness;
     if(colorChanged){
-      const proxyColors=this.proxy.geometry.getAttribute('color') as Float32BufferAttribute;
-      for(let i=0;i<proxyColors.count;i++)proxyColors.setXYZ(i,...this.appearance.color);proxyColors.needsUpdate=true;
+      this.proxyMaterial.color.setRGB(...this.appearance.color);
       for(const bank of this.banks)if(bank.ready){const colors=bank.geometry.getAttribute('color') as Float32BufferAttribute;
         for(let i=this.nearCount;i<this.vertexCount;i++)colors.setXYZ(i,...this.appearance.color);colors.clearUpdateRanges();colors.addUpdateRange(this.nearCount*3,(this.vertexCount-this.nearCount)*3);colors.needsUpdate=true;}
     }
@@ -233,9 +245,11 @@ export class PlanetWaterView {
       nearVertices:this.nearCount,verticesPerBank:this.vertexCount,banks:this.banks.length,triangles:(this.banks[0].geometry.index?.count??0)/3,
       preparing:this.pending>=0,preparedThisFrame:this.preparedThisFrame,preparationBudget:this.preparationBudget,preparationTimeBudgetMs:this.preparationTimeBudget,swaps:this.swaps,updates:this.updates,
       updateCpuMs:this.updateCpuMs,preparationCpuMs:this.preparationCpuMs,origin:[...this.origin],disposed:this.disposed,
-      physicsBodies:0,fluidCells:0,waveSource:'engine-water' as const,farRepresentation:'sea-level physical proxy' as const};
+      physicsBodies:0,fluidCells:0,waveSource:'engine-water' as const,farRepresentation:'sea-level physical proxy' as const,
+      farProxySegments:this.farProxySegments,farProxyTriangles:(this.proxy.geometry.index?.count??0)/3,farProxyMaxInwardErrorMeters:this.farProxyError,
+      farProxyGeometryBytes:Object.values(this.proxy.geometry.attributes).reduce((bytes,attribute)=>bytes+attribute.array.byteLength,0)+(this.proxy.geometry.index?.array.byteLength??0)};
   }
   dispose():void {
-    if(this.disposed)return;this.disposed=true;for(const bank of this.banks)bank.geometry.dispose();this.proxy.geometry.dispose();this.material.dispose();this.root.clear();this.root.removeFromParent();
+    if(this.disposed)return;this.disposed=true;for(const bank of this.banks)bank.geometry.dispose();this.proxy.geometry.dispose();this.material.dispose();this.proxyMaterial.dispose();this.root.clear();this.root.removeFromParent();
   }
 }

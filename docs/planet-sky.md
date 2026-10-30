@@ -6,6 +6,20 @@ star field in the same orbit-to-surface scene. It is presentation data: it does
 not change terrain, collision, gravity or authoritative weather. Run
 `npm run demo:planet` to edit the generators live in the Planet Flight Lab.
 
+Choose **Free flight** to keep the current position and viewing direction, then
+click the view. WASD flies forward/backward and sideways, Q/E moves radially
+down/up, dragging turns the camera, and Shift boosts speed. Speed scales with
+altitude by default; disable that option to enter metres per second. The wheel
+changes flight speed in this mode. Other modes retain their altitude wheel and
+the measured round trip always uses the automatic route. Inputs stop when the
+view loses focus, so editing controls does not move the camera.
+
+Free flight is a bounded visual inspection camera, not gameplay collision: it
+keeps 1.7 m clearance above source/displayed ground and sea, limits movement
+after a stalled frame, and stays within six planet radii. It does not collide
+with trees or buildings. Selecting a biome explicitly relocates the camera;
+changing planet scale scales its clearance to the new radius.
+
 ## Prepare once, render continuously
 
 ```ts
@@ -17,6 +31,7 @@ import {samplePlanetCelestial} from '@patchgames/engine/shared/planetCelestial';
 const recipe={...createPlanetSkyRecipe(73,planet.radius),surface:planet.recipe};
 const bake=await preparePlanetSky(recipe,planet.radius,abortController.signal);
 const sky=new PlanetSkyView(bake);
+await sky.prepare(renderer,scene,camera); // Nonblocking shader compilation before swap.
 
 // Update the camera-relative terrain first. Absolute coordinates remain doubles.
 planetView.update({position:absoluteCamera,origin:absoluteCamera,
@@ -37,10 +52,33 @@ buffers. Pass an abort signal when replacing a pending recipe or closing a scene
 Keep the last valid sky visible while preparing a replacement. Do not call the
 shared compiler's synchronous `bake()` from an animation callback.
 
-`PlanetSkyView` requires **WebGL 2** and `EXT_color_buffer_float`.
-`PlanetSkyWebGPUView` implements the same API with native WGSL and Three node
-materials. Both consume the same prepared recipe and volumes. Choose the view
-that matches the actual renderer:
+`PlanetSkyView` requires **WebGL 2**, `EXT_color_buffer_float` and
+`KHR_parallel_shader_compile`. `prepare(renderer,scene,camera)` deduplicates
+preparation for that renderer. It first compiles the two sky programs, then the
+scene's linear HDR capture variants, restoring the target, viewport and tone
+mapping before each wait. Finish replacing generated scene materials before
+calling it. Omitting the scene and camera prepares only the sky programs;
+`render()` then prepares the scene capture asynchronously before drawing effects.
+Keep the previous sky until it resolves; dispose stale candidates
+when a request is superseded. If preparation fails, the promise rejects and
+`inspection().preparation` reports the error. Calling `render()` directly starts
+the same preparation and draws the raw scene until it is ready, so an expensive
+driver compile does not freeze a gameplay frame. Failed preparation keeps that
+fallback and does not retry every frame. The 60-second preparation timeout and
+disposal reject pending callers. `fallbackFrames` distinguishes fallback draws
+from completed sky passes. Preparation reports `phase` (`postprocess`,
+`scene-capture`, `complete`) and `captureReady` so hosts can distinguish the two
+compiler stages.
+
+Capture preparation isolates temporary material copies from raw fallback draws
+and retains their program-cache references until view replacement or disposal.
+It covers the final scene materials present during preparation; it does not
+precompile arbitrary new material or geometry variants added later by a game.
+
+`PlanetSkyWebGPUView` shares the rendering and recipe API using native WGSL and
+Three node materials; its renderer is initialized with `await renderer.init()`.
+Both consume the same prepared recipe and volumes. Choose the view that matches
+the actual renderer:
 
 ```ts
 import {WebGPURenderer} from 'three/webgpu';

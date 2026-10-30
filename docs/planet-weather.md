@@ -59,7 +59,10 @@ but that observed optical quantity is not identical to this artistic mask metric
 
 Two RGBA atlases are prepared at 512 by 256 by default: 1 MiB total. The
 256 by 128 option uses 256 KiB. Macro noise is band-limited to the atlas Nyquist
-limit including its highest octave, and mask transitions retain a broad soft
+limit including its highest octave. Fixed proper rotations decorrelate the octave
+lattices, and a low-frequency domain warp bends their spacing so thresholded
+clear regions do not reveal a Cartesian grid. Warp amplitude stays within the
+remaining atlas bandwidth. Mask transitions retain a broad soft
 shoulder. Fine puffs remain in the three-dimensional volume. Coastal open/closed
 cell detail uses a bounded analytic nine-neighbor cellular field in both shaders
 and the CPU reference; it is not point-baked into an undersampled atlas.
@@ -79,3 +82,8 @@ shadows and optical integration belong to the sky renderer.
 same two-vector cyclone records. Their weather advection uniform uses
 `frame.timeDays * 6371000 / radiusMeters` so physical wind speed remains consistent
 on small planets; storm centers and phases already come from the physical frame.
+
+GPU advection uses float32 arithmetic. Extremely large accelerated clocks,
+especially on small planets, lose fractional texture-coordinate precision and
+can differ visibly from CPU samples. Multi-year accelerated simulations need a
+separate precision strategy; they are not covered by the lab's flight checks.

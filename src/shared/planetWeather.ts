@@ -39,7 +39,15 @@ function value(n:unknown,name:string,a:number,b:number,integer=false){if(typeof 
 function random(seed:number,index:number){let h=Math.imul(seed^index,0x85ebca6b);h=Math.imul(h^(h>>>16),0x7feb352d);h=Math.imul(h^(h>>>15),0x846ca68b);return ((h^(h>>>16))>>>0)/4294967296;}
 function direction(latitude:number,longitude:number):Vec {const ring=Math.cos(latitude);return [Math.sin(longitude)*ring,Math.sin(latitude),Math.cos(longitude)*ring];}
 function noise(p:PlanetVector,scale:number,seed:number){const a=p.map(v=>v*scale),base=a.map(Math.floor),t=a.map((v,i)=>smooth(0,1,v-base[i]));let result=0;for(let z=0;z<2;z++)for(let y=0;y<2;y++)for(let x=0;x<2;x++){const key=Math.imul(base[0]+x,73856093)^Math.imul(base[1]+y,19349663)^Math.imul(base[2]+z,83492791);result+=random(seed,key)*(x?t[0]:1-t[0])*(y?t[1]:1-t[1])*(z?t[2]:1-t[2]);}return result;}
-const fbm=(p:PlanetVector,scale:number,seed:number)=>noise(p,scale,seed)*.67+noise(p,scale*2.07,seed+101)*.33;
+/** Fixed proper rotations decorrelate octave lattices. A low-frequency warp
+ * bends their regular spacing without spending the atlas Nyquist headroom.
+ * Its conservative Jacobian bound is <= 80% of the remaining bandwidth. */
+const rotateDomain=(p:PlanetVector):Vec=>[.36*p[0]+.48*p[1]-.8*p[2],-.8*p[0]+.6*p[1],.48*p[0]+.64*p[1]+.6*p[2]];
+function fbm(p:PlanetVector,scale:number,seed:number,band:number):number {
+  const rotated=rotateDomain(p),warpFrequency=1.7,headroom=Math.max(0,band/scale-1),amplitude=Math.min(.35/Math.max(8,scale),headroom*.8/(3*1.5*warpFrequency));
+  const warped=rotated.map((v,index)=>v+(noise(rotated,warpFrequency,seed+[1103,3301,5501][index])-.5)*amplitude) as Vec;
+  return noise(warped,scale,seed)*.67+noise(rotateDomain(warped),scale*2.07,seed+101)*.33;
+}
 /** East-west steering in metres/second: trades/polar easterlies are negative,
  * storm-track westerlies positive. Smooth boundaries avoid latitude seams. */
 export function planetWeatherZonalWind(latitudeRadians:number):number {
@@ -107,7 +115,7 @@ function coverageAt(radius:number,frame:PlanetWeatherFrame,d:PlanetVector,sun:Pl
 export function compilePlanetWeather(input:PlanetWeatherRecipe,radiusMeters:number,planet?:CompiledPlanet):CompiledPlanetWeather {
   const recipe=parse(input),radius=value(radiusMeters,'radius',PLANET_LIMITS.minRadiusMeters,PLANET_LIMITS.maxRadiusMeters),heightScale=radius/EARTH;
   if(planet&&planet.radius!==radius)throw Error('Planet weather and terrain radii must match.');
-  const revision=generationDataRevision({recipe,radius,terrain:planet?.revision??null});
+  const revision=generationDataRevision({algorithm:'circulation-weather-2-rotated-warp',recipe,radius,terrain:planet?.revision??null});
   const terrain=planet?compileGenerationMaps(planet.recipe.surface.maps):undefined,sea=planet?.recipe.seaLevelMeters??0;
   if(terrain&&terrain.output(planet!.recipe.surface.height).cost*recipe.resolution**2/2>PLANET_WEATHER_LIMITS.maxTerrainSamplingCost)throw Error('Planet weather terrain sampling budget exceeded; reduce atlas resolution or simplify the surface graph.');
   const height=(d:PlanetVector)=>terrain?terrain.sample(planet!.recipe.surface.height,{world:d.map(v=>v*radius) as Vec}): -1000*heightScale;
@@ -153,7 +161,7 @@ export function compilePlanetWeather(input:PlanetWeatherRecipe,radiusMeters:numb
     // The highest octave stays below the atlas Nyquist limit. Fine puffs and
     // coastal cells are evaluated analytically/in 3D, never baked as aliased
     // point samples into this macro field.
-    const band=width/(4*PI*2.07),broad=fbm(d,Math.min(7,band*.6),recipe.seed),cells=fbm(d,Math.min(16,band*.82),recipe.seed+17),small=fbm(d,Math.min(20,band*.95),recipe.seed+29),itcz=Math.exp(-(((latitude/DEG-recipe.itczLatitudeDegrees)/8.5)**2)),dry=Math.exp(-(((a-27)/9)**2)),track=smooth(30,39,a)*(1-smooth(60,70,a)),polar=smooth(65,78,a);
+    const band=width/(4*PI*2.07),broad=fbm(d,Math.min(7,band*.6),recipe.seed,band),cells=fbm(d,Math.min(16,band*.82),recipe.seed+17,band),small=fbm(d,Math.min(20,band*.95),recipe.seed+29,band),itcz=Math.exp(-(((latitude/DEG-recipe.itczLatitudeDegrees)/8.5)**2)),dry=Math.exp(-(((a-27)/9)**2)),track=smooth(30,39,a)*(1-smooth(60,70,a)),polar=smooth(65,78,a);
     const jet=track*(.5+.5*Math.sin(latitude*48+Math.sin(longitude*4+recipe.seed)*2+broad*3))**5;
     const low=clamp(.13+cells*.25+polar*small*.28+marine*(.55+broad*.15)+wake*.3-dry*.16)*(1-land*.16),conv=clamp(.12+itcz*(.28+.7*smooth(.25,.7,cells))+track*(.15+broad*.48)+small*.12-dry*.38-polar*.22),cirrus=clamp(.09+jet*.68+track*broad*.32+itcz*small*.22-dry*.10);
     const quantized=(n:number)=>Math.round(clamp(n)*255)/255;

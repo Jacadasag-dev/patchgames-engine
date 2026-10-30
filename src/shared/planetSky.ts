@@ -159,7 +159,7 @@ export function compilePlanetSky(input:PlanetSkyRecipe,radiusMeters:number):Comp
     pixelSize:numeric(data.pixelSize??4,'pixel size',1,32,true),paletteSteps:numeric(data.paletteSteps??12,'palette steps',2,64,true),
     atmosphere,clouds,celestial:resolvePlanetCelestialRecipe((data.celestial??{}) as PlanetCelestialRecipe),...(surface?{surface:surface.recipe}:{})} satisfies ResolvedPlanetSkyRecipe);
   const revision=generationDataRevision({radiusMeters:radius,recipe});
-  const bakeKey=generationDataRevision({kind:'planet-sky-volumes',version:2,size:VOLUME_SIZE,radiusMeters:radius,seed,weather:clouds.weather,circulation:circulation.recipe,surface:surface?.revision??null});
+  const bakeKey=generationDataRevision({kind:'planet-sky-volumes',version:2,size:VOLUME_SIZE,radiusMeters:radius,seed,weather:clouds.weather,circulation:circulation.recipe,circulationRevision:circulation.revision,surface:surface?.revision??null});
   const weatherByte=(x:number,y:number,z:number)=>{
     const world=[x,y,z].map(value=>((clamp(value,0,VOLUME_SIZE-1)+.5)/VOLUME_SIZE-.5)*radius*2.2) as [number,number,number];
     return Math.round(clamp(weatherMaps.sample(clouds.weather.output,{world}))*255);

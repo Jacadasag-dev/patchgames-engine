@@ -1,4 +1,4 @@
-import {BufferAttribute,BufferGeometry,ClampToEdgeWrapping,Color,Data3DTexture,DataTexture,DepthTexture,GLSL3,HalfFloatType,LinearFilter,LinearMipmapLinearFilter,Matrix3,Matrix4,Mesh,NearestFilter,NoBlending,NoColorSpace,NoToneMapping,PerspectiveCamera,RedFormat,RepeatWrapping,RGBAFormat,Scene,ShaderMaterial,UnsignedIntType,Vector2,Vector3,Vector4,WebGLRenderTarget,type WebGLRenderer} from 'three';
+import {BufferAttribute,BufferGeometry,ClampToEdgeWrapping,Color,Data3DTexture,DataTexture,DepthTexture,GLSL3,HalfFloatType,LinearFilter,LinearMipmapLinearFilter,Matrix3,Matrix4,Mesh,NearestFilter,NoBlending,NoColorSpace,NoToneMapping,PerspectiveCamera,RedFormat,RepeatWrapping,RGBAFormat,Scene,ShaderMaterial,UnsignedIntType,Vector2,Vector3,Vector4,WebGLRenderTarget,type Material,type WebGLRenderer} from 'three';
 import {compilePlanetSky,type CompiledPlanetSky,type PlanetSkyBake,type PlanetSkyRecipe} from '../shared/planetSky.ts';
 import type {PlanetVector} from '../shared/planet.ts';
 import {planetSkyCompositeFragmentShader,planetSkyVertexShader,planetSkyVolumeFragmentShader} from './planetSkyShader.ts';
@@ -39,6 +39,15 @@ export class PlanetSkyView {
   private width=0;private height=0;private lowWidth=0;private lowHeight=0;
   private frames=0;private sceneTriangles=0;private sceneDrawCalls=0;
   private renderCpuMs=0;
+  private preparation?:Promise<void>;
+  private preparationStatus:'idle'|'preparing'|'ready'|'failed'|'disposed'='idle';
+  private preparationError='';private preparationStarted=0;private preparationElapsedMs=0;
+  private preparedToneMapping?:number;private cancelPreparation?:()=>void;private fallbackFrames=0;
+  private preparedScene?:Scene;private preparedCamera?:PerspectiveCamera;
+  private preparationPhase:'postprocess'|'scene-capture'|'complete'='postprocess';
+  // Hold the HDR program cache references until replacement/disposal. Releasing
+  // them after compileAsync could evict a program before its first live draw.
+  private preparedMaterials:Material[]=[];
   constructor(bake:PlanetSkyBake) {
     this.compiled=compilePlanetSky(bake.recipe,bake.radiusMeters);
     if(bake.bakeKey!==this.compiled.bakeKey||bake.revision!==this.compiled.revision||bake.noise?.size!==32||bake.weather?.size!==32
@@ -112,6 +121,71 @@ export class PlanetSkyView {
     if(w!==this.lowWidth||h!==this.lowHeight){this.volumeTarget.setSize(w,h);this.lowWidth=w;this.lowHeight=h;}
     this.uniforms.uOutputSize.value.set(width,height);this.uniforms.uLowSize.value.set(w,h);
   }
+  /** Compile both post-process programs without blocking the first visible
+   * draw. Await this before publishing a replacement. State is restored before
+   * yielding; a pending compile never owns the host's render target or tone map. */
+  prepare(renderer:WebGLRenderer,scene?:Scene,camera?:PerspectiveCamera):Promise<void> {
+    if(this.disposed)return Promise.reject(Error('Planet sky view is disposed.'));
+    if(this.renderer&&this.renderer!==renderer)return Promise.reject(Error('Planet sky GPU resources belong to one renderer; create a separate view for another renderer.'));
+    if(!!scene!==!!camera)return Promise.reject(Error('Planet sky capture preparation requires both the scene and perspective camera.'));
+    if(this.preparation&&(this.preparationStatus!=='ready'||this.preparedToneMapping===renderer.toneMapping&&(!scene||this.preparedScene===scene&&this.preparedCamera===camera)))return this.preparation;
+    this.renderer=renderer;this.preparationStatus='preparing';this.preparationError='';this.preparationStarted=performance.now();
+    this.preparationPhase='postprocess';
+    let resolve!:()=>void,reject!:(error:Error)=>void;
+    this.preparation=new Promise<void>((done,failed)=>{resolve=done;reject=failed;});
+    const promise=this.preparation;let finished=false;let captureMaterials:Material[]=[];
+    const finish=(error?:unknown)=>{
+      if(finished)return;finished=true;clearTimeout(timeout);this.cancelPreparation=undefined;this.preparationElapsedMs=performance.now()-this.preparationStarted;
+      if(error||this.disposed){for(const material of captureMaterials)material.dispose();captureMaterials=[];const reason=error instanceof Error?error:Error(error?String(error):'Planet sky view was disposed during shader preparation.');this.preparationStatus=this.disposed?'disposed':'failed';this.preparationError=reason.message.slice(0,1000);reject(reason);}
+      else{for(const material of this.preparedMaterials)material.dispose();this.preparedMaterials=captureMaterials;captureMaterials=[];this.preparationStatus='ready';this.preparationPhase='complete';this.preparedToneMapping=toneMapping;this.preparedScene=scene;this.preparedCamera=camera;resolve();}
+    };
+    this.cancelPreparation=()=>finish(Error('Planet sky view was disposed during shader preparation.'));
+    const timeout=setTimeout(()=>finish(Error('Planet sky shader preparation exceeded 60 seconds; the raw scene remains available.')),60_000);
+    const toneMapping=renderer.toneMapping,tasks:Promise<unknown>[]=[];
+    const compile=(target:WebGLRenderTarget|null,mapping:WebGLRenderer['toneMapping'],objects:Scene,view:PerspectiveCamera)=>{
+      const previousTarget=renderer.getRenderTarget(),viewport=renderer.getViewport(new Vector4()),scissor=renderer.getScissor(new Vector4()),scissorTest=renderer.getScissorTest(),previousMapping=renderer.toneMapping;
+      try{renderer.toneMapping=mapping;renderer.setRenderTarget(target);return renderer.compileAsync(objects,view);}
+      finally{renderer.toneMapping=previousMapping;renderer.setRenderTarget(previousTarget);renderer.setViewport(viewport);renderer.setScissor(scissor);renderer.setScissorTest(scissorTest);}
+    };
+    try{
+      if(!renderer.capabilities?.isWebGL2||renderer.capabilities.reversedDepthBuffer)throw Error('Planet sky preparation requires a WebGL2 renderer with conventional or logarithmic depth.');
+      if(!renderer.extensions.has('EXT_color_buffer_float'))throw Error('Planet sky HDR integration requires EXT_color_buffer_float.');
+      if(!renderer.extensions.has('KHR_parallel_shader_compile'))throw Error('Planet sky nonblocking shader preparation requires KHR_parallel_shader_compile; choose native WebGPU on this device.');
+      tasks.push(compile(this.volumeTarget,NoToneMapping,this.volumeScene,this.screenCamera));
+      tasks.push(compile(null,toneMapping,this.compositeScene,this.screenCamera));
+    }catch(error){finish(error);}
+    void Promise.all(tasks).then(async()=>{
+      if(finished)return;
+      // Capture uses linear HDR and no tone mapping, a distinct material
+      // program from the raw canvas fallback. Compile the live scene only after
+      // the sky programs complete so asynchronously replaced materials are seen.
+      if(scene&&camera){
+        this.preparationPhase='scene-capture';
+        // Three's compileAsync polls material.currentProgram. Raw fallback draws
+        // switch the live materials back to their canvas programs, so isolate
+        // the polled materials while sharing Three's compiled-program cache.
+        const capture=scene.clone(),materials=new Map<Material,Material>();
+        try{
+          capture.traverse(object=>{
+            const drawable=object as typeof object&{material?:Material|Material[]};
+            if(!drawable.material)return;
+            const copy=(source:Material)=>{
+              let material=materials.get(source);
+              if(!material){material=source.clone();material.onBeforeCompile=(shader,host)=>source.onBeforeCompile(shader,host);material.customProgramCacheKey=()=>source.customProgramCacheKey();materials.set(source,material);captureMaterials.push(material);}
+              return material;
+            };
+            drawable.material=Array.isArray(drawable.material)?drawable.material.map(copy):copy(drawable.material);
+          });
+          await compile(this.sceneTarget,NoToneMapping,capture,camera);
+        }finally{capture.clear();}
+      }
+      finish();
+    }).catch(error=>finish(error));
+    return promise;
+  }
+  private renderFallback(renderer:WebGLRenderer,scene:Scene,camera:PerspectiveCamera):void {
+    const start=performance.now();renderer.render(scene,camera);this.sceneTriangles=renderer.info.render.triangles;this.sceneDrawCalls=renderer.info.render.calls;this.renderCpuMs=performance.now()-start;this.fallbackFrames++;
+  }
   render(renderer:WebGLRenderer,scene:Scene,camera:PerspectiveCamera,frame:PlanetSkyFrame):void {
     if(this.disposed)throw Error('Planet sky view is disposed.');
     if(!(camera instanceof PerspectiveCamera)||(camera as PerspectiveCamera&{isArrayCamera?:boolean}).isArrayCamera)throw Error('Planet sky requires one perspective camera.');
@@ -126,6 +200,10 @@ export class PlanetSkyView {
     if(!this.renderer){if(!renderer.extensions.has('EXT_color_buffer_float'))throw Error('Planet sky HDR integration requires EXT_color_buffer_float.');this.renderer=renderer;}
     const r=this.compiled.recipe;
     if(!r.atmosphere.enabled&&!r.clouds.enabled&&!r.celestial.sunEnabled&&!r.celestial.starsEnabled){const start=performance.now();renderer.render(scene,camera);this.sceneTriangles=renderer.info.render.triangles;this.sceneDrawCalls=renderer.info.render.calls;this.renderCpuMs=performance.now()-start;this.frames++;return;}
+    if(this.preparationStatus!=='ready'||this.preparedToneMapping!==renderer.toneMapping||this.preparedScene!==scene||this.preparedCamera!==camera){
+      if(this.preparationStatus!=='failed')void this.prepare(renderer,scene,camera).catch(()=>{});
+      this.renderFallback(renderer,scene,camera);return;
+    }
     renderer.getViewport(this.viewport);renderer.getScissor(this.scissor);renderer.getCurrentViewport(this.actualViewport);
     const width=Math.floor(this.actualViewport.z),height=Math.floor(this.actualViewport.w);
     if(width<1||height<1||width>renderer.capabilities.maxTextureSize||height>renderer.capabilities.maxTextureSize||width*height>8_388_608)throw Error('Planet sky capture viewport exceeds its 8-megapixel or device texture limit.');
@@ -151,6 +229,7 @@ export class PlanetSkyView {
   }
   inspection(){
     return{backend:'webgl2',style:this.compiled.recipe.style,quality:this.compiled.recipe.quality,diagnostic:diagnosticModes[this.uniforms.uDiagnostic.value],revision:this.compiled.revision,bakeKey:this.compiled.bakeKey,frames:this.frames,
+      preparation:{status:this.preparationStatus,phase:this.preparationPhase,ready:this.preparationStatus==='ready',captureReady:!!this.preparedScene&&this.preparationStatus==='ready',error:this.preparationError,elapsedMs:this.preparationStatus==='preparing'?performance.now()-this.preparationStarted:this.preparationElapsedMs},fallbackFrames:this.fallbackFrames,
       atmosphereEnabled:this.compiled.recipe.atmosphere.enabled,cloudsEnabled:this.compiled.recipe.clouds.enabled,
       cloudLayers:this.compiled.recipe.clouds.layers,celestial:this.compiled.recipe.celestial,weather:{...this.weatherFacts,cyclones:this.uniforms.uStormCount.value,timeDays:this.uniforms.uWeatherTimeDays.value},
       captureWidth:this.width,captureHeight:this.height,volumeWidth:this.lowWidth,volumeHeight:this.lowHeight,volumePixels:this.lowWidth*this.lowHeight,
@@ -158,6 +237,6 @@ export class PlanetSkyView {
       byteMetric:'Estimated attachment payload; excludes driver allocation, MSAA, staging and other scene resources',sceneTriangles:this.sceneTriangles,sceneDrawCalls:this.sceneDrawCalls,renderSubmissionCpuMs:this.renderCpuMs,disposed:this.disposed};
   }
   dispose():void {
-    if(this.disposed)return;this.disposed=true;this.noise.dispose();this.weather.dispose();this.circulationCoverage.dispose();this.circulationEnvironment.dispose();this.sceneTarget.dispose();this.volumeTarget.dispose();this.geometry.dispose();this.volumeMaterial.dispose();this.compositeMaterial.dispose();this.volumeScene.clear();this.compositeScene.clear();
+    if(this.disposed)return;this.disposed=true;this.cancelPreparation?.();this.preparationStatus='disposed';for(const material of this.preparedMaterials)material.dispose();this.preparedMaterials=[];this.noise.dispose();this.weather.dispose();this.circulationCoverage.dispose();this.circulationEnvironment.dispose();this.sceneTarget.dispose();this.volumeTarget.dispose();this.geometry.dispose();this.volumeMaterial.dispose();this.compositeMaterial.dispose();this.volumeScene.clear();this.compositeScene.clear();
   }
 }

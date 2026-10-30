@@ -1,5 +1,5 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
-import {Mesh,MeshPhysicalMaterial,Vector3} from 'three';
+import {Mesh,MeshPhysicalMaterial,SphereGeometry,Triangle,Vector3,type BufferGeometry} from 'three';
 import {compilePlanet,type CompiledPlanet,type PlanetVector} from '../src/shared/planet.ts';
 import {compilePlanetWater,PlanetWaterView,samplePlanetWater} from '../src/sandbox/planetWaterView.ts';
 import {sampleWaterWave,waterAppearance} from '../src/sandbox/water.ts';
@@ -11,7 +11,7 @@ function planet(height=-20,sea=17,radius=1000):CompiledPlanet {
 const views:PlanetWaterView[]=[];
 afterEach(()=>{for(const view of views)view.dispose();views.length=0;vi.restoreAllMocks();});
 function view(source=planet(),options:ConstructorParameters<typeof PlanetWaterView>[1]={}) {
-  const result=new PlanetWaterView(source,{segments:32,nearRings:8,farRings:16,prepareVerticesPerFrame:4096,prepareTimeBudgetMs:16,...options});views.push(result);return result;
+  const result=new PlanetWaterView(source,{segments:32,nearRings:8,farRings:16,farProxySegments:128,prepareVerticesPerFrame:4096,prepareTimeBudgetMs:16,...options});views.push(result);return result;
 }
 function ready(water:PlanetWaterView,position:PlanetVector=[0,0,1030],time=3) {
   for(let i=0;i<100&&!water.inspection().detailReady;i++)water.update({position,timeSeconds:time});
@@ -19,6 +19,11 @@ function ready(water:PlanetWaterView,position:PlanetVector=[0,0,1030],time=3) {
 }
 function active(water:PlanetWaterView):Mesh {
   return water.root.children.find(child=>child.visible&&child.name==='PlanetWater:radial-wave-sheet') as Mesh;
+}
+function minimumTriangleRadius(geometry:BufferGeometry):number {
+  const positions=geometry.getAttribute('position'),index=geometry.index!,triangle=new Triangle(),point=new Vector3(),zero=new Vector3();let minimum=Infinity;
+  for(let i=0;i<index.count;i+=3){triangle.a.fromBufferAttribute(positions,index.getX(i));triangle.b.fromBufferAttribute(positions,index.getX(i+1));triangle.c.fromBufferAttribute(positions,index.getX(i+2));triangle.closestPointToPoint(zero,point);minimum=Math.min(minimum,point.length());}
+  return minimum;
 }
 
 describe('planetary engine water queries',()=>{
@@ -55,6 +60,24 @@ describe('planetary engine water queries',()=>{
 });
 
 describe('bounded native planetary water presentation',()=>{
+  it('keeps every default orbital ocean triangle above a 2km-deep seabed instead of exposing a coarse lattice',()=>{
+    const radius=6_371_000,source=planet(-2000,0,radius),water=new PlanetWaterView(source);views.push(water);
+    const proxy=water.root.children.find(child=>child.name==='PlanetWater:initial-far-proxy') as Mesh,old=new SphereGeometry(1,96,48);
+    const oldError=radius*(1-minimumTriangleRadius(old));old.dispose();expect(oldError).toBeGreaterThan(6000);
+    const radialError=radius*(1-minimumTriangleRadius(proxy.geometry)),facts=water.inspection();
+    expect(radius-radialError).toBeGreaterThan(radius-2000);
+    expect(radialError).toBeLessThanOrEqual(facts.farProxyMaxInwardErrorMeters);expect(facts.farProxyMaxInwardErrorMeters).toBeLessThan(242);
+    expect(facts.farProxySegments).toBe(512);expect(facts.farProxyTriangles).toBeLessThanOrEqual(262144);expect(facts.farProxyGeometryBytes).toBeLessThan(8*1024*1024);
+    expect(proxy.scale.x).toBe(radius);expect(proxy.material).toBeInstanceOf(MeshPhysicalMaterial);
+    expect((proxy.material as MeshPhysicalMaterial).vertexColors).toBe(false);expect(proxy.geometry.getAttribute('color')).toBeUndefined();
+  });
+  it('accepts an explicit lower orbital geometry budget with an honest larger chord-error bound',()=>{
+    const source=planet(-2000,0,6_371_000),water=view(source,{farProxySegments:128}),facts=water.inspection();
+    expect(facts.farProxySegments).toBe(128);expect(facts.farProxyTriangles).toBeLessThan(17000);expect(facts.farProxyGeometryBytes).toBeLessThan(512*1024);expect(facts.farProxyMaxInwardErrorMeters).toBeGreaterThan(3000);
+    expect(()=>new PlanetWaterView(source,{farProxySegments:96 as 128})).toThrow(/far proxy segments/);
+    const proxy=water.root.children.find(child=>child.name==='PlanetWater:initial-far-proxy') as Mesh,array=proxy.geometry.getAttribute('position').array;
+    water.update({position:[0,0,15_000_000],timeSeconds:9,conditions:{windSpeed:22}});expect(proxy.geometry.getAttribute('position').array).toBe(array);
+  });
   it('uses native physical material, resolves near waves, and atomically replaces its initial far proxy',()=>{
     const water=view();expect(water.root.children.filter(child=>child.visible)).toHaveLength(1);ready(water);
     const mesh=active(water),sample=water.sample([0,0,1]);expect(mesh.material).toBeInstanceOf(MeshPhysicalMaterial);
@@ -102,8 +125,8 @@ describe('bounded native planetary water presentation',()=>{
   it('samples terrain only during bounded preparation and owns every generated GPU resource exactly once',()=>{
     const compiled=planet(),sample=vi.fn(compiled.sample),source={...compiled,sample},water=view(source);ready(water);sample.mockClear();
     for(let i=0;i<10;i++)water.update({position:[0,0,1030],timeSeconds:4+i/30});expect(sample).not.toHaveBeenCalled();
-    const geometries=water.root.children.map(child=>vi.spyOn((child as Mesh).geometry,'dispose')),material=active(water).material as MeshPhysicalMaterial,disposeMaterial=vi.spyOn(material,'dispose');
+    const geometries=water.root.children.map(child=>vi.spyOn((child as Mesh).geometry,'dispose')),materials=new Set(water.root.children.map(child=>(child as Mesh).material as MeshPhysicalMaterial)),disposeMaterials=[...materials].map(material=>vi.spyOn(material,'dispose'));
     water.dispose();water.dispose();expect(water.root.children).toHaveLength(0);expect(water.inspection().disposed).toBe(true);
-    for(const dispose of geometries)expect(dispose).toHaveBeenCalledTimes(1);expect(disposeMaterial).toHaveBeenCalledTimes(1);
+    for(const dispose of geometries)expect(dispose).toHaveBeenCalledTimes(1);for(const dispose of disposeMaterials)expect(dispose).toHaveBeenCalledTimes(1);
   });
 });

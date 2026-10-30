@@ -149,8 +149,7 @@ vec3 sunTransmittance(vec3 position) {
   int count=clamp(uLightSteps,1,4);
   float stepRay=lengthRay/float(count);
   vec2 opticalDepth=vec2(0.0);
-  for(int i=0;i<4;i++) {
-    if(i>=count)break;
+  for(int i=0;i<count;i++) {
     vec3 point=position+uSunDirection*((float(i)+0.5)*stepRay);
     opticalDepth+=airDensity(point)*(stepRay*uRadius);
   }
@@ -178,8 +177,7 @@ float cloudSunTransmittance(vec3 position,float observerFootprintMetres) {
       // angles the finite cloud-shell segment is sampled, never the empty gap
       // below the cloud. The same extinction drives surfaces and air lighting.
       int count=clamp(uCloudLightSteps,1,4);float stepRay=(end-start)/float(count);
-      for(int i=0;i<4;i++) {
-        if(i>=count)break;
+      for(int i=0;i<count;i++) {
         vec3 point=position+uSunDirection*(start+(float(i)+0.5)*stepRay);
         float density=cloudLayerDensity(point,max(observerFootprintMetres,stepRay*uRadius*0.3),layer);
         opticalDepth+=density*(layer==0?4.0:layer==1?8.0:2.0)*stepRay/settings.y;
@@ -199,8 +197,10 @@ void integrateSegment(vec3 origin,vec3 direction,float from,float to,int request
   if(to<=from||(!cloudSegment&&!uAtmosphereEnabled)||max(transmission.r,max(transmission.g,transmission.b))<0.01)return;
   int count=clamp(requested,1,32);
   float stepRay=(to-from)/float(count),stepMetres=stepRay*uRadius;
-  for(int i=0;i<32;i++) {
-    if(i>=count||max(transmission.r,max(transmission.g,transmission.b))<0.01)break;
+  // Runtime-bounded GLSL 3 transport keeps the exact clamped 1..32 budget.
+  // Avoid expanding the nested weather and light evaluations at compile time.
+  for(int i=0;i<count;i++) {
+    if(max(transmission.r,max(transmission.g,transmission.b))<0.01)break;
     vec3 point=origin+direction*(from+(float(i)+0.5)*stepRay);
     vec2 air=airDensity(point);
     vec3 rayleigh=uRayleigh*air.x;
@@ -267,10 +267,11 @@ void main() {
         point=inner[side];if(inner.y>inner.x&&point>from&&point<to){cuts[cutCount]=point;cutCount++;}
       }
     }
-    for(int i=1;i<14;i++){if(i>=cutCount)break;float value=cuts[i];int at=i;for(int j=0;j<13;j++){if(at<=0)break;if(cuts[at-1]<=value)break;cuts[at]=cuts[at-1];at--;}cuts[at]=value;}
+    cutCount=clamp(cutCount,2,14);
+    for(int i=1;i<cutCount;i++){float value=cuts[i];int at=i;for(int j=0;j<i;j++){if(at<=0)break;if(cuts[at-1]<=value)break;cuts[at]=cuts[at-1];at--;}cuts[at]=value;}
+    int segmentCount=cutCount-1;
     float cloudLength=0.0;
-    for(int i=0;i<13;i++) {
-      if(i+1>=cutCount)break;
+    for(int i=0;i<segmentCount;i++) {
       float altitude=length(uCameraRadius+direction*((cuts[i]+cuts[i+1])*0.5))-1.0;
       bool cloudy=false;for(int layer=0;layer<3;layer++){vec4 settings=uCloudLayers[layer];if(uCloudEnabled&&uCloudCoverage>0.0&&uCoverageGain>0.0&&uCloudDensity>0.0&&settings.w>0.5&&settings.z>0.0&&altitude>=settings.x&&altitude<=settings.x+settings.y)cloudy=true;}
       if(cloudy)cloudLength+=max(0.0,cuts[i+1]-cuts[i]);
@@ -280,8 +281,8 @@ void main() {
     float rayleighPhase=3.0*(1.0+cosine*cosine)/(16.0*PI);
     float miePhase=hgPhase(cosine,uMieG);
     float cloudPhase=0.8*hgPhase(cosine,0.65)+0.2*hgPhase(cosine,-0.25);
-    for(int i=0;i<13;i++) {
-      if(i+1>=cutCount)break;float begin=cuts[i],end=cuts[i+1];if(end<=begin)continue;
+    for(int i=0;i<segmentCount;i++) {
+      float begin=cuts[i],end=cuts[i+1];if(end<=begin)continue;
       vec3 midpoint=uCameraRadius+direction*((begin+end)*0.5);float altitude=length(midpoint)-1.0;
       bool cloudy=false;int cloudLayer=0;for(int layer=0;layer<3;layer++){vec4 settings=uCloudLayers[layer];if(uCloudEnabled&&uCloudCoverage>0.0&&uCoverageGain>0.0&&uCloudDensity>0.0&&settings.w>0.5&&settings.z>0.0&&altitude>=settings.x&&altitude<=settings.x+settings.y){cloudy=true;cloudLayer=layer;}}
       int steps=cloudy?clamp(int(ceil(float(uCloudSteps)*(end-begin)/max(cloudLength,0.0000001))),4,32):airSteps(begin,end,airLength);
