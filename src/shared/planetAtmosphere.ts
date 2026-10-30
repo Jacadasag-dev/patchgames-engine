@@ -212,7 +212,7 @@ export function createPlanetAtmosphere(input:PlanetAtmosphereRecipe,sampleSurfac
     (surfaceTemperature[i]<FREEZE?surfaceIce:surfaceWater)[i]=reservoir;surfaceDust[i]=20*p.dustAvailability*(1-surface.waterFraction);
     heatCapacity[i]=surface.waterFraction*1000*4184*p.oceanMixedLayerDepthMeters+(1-surface.waterFraction)*2e6;
   }
-  revision=generationDataRevision({algorithm:'persistent-moist-atmosphere-2-radiative-feedback',recipe,surfaceHash});
+  revision=generationDataRevision({algorithm:'persistent-moist-atmosphere-3-mixed-phase-dissipation',recipe,surfaceHash});
   const climate=initialClimate(p);
   for(let i=0;i<n;i++){
     const coordinate=(Math.asin(grid.directions[i*3+1])/Math.PI+.5)*climate.length-.5,lo=clamp(Math.floor(coordinate),0,climate.length-1),hi=Math.min(climate.length-1,lo+1),blend=clamp(coordinate-lo,0,1);
@@ -334,9 +334,14 @@ export function createPlanetAtmosphere(input:PlanetAtmosphereRecipe,sampleSurfac
           for(let iteration=0;iteration<20;iteration++){const q=(lo+hi)*.5,target=m*planetAtmosphereSaturationSpecificHumidity(t+latentHeat*q/(cp*m),pressure,p.meanMolarMassKgPerMol);if(available-q>target)lo=q;else hi=q;}
           const amount=(lo+hi)*.5*(1-Math.exp(-dt/120));vapor[j]-=amount;(t<FREEZE?ice:liquid)[j]+=amount;heat(j,latentHeat*amount);
         }else if(condensate>0){
-          const icy=liquid[j]===0,source=icy?ice:liquid,latentHeat=icy?LS:LV;let lo=0,hi=Math.min(source[j],Math.max(0,t-90)*cp*m/latentHeat);
+          // Both phases share the relaxation time. Solve their combined vapor
+          // demand and latent cooling, then remove each in proportion to its
+          // inventory. Selecting just liquid whenever any exists lets tiny
+          // advected liquid traces indefinitely shield ice from sublimation.
+          const liquidFraction=liquid[j]/condensate,iceFraction=ice[j]/condensate,latentHeat=LV*liquidFraction+LS*iceFraction;let lo=0,hi=Math.min(condensate,Math.max(0,t-90)*cp*m/latentHeat);
           for(let iteration=0;iteration<20;iteration++){const q=(lo+hi)*.5,target=m*planetAtmosphereSaturationSpecificHumidity(t-latentHeat*q/(cp*m),pressure,p.meanMolarMassKgPerMol);if(available+q<target)lo=q;else hi=q;}
-          const amount=(lo+hi)*.5*(1-Math.exp(-dt/120));source[j]-=amount;vapor[j]+=amount;heat(j,-latentHeat*amount);
+          const amount=(lo+hi)*.5*(1-Math.exp(-dt/120)),liquidLoss=amount*liquidFraction,iceLoss=amount*iceFraction;
+          liquid[j]-=liquidLoss;ice[j]-=iceLoss;vapor[j]+=liquidLoss+iceLoss;heat(j,-LV*liquidLoss-LS*iceLoss);
         }
         if(temperature[j]<FREEZE&&liquid[j]>0){const freeze=Math.min(liquid[j],(FREEZE-temperature[j])*cp*m/LF);liquid[j]-=freeze;ice[j]+=freeze;heat(j,LF*freeze);}
         else if(temperature[j]>FREEZE&&ice[j]>0){const melt=Math.min(ice[j],(temperature[j]-FREEZE)*cp*m/LF);ice[j]-=melt;liquid[j]+=melt;heat(j,-LF*melt);}

@@ -81,7 +81,12 @@ not directly multiply wind speed.
 Water saturation follows a Clausius-Clapeyron approximation using temperature,
 pressure and gas composition. Finite-rate saturation adjustment simultaneously
 condenses vapor and releases latent heat, or evaporates condensate and cools
-air. Cloud freezing and melting exchange fusion heat. All liquid and ice
+air. Mixed liquid/ice clouds use one combined saturation solve with the
+inventory-weighted latent heat. Both phases lose mass proportionally over the
+same 120-second relaxation time, returning that exact mass to vapor and
+accounting for each phase's cooling. A tiny transported liquid trace cannot
+prevent an ice cloud from sublimating in dry air. No phase is discarded or
+hidden with an opacity threshold. Cloud freezing and melting exchange fusion heat. All liquid and ice
 sediment at finite gravitational settling speeds using the particle sizes from
 the optical model. Upper condensate falls into lower air where it can evaporate
 or sublimate; lower condensate reaches the surface. Excess cloud mass additionally
@@ -156,10 +161,10 @@ storm map. Tiny seeded thermal perturbations break exact numerical symmetry.
 The initial air is unsaturated when initial relative humidity is below one.
 Circulation and condensate require physical spin-up; the initial state is
 not an equilibrated Earth climate.
-Reference Earthlike C16 runs retain an excessive widespread upper-cirrus bias.
 Physical mode is experimental: neither global cloud coverage nor resolved storm
-structure has been validated against Earth's climatology. This known bias is
-reported rather than hidden by a target coverage mask.
+structure has been validated against Earth's climatology. The two-layer model
+and coarse transport still limit realism; no target coverage mask conceals
+those limitations.
 
 `samplePlanetAtmosphereCelestial(physics, timeSeconds)` is the shared clock for
 heating and visible sunlight. Rotation moves the star west in body coordinates;
@@ -187,6 +192,9 @@ interface. Invalid physical inputs,
 unsupported resolutions, collapsed layers, excessive CFL and nonfinite states
 raise errors instead of silently replacing them with zeros or wind clamps.
 After a failed update the host can restore its last valid checkpoint.
+The mixed-phase dissipation correction changes the solver revision; older
+solver checkpoints must be regenerated rather than silently resumed with
+different physics. The recipe and renderer snapshot formats are unchanged.
 
 ## Renderer boundary
 
@@ -400,9 +408,22 @@ a model of detailed mountain atmospheres or a local adaptive vertical grid.
 The tests verify closed sphere topology, inventory conservation, dry clear
 states, stable-stratification behavior, pressure-wave response, Coriolis signs,
 sunlight parity, pure view sampling, deterministic physical ticks, restarts,
-surface identity and invalid-state rejection. Multi-day audits should report
+surface identity and invalid-state rejection. Dissipation tests check liquid
+evaporation, ice sublimation, warming a saturated cloud, and first-tick ice
+loss in the presence of tiny liquid traces. They verify vapor return and water
+conservation so precipitation alone cannot make a dissipation test pass.
+Multi-day audits should report
 actual inventories, layer minima, temperatures, winds, cloud mass and worker
 cost before changes are presented as improvements in climate realism.
+
+The 0.29.1 mixed-phase correction was checked with the default Earthlike seed
+412 and its generated terrain for 15 rotations at C16. At rotation 15, the
+spherical area with column optical depth above 0.1 was 76.8%, versus 97.8%
+with the previous evaporation gate. During the last two rotations, 373 sampled
+cell transitions formed cloud and 376 cleared it at that threshold (sampled
+every quarter rotation). These are measurements, not target percentages or
+proof of an Earth climate match. The fix restores sublimation in dry cells;
+it does not impose a lifetime, reduce the water inventory or cap cloud density.
 
 ## Scientific references
 
