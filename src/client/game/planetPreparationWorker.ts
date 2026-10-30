@@ -1,0 +1,17 @@
+import {compilePlanet,type CompiledPlanet,type PlanetRecipe,type PlanetTile} from '../../shared/planet.ts';
+
+const scope=globalThis as unknown as {onmessage:((event:MessageEvent<{type:'init';recipe:PlanetRecipe}|{type:'patch';id:number;tile:PlanetTile}>)=>void)|null;postMessage(data:unknown,options?:{transfer:Transferable[]}):void};
+let planet:CompiledPlanet|undefined;
+let initializationError='';
+scope.onmessage=event=>{
+  const message=event.data;
+  if(message.type==='init'){
+    try{if(planet||initializationError)throw Error('Planet worker was already initialized.');planet=compilePlanet(message.recipe);}
+    catch(error){initializationError=error instanceof Error?error.message:String(error);}return;
+  }
+  try{
+    if(!planet)throw Error(initializationError||'Planet worker requires initialization.');
+    const data=planet.patch(message.tile);
+    scope.postMessage({id:message.id,data},{transfer:[data.positions.buffer,data.normals.buffer,data.colors.buffer,data.indices.buffer] as ArrayBuffer[]});
+  }catch(error){scope.postMessage({id:message.id,error:(error instanceof Error?error.message:String(error)).slice(0,1000)});}
+};

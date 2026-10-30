@@ -32,6 +32,11 @@ Run `npm run demo:leaf-lod` for the [Leaf Coverage Lab](examples/leaf-lod-lab.ht
 compare full and two-triangle leaf cards at fixed distances, inspect mip opacity,
 and measure the rendered canopy with and without multisampling.
 
+Run `npm run demo:planet` for the [Planet Flight Lab](examples/planet-lab.html):
+fly from orbit to local terrain on an Earth-sized procedural sphere while bounded
+worker jobs refine the visible surface. Read [planet integration and scope](docs/planet-generation.md)
+before connecting spherical terrain to gameplay.
+
 ## Complete starter games
 
 Six editable games ship with the engine: Duel, Arena, RPG, Social Lounge,

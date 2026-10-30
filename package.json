@@ -1,6 +1,6 @@
 {
   "name": "@patchgames/engine",
-  "version": "0.21.1",
+  "version": "0.22.0",
   "private": true,
   "type": "module",
   "description": "Sandboxed multiplayer game runtime, authoring helpers and browser presentation for PatchGames.",
@@ -23,7 +23,8 @@
     "./foliage-lab": "./examples/foliage-lab.ts",
     "./generation-lab": "./examples/generation-lab.ts",
     "./lod-lab": "./examples/lod-lab.ts",
-    "./leaf-lod-lab": "./examples/leaf-lod-lab.ts"
+    "./leaf-lod-lab": "./examples/leaf-lod-lab.ts",
+    "./planet-lab": "./examples/planet-lab.ts"
   },
   "files": [
     "src",
@@ -47,7 +48,8 @@
     "demo:foliage": "vite --host 127.0.0.1 --open /examples/foliage-lab.html",
     "demo:generation": "vite --host 127.0.0.1 --open /examples/generation-lab.html",
     "demo:lod": "vite --host 127.0.0.1 --open /examples/lod-lab.html",
-    "demo:leaf-lod": "vite --host 127.0.0.1 --open /examples/leaf-lod-lab.html"
+    "demo:leaf-lod": "vite --host 127.0.0.1 --open /examples/leaf-lod-lab.html",
+    "demo:planet": "vite --host 127.0.0.1 --open /examples/planet-lab.html"
   },
   "dependencies": {
     "zod": "^4.6.5",

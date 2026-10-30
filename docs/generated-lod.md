@@ -12,6 +12,11 @@ the existing bounded view-replacement stage, then select prepared data at render
 
 ## Delivered generators
 
+Whole planets use a separate [hierarchical streaming adapter](planet-generation.md)
+with six persistent coarse roots and worker-prepared cube-sphere patches. This
+extends residency as the camera approaches; the prepared banks below select
+among already resident representations. Existing planar terrain stays planar.
+
 | Content | Prepared representation | Preserved contract |
 | --- | --- | --- |
 | Heightfield terrain | Up to five interior grid strides; every source perimeter vertex is retained. | Any neighboring chunk detail levels share exact edge positions. Physics uses the original accepted heightfield. |
