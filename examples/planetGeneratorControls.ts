@@ -1,6 +1,7 @@
 import {createPlanetGeneratorRecipe,type PlanetGeneratorRecipe,type PlanetGeneratorPreset} from '../src/shared/planetGenerator.ts';
 
-/** Physical authoring inputs; cloud coverage and storm counts are outputs. */
+/** Physical authoring inputs; clouds and circulation evolve without authored
+ * coverage targets or storm counts. */
 export function createPlanetGeneratorControls(parent:HTMLElement,onGenerate:(recipe:PlanetGeneratorRecipe)=>Promise<void>) {
   const panel=document.createElement('details');panel.open=true;
   const summary=document.createElement('summary');summary.textContent='Physical planet generator';panel.append(summary);

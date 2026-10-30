@@ -16,6 +16,7 @@ void main() {
 export const planetSkyVolumeFragmentShader=/* glsl */`
 precision highp float;
 precision highp sampler3D;
+precision highp sampler2D;
 in vec2 vUv;
 layout(location=0) out vec4 skyRadiance;
 layout(location=1) out vec4 skyTransmittance;
@@ -96,8 +97,11 @@ float positiveViewDepth(float depth) {
   return uNear*uFar/max(0.0000001,uFar-depth*(uFar-uNear));
 }
 
+#ifndef PLANET_SKY_SIMULATION
 ${planetWeatherCoverageGLSL}
+#endif
 
+#ifdef PLANET_SKY_SIMULATION
 vec4 atmospherePlane(sampler2D plane,vec3 direction) {
   ivec2 size=textureSize(plane,0);
   vec2 uv=vec2(atan(direction.x,direction.z)/(2.0*PI)+0.5,asin(clamp(direction.y,-1.0,1.0))/PI+0.5);
@@ -126,12 +130,14 @@ float atmosphereDust(vec3 position) {
   float altitude=max(0.0,(length(position)-1.0)*uRadius),height=max(0.01,uRayleighHeightMeters),top=uAtmosphereHeight*uRadius;
   return mass*${PLANET_ATMOSPHERE_OPTICS.dustExtinctionM2Kg.toFixed(1)}*exp(-altitude/height)/(height*max(0.000001,1.0-exp(-top/height)));
 }
-
+#else
+float atmosphereDust(vec3 position) {return 0.0;}
 PlanetWeatherState cloudWeather(vec3 position) {
   PlanetWeatherState state=planetWeatherState(tCirculationCoverage,tCirculationEnvironment,normalize(position),uSunDirection,uWeatherTimeDays,uStormCenters,uStormProperties,uStormCount,uCoverageGain,uWeatherRotationScale,uCondensationThreshold,uRadius);
   state.coverage=clamp(state.coverage*(textureLod(uWeatherTexture,position/2.2+0.5,0.0).r*2.0),vec3(0.0),vec3(1.0));
   return state;
 }
+#endif
 
 vec3 cloudMorph(vec3 metres) {
   float evolution=uWeatherEvolutionPhase;
@@ -143,22 +149,26 @@ ${planetSkyQuadratureGLSL}
 
 float cloudLayerDensity(vec3 position,float footprintMetres,int layer) {
   vec4 settings=uCloudLayers[layer];
-  bool simulation=uSnapshotParams.x>0.5;
+#ifdef PLANET_SKY_SIMULATION
+  bool simulation=true;
+#else
+  bool simulation=false;
+#endif
   if(!uCloudEnabled||settings.w<0.5||(!simulation&&(uCloudCoverage<=0.0||uCoverageGain<=0.0||uCloudDensity<=0.0||settings.z<=0.0)))return 0.0;
   float h=(length(position)-1.0-settings.x)/settings.y;
   if(h<=0.0||h>=1.0)return 0.0;
   vec3 coverage=vec3(0.0),flow;float columnOptical=0.0;
-  if(simulation) {
+#ifdef PLANET_SKY_SIMULATION
     if(uSnapshotParams.z<0.5)return 0.0;
     vec4 mass=atmosphereMass(position),material=atmosphereMaterial(position,layer);
     columnOptical=layer==2?mass.y*${PLANET_ATMOSPHERE_OPTICS.liquidExtinctionM2Kg.toFixed(1)}+mass.z*${PLANET_ATMOSPHERE_OPTICS.iceExtinctionM2Kg.toFixed(2)}:mass.x*${PLANET_ATMOSPHERE_OPTICS.liquidExtinctionM2Kg.toFixed(1)}+material.w*${PLANET_ATMOSPHERE_OPTICS.iceExtinctionM2Kg.toFixed(2)};
     if(columnOptical<=0.0)return 0.0;flow=material.xyz;
-  } else {
+#else
     PlanetWeatherState state=cloudWeather(position);
   // No texture mip, erosion feather or lighting approximation may create a
   // cloud outside the common pressure/humidity condensation support.
     if(state.support<=0.0||state.coverage[layer]<=0.0)return 0.0;coverage=state.coverage;flow=state.flowDirection;
-  }
+#endif
   vec3 metres=cloudMorph(flow*(length(position)*uRadius));
   float filterScale=layer==2?min(uNoiseShapeScale*0.22,settings.y*uRadius/4.0):uNoiseShapeScale;
   float shapeLod=clamp(log2(max(1.0,footprintMetres/filterScale)),0.0,5.0);
@@ -179,13 +189,14 @@ float cloudLayerDensity(vec3 position,float footprintMetres,int layer) {
   float height=layer==0?smoothstep(0.0,0.002,h)*exp(-3.0*h)*(1.0-smoothstep(0.65,1.0,h)):
     layer==1?smoothstep(0.0,0.08,cumulusHeight)*(1.0-smoothstep(0.55,1.0,cumulusHeight)):smoothstep(0.0,0.18,h)*(1.0-smoothstep(0.65,1.0,h));
   float erosion=layer==2?0.12:uCloudErosion;
-  if(simulation) {
+#ifdef PLANET_SKY_SIMULATION
     float profileIntegral=layer==0?0.30349990275:layer==1?0.735*(0.55+0.45*top):0.735;
     float share=layer==0?0.08:layer==1?0.92:1.0;
     float micro=shape*(1.0-erosion*(1.0-detail))/(0.5*(1.0-0.5*erosion));
     return columnOptical*share*height*micro/(profileIntegral*settings.y*uRadius);
-  }
+#else
   return coverage[layer]*max(0.0,(shape*height-erosion*(1.0-detail)*0.35)/(1.0-0.35*erosion))*uCloudDensity*settings.z;
+#endif
 }
 
 float cloudExtinction(vec3 position,float footprintMetres) {

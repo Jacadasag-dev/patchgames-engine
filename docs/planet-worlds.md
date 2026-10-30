@@ -9,6 +9,10 @@ The default lab uses the [physical planet generator and persistent atmosphere](p
 The source terrain, ocean reference sphere and weather share one generated world.
 Biomes and populations remain static generation; they do not yet migrate with
 the evolving atmosphere. Cold/dry presets omit forests and settlements.
+Physical weather is experimental and retains an excessive high-cirrus bias.
+Its coarse two-layer circulation is not a scientific climate forecast or a
+resolved hurricane model. The separate `?mode=art` lab mode uses procedural,
+artist-controlled weather rather than the persistent atmosphere solver.
 
 Run `npm run demo:planet`, then choose the rendering backend and a destination in
 the lab. The full integration is in `examples/planet-lab.ts`. Keep the tab in the
@@ -33,8 +37,10 @@ Call its `render(renderer, scene, camera, frame)` after updating the world.
 ## Authored game and host boundaries
 
 Authored game logic can import deterministic planet, climate and population
-queries from `../sandbox/planet.ts`. This facade contains data and pure queries;
-it does not pull rendering libraries or texture validation into authority.
+queries from `../sandbox/planet.ts`. This facade also exports the explicit
+atmosphere simulation core; it does not pull rendering libraries or texture
+validation into authority. Run expensive atmosphere preparation and progression
+in an approved host worker, rather than a gameplay or render callback.
 
 Import surface preparation explicitly from `../shared/planetSurface.ts` in view
 or preparation code. Material baking depends on view-side recipe validation and

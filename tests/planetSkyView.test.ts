@@ -8,7 +8,9 @@ const radius=6_371_000,compiled=compilePlanetSky(createPlanetSkyRecipe(73,radius
 const frame={position:[0,radius+75,0] as const,timeSeconds:10,sunDirection:[1,1,0] as const};
 class Renderer {
   capabilities={isWebGL2:true,reversedDepthBuffer:false,logarithmicDepthBuffer:true,maxTextureSize:8192};
+  debug:{checkShaderErrors:boolean;onShaderError:WebGLRenderer['debug']['onShaderError']}={checkShaderErrors:true,onShaderError:null};
   extensions={has:(_name:string)=>true};xr={isPresenting:false};
+  domElement=new EventTarget();contextLost=false;getContext(){return{isContextLost:()=>this.contextLost};}
   target:WebGLRenderTarget|null=null;
   viewport=new Vector4(3,5,900,600);current=this.viewport.clone();scissor=new Vector4(4,6,800,500);scissorTest=true;
   color=new Color('#123456');alpha=1;contextAlpha=true;
@@ -172,9 +174,29 @@ describe('planet sky view lifecycle',()=>{
       view.render(asRenderer(r),new Scene(),new PerspectiveCamera(),frame);expect(r.calls).toBe(1);
     }finally{vi.useRealTimers();}
   });
+  it('surfaces first-use driver link failure and restores the host debug policy',async()=>{
+    const view=make(),r=new Renderer(),scene=new Scene(),camera=new PerspectiveCamera(),previous=vi.fn();r.debug.onShaderError=previous;r.debug.checkShaderErrors=false;
+    await view.prepare(asRenderer(r),scene,camera);const draw=r.render.bind(r);
+    r.render=()=>{draw();if(r.calls===2){expect(r.debug.checkShaderErrors).toBe(true);const gl={getProgramInfoLog:()=>'',getShaderInfoLog:()=>''} as unknown as WebGLRenderingContext;r.debug.onShaderError?.(gl,{} as Parameters<NonNullable<WebGLRenderer['debug']['onShaderError']>>[1],{} as WebGLShader,{} as WebGLShader);}};
+    expect(()=>view.render(asRenderer(r),scene,camera,frame)).toThrow(/driver returned no shader log/);
+    expect(view.inspection().preparation).toMatchObject({status:'failed',ready:false});expect(view.inspection().preparation.error).toContain('failed to link');expect(r.debug.onShaderError).toBe(previous);expect(r.debug.checkShaderErrors).toBe(false);expect(r.target).toBeNull();expect(r.toneMapping).toBe(ACESFilmicToneMapping);
+    await expect(view.prepare(asRenderer(r),scene,camera)).rejects.toThrow(/failed to link/);
+    r.render=draw;r.calls=0;view.render(asRenderer(r),scene,camera,frame);expect(r.calls).toBe(1);expect(view.inspection().fallbackFrames).toBe(1);
+  });
+  it('rejects context loss during preparation and refuses to count lost-context draws as completed frames',async()=>{
+    const view=make(),r=new Renderer();r.compileHook=()=>new Promise(()=>{});const preparing=view.prepare(asRenderer(r)),failed=expect(preparing).rejects.toThrow(/context was lost during/);
+    r.contextLost=true;r.domElement.dispatchEvent(new Event('webglcontextlost'));await failed;expect(view.inspection().preparation.status).toBe('failed');expect(()=>view.render(asRenderer(r),new Scene(),new PerspectiveCamera(),frame)).toThrow(/context was lost/);expect(view.inspection().frames).toBe(0);
+    await expect(view.prepare(asRenderer(r))).rejects.toThrow(/context was lost/);
+  });
+  it('prepares a distinct physical shader once per mode change while snapshots reuse its program',async()=>{
+    const view=make(),r=new Renderer(),scene=new Scene(),camera=new PerspectiveCamera();await view.prepare(asRenderer(r),scene,camera);expect(r.compiles).toBe(3);expect(view.inspection().shaderVariant).toBe('art');
+    view.enableSimulation();await view.prepare(asRenderer(r),scene,camera);expect(r.compiles).toBe(6);expect(view.inspection().shaderVariant).toBe('simulation');
+    view.enableSimulation();await view.prepare(asRenderer(r),scene,camera);expect(r.compiles).toBe(6);
+    view.clearWeatherSnapshots();await view.prepare(asRenderer(r),scene,camera);expect(r.compiles).toBe(9);expect(view.inspection().shaderVariant).toBe('art');
+  });
   it('publishes complete physical texture pairs without rebuilding materials or exposing partial planes',async()=>{
     const state=(sequence:number):PlanetAtmosphereSnapshot=>{const size=64*32*4,condensate=new Float32Array(size),materialLower=new Float32Array(size),materialUpper=new Float32Array(size);for(let i=2;i<size;i+=4)materialLower[i]=materialUpper[i]=1;return{kind:'planet-atmosphere-snapshot',version:1,revision:'physical',planetRevision:'planet',epoch:1,sequence,timeSeconds:sequence*10,radiusMeters:radius,width:64,height:32,condensate,materialLower,materialUpper};};
-    const view=make(),r=new Renderer(),scene=new Scene(),camera=new PerspectiveCamera(),a=state(1),b=state(2);await view.prepare(asRenderer(r),scene,camera);view.enableSimulation();
+    const view=make(),r=new Renderer(),scene=new Scene(),camera=new PerspectiveCamera(),a=state(1),b=state(2);view.enableSimulation();await view.prepare(asRenderer(r),scene,camera);
     const resources=view as unknown as {uniforms:Record<string,{value:any}>;volumeMaterial:{version:number}},version=resources.volumeMaterial.version;
     view.render(asRenderer(r),scene,camera,{...frame,timeSeconds:15});expect(resources.uniforms.uSnapshotParams.value.toArray()).toEqual([1,0,0,0]);
     expect(view.setWeatherSnapshots(a,b)).toBe(true);

@@ -47,6 +47,7 @@ export class PlanetSkyView {
   private preparationStatus:'idle'|'preparing'|'ready'|'failed'|'disposed'='idle';
   private preparationError='';private preparationStarted=0;private preparationElapsedMs=0;
   private preparedToneMapping?:number;private cancelPreparation?:()=>void;private fallbackFrames=0;
+  private preparedVolumeVersion=-1;
   private preparedScene?:Scene;private preparedCamera?:PerspectiveCamera;
   private preparationPhase:'postprocess'|'scene-capture'|'complete'='postprocess';
   // Hold the HDR program cache references until replacement/disposal. Releasing
@@ -90,6 +91,7 @@ export class PlanetSkyView {
     this.geometry.setAttribute('uv',new BufferAttribute(new Float32Array([0,0,2,0,0,2]),2));
     this.volumeMaterial=new ShaderMaterial({glslVersion:GLSL3,vertexShader:planetSkyVertexShader,fragmentShader:planetSkyVolumeFragmentShader,uniforms:this.uniforms,depthTest:false,depthWrite:false,blending:NoBlending,toneMapped:false});
     this.compositeMaterial=new ShaderMaterial({glslVersion:GLSL3,vertexShader:planetSkyVertexShader,fragmentShader:planetSkyCompositeFragmentShader,uniforms:this.uniforms,depthTest:false,depthWrite:false,blending:NoBlending,toneMapped:true});
+    this.volumeMaterial.name='Planet sky volumetric transport';this.compositeMaterial.name='Planet sky optical composite';
     for(const [scene,material] of [[this.volumeScene,this.volumeMaterial],[this.compositeScene,this.compositeMaterial]] as const){const mesh=new Mesh(this.geometry,material);mesh.frustumCulled=false;scene.add(mesh);}
     this.applyRecipe();
   }
@@ -114,12 +116,17 @@ export class PlanetSkyView {
     if(next.bakeKey!==this.compiled.bakeKey)throw Error('Planet sky seed or weather changed; prepare a replacement volume in the worker first.');
     this.compiled=next;this.applyRecipe();
   }
-  enableSimulation():void {if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.enable();}
-  setWeatherSnapshots(previous:PlanetAtmosphereSnapshot,current:PlanetAtmosphereSnapshot=previous):boolean {if(this.disposed)throw Error('Planet sky view is disposed.');return this.snapshotBuffer.set(previous,current);}
+  private simulationVariant(enabled:boolean):void {
+    if(!!this.volumeMaterial.defines.PLANET_SKY_SIMULATION===enabled)return;
+    if(enabled)this.volumeMaterial.defines.PLANET_SKY_SIMULATION=1;else delete this.volumeMaterial.defines.PLANET_SKY_SIMULATION;
+    this.volumeMaterial.needsUpdate=true;
+  }
+  enableSimulation():void {if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.enable();this.simulationVariant(true);}
+  setWeatherSnapshots(previous:PlanetAtmosphereSnapshot,current:PlanetAtmosphereSnapshot=previous):boolean {if(this.disposed)throw Error('Planet sky view is disposed.');const accepted=this.snapshotBuffer.set(previous,current);this.simulationVariant(true);return accepted;}
   /** Stage before deriving the host's common sun/weather clock. Pass
    * weatherPrepared:true to render; omit staging while playback is paused. */
   stageWeather(renderer:{initTexture(texture:DataTexture):void}):void {if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.uploadNext(renderer);}
-  clearWeatherSnapshots():void {if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.clear();}
+  clearWeatherSnapshots():void {if(this.disposed)throw Error('Planet sky view is disposed.');this.snapshotBuffer.clear();this.simulationVariant(false);}
   /** Host/lab inspection only. Does not change the persisted weather recipe. */
   setDiagnostic(mode:PlanetSkyDiagnostic):void {
     const index=diagnosticModes.indexOf(mode);if(index<0||this.disposed)throw Error('Planet sky diagnostic mode is invalid or the view is disposed.');this.uniforms.uDiagnostic.value=index;
@@ -139,22 +146,26 @@ export class PlanetSkyView {
    * yielding; a pending compile never owns the host's render target or tone map. */
   prepare(renderer:WebGLRenderer,scene?:Scene,camera?:PerspectiveCamera):Promise<void> {
     if(this.disposed)return Promise.reject(Error('Planet sky view is disposed.'));
+    if(renderer.getContext().isContextLost()){this.preparationStatus='failed';this.preparationError='Planet sky WebGL context was lost. Reinitialize the renderer or choose native WebGPU.';return Promise.reject(Error(this.preparationError));}
+    if(this.preparationStatus==='failed')return Promise.reject(Error(this.preparationError||'Planet sky shader preparation failed. Create a replacement view.'));
     if(this.renderer&&this.renderer!==renderer)return Promise.reject(Error('Planet sky GPU resources belong to one renderer; create a separate view for another renderer.'));
     if(!!scene!==!!camera)return Promise.reject(Error('Planet sky capture preparation requires both the scene and perspective camera.'));
-    if(this.preparation&&(this.preparationStatus!=='ready'||this.preparedToneMapping===renderer.toneMapping&&(!scene||this.preparedScene===scene&&this.preparedCamera===camera)))return this.preparation;
+    if(this.preparation&&(this.preparationStatus!=='ready'||this.preparedToneMapping===renderer.toneMapping&&this.preparedVolumeVersion===this.volumeMaterial.version&&(!scene||this.preparedScene===scene&&this.preparedCamera===camera)))return this.preparation;
     this.renderer=renderer;this.preparationStatus='preparing';this.preparationError='';this.preparationStarted=performance.now();
     this.preparationPhase='postprocess';
     let resolve!:()=>void,reject!:(error:Error)=>void;
     this.preparation=new Promise<void>((done,failed)=>{resolve=done;reject=failed;});
     const promise=this.preparation;let finished=false;let captureMaterials:Material[]=[];
     const finish=(error?:unknown)=>{
-      if(finished)return;finished=true;clearTimeout(timeout);this.cancelPreparation=undefined;this.preparationElapsedMs=performance.now()-this.preparationStarted;
+      if(finished)return;finished=true;clearTimeout(timeout);renderer.domElement.removeEventListener('webglcontextlost',contextLost);this.cancelPreparation=undefined;this.preparationElapsedMs=performance.now()-this.preparationStarted;
       if(error||this.disposed){for(const material of captureMaterials)material.dispose();captureMaterials=[];const reason=error instanceof Error?error:Error(error?String(error):'Planet sky view was disposed during shader preparation.');this.preparationStatus=this.disposed?'disposed':'failed';this.preparationError=reason.message.slice(0,1000);reject(reason);}
-      else{for(const material of this.preparedMaterials)material.dispose();this.preparedMaterials=captureMaterials;captureMaterials=[];this.preparationStatus='ready';this.preparationPhase='complete';this.preparedToneMapping=toneMapping;this.preparedScene=scene;this.preparedCamera=camera;resolve();}
+      else{for(const material of this.preparedMaterials)material.dispose();this.preparedMaterials=captureMaterials;captureMaterials=[];this.preparationStatus='ready';this.preparationPhase='complete';this.preparedToneMapping=toneMapping;this.preparedVolumeVersion=volumeVersion;this.preparedScene=scene;this.preparedCamera=camera;resolve();}
     };
     this.cancelPreparation=()=>finish(Error('Planet sky view was disposed during shader preparation.'));
     const timeout=setTimeout(()=>finish(Error('Planet sky shader preparation exceeded 60 seconds; the raw scene remains available.')),60_000);
-    const toneMapping=renderer.toneMapping,tasks:Promise<unknown>[]=[];
+    const contextLost=()=>finish(Error('Planet sky WebGL context was lost during shader preparation. Reinitialize the renderer or choose native WebGPU.'));
+    renderer.domElement.addEventListener('webglcontextlost',contextLost,{once:true});
+    const toneMapping=renderer.toneMapping,volumeVersion=this.volumeMaterial.version,tasks:Promise<unknown>[]=[];
     const compile=(target:WebGLRenderTarget|null,mapping:WebGLRenderer['toneMapping'],objects:Scene,view:PerspectiveCamera)=>{
       const previousTarget=renderer.getRenderTarget(),viewport=renderer.getViewport(new Vector4()),scissor=renderer.getScissor(new Vector4()),scissorTest=renderer.getScissorTest(),previousMapping=renderer.toneMapping;
       try{renderer.toneMapping=mapping;renderer.setRenderTarget(target);return renderer.compileAsync(objects,view);}
@@ -201,6 +212,7 @@ export class PlanetSkyView {
   }
   render(renderer:WebGLRenderer,scene:Scene,camera:PerspectiveCamera,frame:PlanetSkyFrame):void {
     if(this.disposed)throw Error('Planet sky view is disposed.');
+    if(renderer.getContext().isContextLost()){this.preparationStatus='failed';this.preparationError='Planet sky WebGL context was lost. Reinitialize the renderer or choose native WebGPU.';throw Error(this.preparationError);}
     if(!(camera instanceof PerspectiveCamera)||(camera as PerspectiveCamera&{isArrayCamera?:boolean}).isArrayCamera)throw Error('Planet sky requires one perspective camera.');
     if(!Number.isFinite(camera.near)||!Number.isFinite(camera.far)||camera.near<=0||camera.far<=camera.near)throw Error('Planet sky perspective clip planes must be finite with 0 < near < far.');
     if(!vector(frame.position)||!vector(frame.sunDirection)||Math.hypot(...frame.sunDirection)<1e-12||!Number.isFinite(frame.timeSeconds)||Math.abs(frame.timeSeconds)>1e9||frame.starRotationRadians!==undefined&&(!Number.isFinite(frame.starRotationRadians)||Math.abs(frame.starRotationRadians)>1e9)||frame.presentationTimeSeconds!==undefined&&(!Number.isFinite(frame.presentationTimeSeconds)||Math.abs(frame.presentationTimeSeconds)>1e9))throw Error('Planet sky requires finite absolute camera/sun coordinates and explicit bounded time.');
@@ -218,7 +230,7 @@ export class PlanetSkyView {
     this.uniforms.tSnapshotLower0.value=snapshotTextures.materialLower0;this.uniforms.tSnapshotLower1.value=snapshotTextures.materialLower1;
     this.uniforms.tSnapshotUpper0.value=snapshotTextures.materialUpper0;this.uniforms.tSnapshotUpper1.value=snapshotTextures.materialUpper1;
     if(!snapshotFrame.enabled&&!r.atmosphere.enabled&&!r.clouds.enabled&&!r.celestial.sunEnabled&&!r.celestial.starsEnabled){const start=performance.now();renderer.render(scene,camera);this.sceneTriangles=renderer.info.render.triangles;this.sceneDrawCalls=renderer.info.render.calls;this.renderCpuMs=performance.now()-start;this.frames++;return;}
-    if(this.preparationStatus!=='ready'||this.preparedToneMapping!==renderer.toneMapping||this.preparedScene!==scene||this.preparedCamera!==camera){
+    if(this.preparationStatus!=='ready'||this.preparedToneMapping!==renderer.toneMapping||this.preparedVolumeVersion!==this.volumeMaterial.version||this.preparedScene!==scene||this.preparedCamera!==camera){
       if(this.preparationStatus!=='failed')void this.prepare(renderer,scene,camera).catch(()=>{});
       this.renderFallback(renderer,scene,camera);return;
     }
@@ -235,19 +247,34 @@ export class PlanetSkyView {
     for(let index=0;index<16;index++){const storm=weatherFrame.cyclones[index];if(storm){u.uStormCenters.value[index].set(...storm.center,storm.angularRadius);u.uStormProperties.value[index].set(storm.spin,(storm.phase*.15%(Math.PI*2))/.15,storm.strength,storm.type==='tropical'?0:1);}else{u.uStormCenters.value[index].set(0,0,0,0);u.uStormProperties.value[index].set(0,0,0,0);}}
     u.uSkyClock.value.set((frame.presentationTimeSeconds??frame.timeSeconds)%4096,(frame.starRotationRadians??0)%(Math.PI*2),(r.seed>>>16)&65535,r.seed&65535);
     const autoClear=renderer.autoClear,scissorTest=renderer.getScissorTest(),toneMapping=renderer.toneMapping,clearColor=renderer.getClearColor(this.clearColor),clearAlpha=renderer.getClearAlpha(),start=performance.now();
+    const debug=renderer.debug,previousShaderError=debug.onShaderError,previousChecks=debug.checkShaderErrors;
+    let programFailure:Error|undefined;
     try{
       renderer.autoClear=false;renderer.setScissorTest(false);renderer.toneMapping=NoToneMapping;
       renderer.setRenderTarget(this.sceneTarget);renderer.setViewport(0,0,width,height);renderer.clear(true,true,true);renderer.render(scene,camera);
       this.sceneTriangles=renderer.info.render.triangles;this.sceneDrawCalls=renderer.info.render.calls;
+      // compileAsync reports completion, including failed links. Three's default
+      // first-use diagnostic only logs them; turn failures in our owned passes
+      // into a usable error and leave the host's debug policy untouched.
+      debug.checkShaderErrors=true;debug.onShaderError=(gl,program,vertex,fragment)=>{
+        const logs=[gl.getProgramInfoLog(program),gl.getShaderInfoLog(vertex),gl.getShaderInfoLog(fragment)].filter(Boolean).join('\n').slice(0,2400);
+        programFailure=Error('Planet sky WebGL program failed to link: '+(logs||'the driver returned no shader log. Try native WebGPU or a lower rendering preset.'));
+        throw programFailure;
+      };
       renderer.setRenderTarget(this.volumeTarget);renderer.setViewport(0,0,this.lowWidth,this.lowHeight);renderer.render(this.volumeScene,this.screenCamera);
       renderer.toneMapping=toneMapping;renderer.setRenderTarget(null);renderer.setViewport(this.viewport);renderer.setScissor(this.scissor);renderer.setScissorTest(scissorTest);renderer.render(this.compositeScene,this.screenCamera);
+      if(renderer.getContext().isContextLost()){programFailure=Error('Planet sky WebGL context was lost while drawing. Reinitialize the renderer or choose native WebGPU.');throw programFailure;}
       this.frames++;
+    }catch(error){
+      if(programFailure){this.preparationStatus='failed';this.preparationError=programFailure.message;}
+      throw error;
     }finally{
+      debug.onShaderError=previousShaderError;debug.checkShaderErrors=previousChecks;
       renderer.toneMapping=toneMapping;renderer.autoClear=autoClear;renderer.setRenderTarget(null);renderer.setViewport(this.viewport);renderer.setScissor(this.scissor);renderer.setScissorTest(scissorTest);renderer.setClearColor(clearColor,clearAlpha);this.renderCpuMs=performance.now()-start;
     }
   }
   inspection(){
-    return{backend:'webgl2',style:this.compiled.recipe.style,quality:this.compiled.recipe.quality,diagnostic:diagnosticModes[this.uniforms.uDiagnostic.value],revision:this.compiled.revision,bakeKey:this.compiled.bakeKey,frames:this.frames,
+    return{backend:'webgl2',shaderVariant:this.volumeMaterial.defines.PLANET_SKY_SIMULATION?'simulation':'art',style:this.compiled.recipe.style,quality:this.compiled.recipe.quality,diagnostic:diagnosticModes[this.uniforms.uDiagnostic.value],revision:this.compiled.revision,bakeKey:this.compiled.bakeKey,frames:this.frames,
       preparation:{status:this.preparationStatus,phase:this.preparationPhase,ready:this.preparationStatus==='ready',captureReady:!!this.preparedScene&&this.preparationStatus==='ready',error:this.preparationError,elapsedMs:this.preparationStatus==='preparing'?performance.now()-this.preparationStarted:this.preparationElapsedMs},fallbackFrames:this.fallbackFrames,
       simulation:this.snapshotBuffer.inspection(),
       atmosphereEnabled:this.compiled.recipe.atmosphere.enabled,cloudsEnabled:this.compiled.recipe.clouds.enabled,
